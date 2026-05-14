@@ -34193,6 +34193,30 @@ python3 scripts/ci/cross_backend_vif_diff.py \
   --device 0 --places 4
 ```
 
+## 2026-05-14 — Saliency RGB ingest + SSIMULACRA2 public docs
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/saliency.py`,
+`tools/vmaf-tune/tests/test_saliency.py`, `tools/vmaf-tune/AGENTS.md`,
+`docs/usage/vmaf-tune.md`, `docs/metrics/ssimulacra2.md`,
+`docs/metrics/features.md`, `docs/adr/0430-saliency-rgb-ingest-and-ssimulacra2-docs.md`,
+`docs/research/0112-public-doc-gap-batch-2026-05-14.md`.
+
+**Rebase impact**: low. The changed saliency preprocessing is fork-local and
+keeps the same ONNX model input shape (`[1, 3, H, W]`).
+
+**Invariant to preserve on rebase**: `compute_saliency_map()` must keep
+Y/U/V yuv420p ingest, BT.709 limited-range YUV-to-RGB conversion, and
+ImageNet normalisation before invoking `saliency_student_v1`. The old
+luma-replicated RGB path is no longer the user-facing contract.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_saliency.py -q
+scripts/docs/concat-adr-index.sh --check
+```
+
 ## 2026-05-14 — `test_score_pooled_eagain` Sanitizer Deselect Retired
 
 **Files touched**: `.github/workflows/tests-and-quality-gates.yml`,

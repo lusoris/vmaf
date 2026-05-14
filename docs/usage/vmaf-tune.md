@@ -1194,9 +1194,9 @@ Per-adapter helpers in `vmaftune.saliency`:
 - **SVT-AV1 / VVenC: 64×64 granularity.** Both encoders document
   64×64 as their ROI-map unit. The saliency mask is reduced to this
   grid via `reduce_qp_map_to_blocks(qp_map, block=64)` before writing.
-- **Luma-only saliency input.** The student model receives a
-  luma-replicated RGB triplet. This is sufficient for
-  foreground-vs-background discrimination; full RGB ingest is deferred.
+- **RGB saliency input.** The student model receives BT.709-limited
+  yuv420p converted to ImageNet-normalised RGB. Chroma is
+  nearest-neighbour upsampled to luma resolution before inference.
 - **Don't use the placeholder.** `mobilesal_placeholder_v0` and the
   radial fallback inside `vmaf-roi` are smoke-test stubs. Pass an
   explicit `--saliency-model` pointing at the real fork-trained

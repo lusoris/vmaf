@@ -46,6 +46,17 @@ def _write_yuv420p(path: Path, width: int, height: int, nframes: int) -> Path:
     return path
 
 
+def _write_yuv420p_planes(
+    path: Path, width: int, height: int, nframes: int, y: int, u: int, v: int
+) -> Path:
+    """Write a synthetic yuv420p clip with constant Y/U/V planes."""
+    y_plane = bytes([y]) * (width * height)
+    uv_plane = bytes([u]) * ((width // 2) * (height // 2))
+    vv_plane = bytes([v]) * ((width // 2) * (height // 2))
+    path.write_bytes((y_plane + uv_plane + vv_plane) * nframes)
+    return path
+
+
 class _FakeOnnxSession:
     """Stub ONNX session: returns a deterministic synthetic mask.
 
@@ -71,6 +82,18 @@ def _session_factory_for(h: int, w: int):
         return _FakeOnnxSession(h, w)
 
     return _factory
+
+
+class _InspectingOnnxSession:
+    def __init__(self, h: int, w: int):
+        self._h = h
+        self._w = w
+        self.tensors: list[np.ndarray] = []
+
+    def run(self, _outputs, feeds):
+        tensor = np.asarray(feeds["input"], dtype=np.float32)
+        self.tensors.append(tensor)
+        return [np.full((1, 1, self._h, self._w), 0.5, dtype=np.float32)]
 
 
 class _FakeCompleted:
@@ -183,6 +206,29 @@ def test_compute_saliency_map_uses_session_factory(tmp_path):
     # Bounded to [0, 1].
     assert mask.min() >= 0.0
     assert mask.max() <= 1.0
+
+
+def test_compute_saliency_map_feeds_chroma_aware_rgb(tmp_path):
+    w, h = 32, 16
+    src = _write_yuv420p_planes(tmp_path / "src.yuv", w, h, nframes=1, y=128, u=90, v=240)
+    fake_model = tmp_path / "saliency_student_v1.onnx"
+    fake_model.write_bytes(b"\x00")
+    session = _InspectingOnnxSession(h, w)
+
+    compute_saliency_map(
+        src,
+        w,
+        h,
+        model_path=fake_model,
+        frame_samples=1,
+        session_factory=lambda _path: session,
+    )
+
+    assert session.tensors, "expected saliency tensor to reach ONNX session"
+    tensor = session.tensors[0][0]
+    channel_means = tensor.mean(axis=(1, 2))
+    assert not np.isclose(channel_means[0], channel_means[1])
+    assert not np.isclose(channel_means[1], channel_means[2])
 
 
 def test_compute_saliency_map_missing_model_raises(tmp_path):
