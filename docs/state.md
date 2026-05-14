@@ -1,6 +1,7 @@
 # Fork bug-status — `docs/state.md`
 
 <!-- markdownlint-disable MD013 -->
+_Updated: 2026-05-14 (tiny-AI training discovery synthesis added — committed sidecars/cards now produce a reproducible discovery report; CHUG UGC-HDR ingestion is wired as a local-only `.workingdir2/chug/` pipeline and a background full ingest/train job has been started for HDR unlock work.)_
 _Updated: 2026-05-14 (`vmaf-tune ladder --with-uncertainty` scaffold gap closed — corpus rows with `vmaf_interval` now flow through the CLI, and point-only rows use the active wide-interval threshold as a conservative fallback before the ADR-0279 prune/insert rung recipe runs.)_
 _Updated: 2026-05-14 (`vmaf-tune recommend-saliency` libaom-av1 ROI gap closed — the dispatcher now writes the shared 16×16 qpfile and passes it via the patched FFmpeg `-qpfile` bridge instead of falling back to a plain encode.)_
 _Updated: 2026-05-14 (Metal dispatch support scaffold closed — `vmaf_metal_dispatch_supports()` now recognises the eight landed Metal extractor names and provided feature keys instead of returning 0 unconditionally; smoke coverage and Metal backend docs updated.)_

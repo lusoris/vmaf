@@ -33971,6 +33971,31 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_benchmark.py -q
 ```
 
+## 2026-05-14 — CHUG HDR Corpus Ingestion + Training Discovery Report
+
+**Files touched**: `ai/scripts/chug_to_corpus_jsonl.py`,
+`ai/tests/test_chug.py`, `scripts/dev/training_discovery_report.py`,
+`docs/ai/chug-ingestion.md`, `docs/ai/mos-corpora.md`,
+`docs/research/0101-training-discovery-synthesis-2026-05-14.md`,
+`docs/adr/0426-chug-hdr-corpus-ingestion.md`, and `ai/AGENTS.md`.
+
+**Rebase impact**: low to medium. The new CHUG adapter is fork-local and
+local-only, but it intentionally widens the MOS-corpus family with an HDR
+dataset and optional `chug_*` JSONL metadata fields.
+
+**Invariant to preserve on rebase**: CHUG media and labels stay out of git.
+The adapter stores CHUG's raw `mos_j` as `mos_raw_0_100` and maps the
+trainer-facing `mos` to `[1, 5]`; do not silently change that scale. Keep
+the license posture non-commercial/share-alike until the README/license
+mismatch is clarified upstream.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=ai/src .venv/bin/python -m pytest ai/tests/test_chug.py -q
+python3 scripts/dev/training_discovery_report.py --output /tmp/training_discovery_report.md
+```
+
 ## 2026-05-14 — `vmaf-tune ladder` Uncertainty CLI Wiring
 
 **Files touched**: `tools/vmaf-tune/src/vmaftune/ladder.py`,
