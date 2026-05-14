@@ -10,7 +10,7 @@ frame touches a graph.
 | --- | --- | --- |
 | Hostile `.onnx` file | Model with custom op that exfiltrates via network syscall | Operator allowlist (next section). |
 | Memory-exhaustion via huge model | 10 GB `.onnx` passed to `--tiny-model` | Size cap (`VMAF_DNN_DEFAULT_MAX_BYTES`, compile-time 50 MB). |
-| Path-traversal via `--tiny-model` | `--tiny-model ../../etc/shadow` | `vmaf_dnn_validate_onnx` requires `S_ISREG` + readable; refuses directories and devices. |
+| Path-traversal via `--tiny-model` | `--tiny-model ../../etc/shadow` | `vmaf_dnn_validate_onnx` resolves symlinks, requires `S_ISREG` + readable, and can enforce the optional `VMAF_TINY_MODEL_DIR` directory jail. |
 | Silent model substitution | Attacker replaces signed model with a poisoned one | Opt-in Sigstore (`cosign`) verification against the workflow identity. |
 
 ## Layer 1 — operator allowlist
@@ -90,13 +90,16 @@ concrete model that needs the addition.
   - asserts `S_ISREG` (no devices, pipes, directories),
   - returns `-errno` on any failure — caller must check.
 
-  > **Planned (not yet implemented):** a `VMAF_TINY_MODEL_DIR` env var
-  > to chroot-style assert the resolved path is under a caller-trusted
-  > directory. Tracked as
-  > [issue #28](https://github.com/lusoris/vmaf/issues/28). Today
-  > the loader trusts the caller-supplied path once symlinks + file-type
-  > checks pass; MCP callers get a separate path allowlist
-  > ([mcp/index.md](../mcp/index.md#security-model)).
+  `VMAF_TINY_MODEL_DIR` is the optional deployment jail. When set to a
+  directory, the loader canonicalises both the jail and the requested
+  `.onnx` path, then requires the model to sit below that directory
+  before any stat/read of the model file. Sibling-prefix escapes
+  (`/models` vs `/models-evil`), symlink escapes, missing jail paths,
+  and non-directory jail paths all fail closed with `-EACCES`. When the
+  variable is unset or empty, the jail is a no-op and the normal
+  symlink + regular-file + size + operator checks still apply.
+  MCP callers also keep their separate path allowlist
+  ([mcp/index.md](../mcp/index.md#security-model)).
 - **Shape sanity.** The sidecar JSON declares `input_name`,
   `output_name`, and `expected_output_range`. Runtime values outside the
   range raise a warning to stderr; persistent violation aborts scoring

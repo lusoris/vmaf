@@ -65,6 +65,14 @@ Runtime directly.
   path in `model_loader.c` parses the registry inline (no JSON dep) and
   spawns `cosign` via `posix_spawnp(3p)`; `system(3)` is and stays
   banned.
+- **`VMAF_TINY_MODEL_DIR` is the optional path jail**. When the env var
+  is set, `model_loader.c` canonicalises the requested ONNX path and
+  requires it to sit below the canonicalised jail directory before any
+  model stat/read. Missing jail dirs, non-directory jail paths,
+  sibling-prefix escapes, and symlink escapes fail closed with
+  `-EACCES`; keep the regression cases in
+  [`test_model_loader.c`](../../test/dnn/test_model_loader.c) together
+  with any loader changes.
 
 ## Governing ADRs
 

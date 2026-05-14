@@ -102,6 +102,24 @@ The C entry point is `vmaf_dnn_verify_signature(onnx_path, registry_path)`
 in [`libvmaf/include/libvmaf/dnn.h`](../../libvmaf/include/libvmaf/dnn.h);
 both arguments are NULL-tolerant in the documented way.
 
+## Directory jail — `VMAF_TINY_MODEL_DIR`
+
+The registry pins model identity. The optional `VMAF_TINY_MODEL_DIR`
+environment variable constrains model location. Set it to the trusted
+model directory on production hosts:
+
+```bash
+export VMAF_TINY_MODEL_DIR=/opt/vmaf-models
+vmaf --tiny-model /opt/vmaf-models/vmaf_tiny_v2.onnx --tiny-model-verify ...
+```
+
+At load time libvmaf canonicalises both the jail and the requested ONNX
+path. The model must resolve below the jail directory; sibling-prefix
+escapes, symlink escapes, missing jail directories, and jail values that
+point at files fail closed with `-EACCES`. The jail does not replace
+registry verification or the operator allowlist: run all three layers
+together for production deployments.
+
 ## What the registry is *not*
 
 - **Not** the inference contract — per-model input/output names,
@@ -111,6 +129,8 @@ both arguments are NULL-tolerant in the documented way.
 - **Not** the operator-allowlist source of truth — that's
   `libvmaf/src/dnn/op_allowlist.c`. The registry pins identity; the
   allowlist constrains content.
+- **Not** a path allowlist — use `VMAF_TINY_MODEL_DIR` when deployments
+  need to reject model paths outside a caller-trusted directory.
 
 ## Adding a new model
 
