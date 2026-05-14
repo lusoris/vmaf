@@ -53,9 +53,12 @@ extension, two new transforms become available:
 
 Both transforms are *post-hull* — they run after
 :func:`convex_hull` and before :func:`select_knees` so the
-Pareto-frontier invariant is preserved. They are no-ops when the
-sampler does not emit intervals (point-estimate-only ladders behave
-exactly as before).
+Pareto-frontier invariant is preserved. The default sampler preserves
+a corpus row's ``vmaf_interval`` block. When callers opt in to
+uncertainty but only provide point estimates, the recipe uses the
+active wide-interval threshold as a conservative centred fallback so
+point-only rows still probe uncertain gaps instead of silently
+skipping the ladder recipe.
 
 Per :mod:`vmaftune.uncertainty` documentation, the uncertainty
 recipe **only** changes which rungs the ladder builder evaluates;
@@ -244,14 +247,26 @@ def _default_sampler(
         )
 
     pick = pick_target_vmaf(rows, target_vmaf)
-    row = pick.row
-    return LadderPoint(
-        width=width,
-        height=height,
-        bitrate_kbps=float(row["bitrate_kbps"]),
-        vmaf=float(row["vmaf_score"]),
-        crf=int(row["crf"]),
-    )
+    return _ladder_point_from_row(width, height, pick.row)
+
+
+def _ladder_point_from_row(width: int, height: int, row: dict) -> "LadderPoint":
+    """Build a ladder point from a corpus row, preserving intervals if present."""
+    base = {
+        "width": width,
+        "height": height,
+        "bitrate_kbps": float(row["bitrate_kbps"]),
+        "vmaf": float(row["vmaf_score"]),
+        "crf": int(row["crf"]),
+    }
+    interval = row.get("vmaf_interval")
+    if isinstance(interval, dict) and "low" in interval and "high" in interval:
+        return UncertaintyLadderPoint(
+            **base,
+            vmaf_low=float(interval["low"]),
+            vmaf_high=float(interval["high"]),
+        )
+    return LadderPoint(**base)
 
 
 # ---------------------------------------------------------------------------
@@ -525,10 +540,34 @@ def build_and_emit(
     format: str = "hls",
     spacing: str = "log_bitrate",
     sampler: SamplerFn | None = None,
+    with_uncertainty: bool = False,
+    uncertainty_thresholds: ConfidenceThresholds | None = None,
+    rung_overlap_threshold: float | None = None,
+    point_interval_width: float | None = None,
 ) -> str:
     """Convenience: build → hull → select → emit, returns the manifest string."""
     ladder = build_ladder(src, encoder, resolutions, target_vmafs, sampler=sampler)
-    hull = convex_hull(ladder.points)
+    hull = convex_hull([_plain_ladder_point(p) for p in ladder.points])
+    if with_uncertainty:
+        thresholds = uncertainty_thresholds or ConfidenceThresholds()
+        if point_interval_width is None:
+            point_interval_width = thresholds.wide_interval_min_width
+        uncertainty_hull = _restore_uncertainty_on_hull(
+            hull,
+            ladder.points,
+            point_interval_width=point_interval_width,
+        )
+        overlap = (
+            DEFAULT_RUNG_OVERLAP_THRESHOLD
+            if rung_overlap_threshold is None
+            else rung_overlap_threshold
+        )
+        adjusted = apply_uncertainty_recipe(
+            uncertainty_hull,
+            thresholds=thresholds,
+            overlap_threshold=overlap,
+        )
+        hull = [p.as_ladder_point() for p in adjusted]
     rungs = select_knees(hull, n=quality_tiers, spacing=spacing)
     return emit_manifest(rungs, format=format)
 
@@ -587,6 +626,56 @@ class UncertaintyLadderPoint:
             vmaf=self.vmaf,
             crf=self.crf,
         )
+
+
+def _plain_ladder_point(point: LadderPoint | UncertaintyLadderPoint) -> LadderPoint:
+    if isinstance(point, UncertaintyLadderPoint):
+        return point.as_ladder_point()
+    return point
+
+
+def _point_key(point: LadderPoint | UncertaintyLadderPoint) -> tuple[int, int, float, float, int]:
+    return (
+        point.width,
+        point.height,
+        float(point.bitrate_kbps),
+        float(point.vmaf),
+        int(point.crf),
+    )
+
+
+def _restore_uncertainty_on_hull(
+    hull: Sequence[LadderPoint],
+    sampled_points: Sequence[LadderPoint | UncertaintyLadderPoint],
+    *,
+    point_interval_width: float | None = None,
+) -> list[UncertaintyLadderPoint]:
+    """Attach sampled intervals to hull points; point-only rows get a centred fallback."""
+    intervals = {
+        _point_key(point): point
+        for point in sampled_points
+        if isinstance(point, UncertaintyLadderPoint)
+    }
+    fallback_width = 0.0 if point_interval_width is None else max(0.0, float(point_interval_width))
+    fallback_half_width = 0.5 * fallback_width
+    restored: list[UncertaintyLadderPoint] = []
+    for point in hull:
+        interval = intervals.get(_point_key(point))
+        if isinstance(interval, UncertaintyLadderPoint):
+            restored.append(interval)
+            continue
+        restored.append(
+            UncertaintyLadderPoint(
+                width=point.width,
+                height=point.height,
+                bitrate_kbps=point.bitrate_kbps,
+                vmaf=point.vmaf,
+                crf=point.crf,
+                vmaf_low=point.vmaf - fallback_half_width,
+                vmaf_high=point.vmaf + fallback_half_width,
+            )
+        )
+    return restored
 
 
 def _interval_overlap_fraction(a: UncertaintyLadderPoint, b: UncertaintyLadderPoint) -> float:

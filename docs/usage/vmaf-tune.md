@@ -1622,6 +1622,9 @@ accepted as a legacy alias for `vmaf`.
 | `--quality-tiers N` | `5` | Rungs to pick from the Pareto hull. |
 | `--spacing` | `log_bitrate` | `log_bitrate` (HLS spec) or `vmaf` (perceptual); `uniform` is a legacy alias for `vmaf`. |
 | `--format` | `hls` | `hls`, `dash`, or `json`. |
+| `--with-uncertainty` | off | Apply the ADR-0279 prune/insert recipe. Sampled `vmaf_interval` payloads win; point-only rows use the active wide-interval threshold as a conservative fallback. |
+| `--uncertainty-sidecar PATH` | default thresholds | Calibration sidecar for the uncertainty recipe. |
+| `--rung-overlap-threshold F` | `0.5` | Adjacent-rung interval overlap threshold for pruning. |
 | `--output PATH` | stdout | Manifest destination. |
 
 ## Phase F — multi-pass encoding (ADR-0333)

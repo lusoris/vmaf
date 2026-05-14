@@ -1,6 +1,7 @@
 # Fork bug-status — `docs/state.md`
 
 <!-- markdownlint-disable MD013 -->
+_Updated: 2026-05-14 (`vmaf-tune ladder --with-uncertainty` scaffold gap closed — corpus rows with `vmaf_interval` now flow through the CLI, and point-only rows use the active wide-interval threshold as a conservative fallback before the ADR-0279 prune/insert rung recipe runs.)_
 _Updated: 2026-05-14 (`vmaf-tune recommend-saliency` libaom-av1 ROI gap closed — the dispatcher now writes the shared 16×16 qpfile and passes it via the patched FFmpeg `-qpfile` bridge instead of falling back to a plain encode.)_
 _Updated: 2026-05-14 (Metal dispatch support scaffold closed — `vmaf_metal_dispatch_supports()` now recognises the eight landed Metal extractor names and provided feature keys instead of returning 0 unconditionally; smoke coverage and Metal backend docs updated.)_
 _Updated: 2026-05-14 (Tiny-AI bisect-cache real-feature bridge added — `ai/scripts/build_bisect_cache.py` now accepts a DMOS/MOS-aligned parquet via `--source-features` / `--target-column`, normalises the target to `mos`, and fits the deterministic ONNX timeline from those real rows while preserving the synthetic default for CI.)_

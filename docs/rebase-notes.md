@@ -33971,6 +33971,32 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_benchmark.py -q
 ```
 
+## 2026-05-14 — `vmaf-tune ladder` Uncertainty CLI Wiring
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/ladder.py`,
+`tools/vmaf-tune/src/vmaftune/cli.py`,
+`tools/vmaf-tune/tests/test_ladder.py`, `tools/vmaf-tune/AGENTS.md`,
+`docs/usage/vmaf-tune.md`, and `docs/usage/vmaf-tune-ladder.md`.
+
+**Rebase impact**: low. The normal point-estimate ladder path is unchanged.
+When `--with-uncertainty` is set, corpus rows that contain a
+`vmaf_interval` object now flow through `apply_uncertainty_recipe()`
+before `select_knees()`. Rows without intervals use the active
+`wide_interval_min_width` as a conservative centred fallback interval
+so point-only corpora still participate in midpoint insertion.
+
+**Invariant to preserve on rebase**: the uncertainty transform stays
+post-hull and pre-knee-selection. Do not run it before `convex_hull()`,
+or synthetic midpoint rungs can distort the Pareto filtering stage.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_ladder.py \
+  tools/vmaf-tune/tests/test_ladder_uncertainty.py -q
+```
+
 ## 2026-05-14 — `vmaf-tune` libaom-av1 saliency ROI Dispatch
 
 **Files touched**: `tools/vmaf-tune/src/vmaftune/saliency.py`,

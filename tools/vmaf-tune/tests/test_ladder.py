@@ -25,12 +25,14 @@ from vmaftune.ladder import (  # noqa: E402
     Ladder,
     LadderPoint,
     Rendition,
+    UncertaintyLadderPoint,
     build_and_emit,
     build_ladder,
     convex_hull,
     emit_manifest,
     select_knees,
 )
+from vmaftune.uncertainty import ConfidenceThresholds  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -237,6 +239,35 @@ def test_build_ladder_default_sampler_no_longer_raises(monkeypatch):
     assert isinstance(ladder.points[0], LadderPoint)
 
 
+def test_build_ladder_default_sampler_preserves_vmaf_interval(monkeypatch):
+    """Corpus rows with ``vmaf_interval`` become uncertainty-aware ladder points."""
+    from vmaftune import corpus as corpus_module
+
+    def fake_iter_rows(job, opts, **_kwargs):
+        for preset, crf in job.cells:
+            yield {
+                "preset": preset,
+                "crf": crf,
+                "vmaf_score": 90.0,
+                "vmaf_interval": {"low": 87.0, "high": 93.0, "alpha": 0.05},
+                "bitrate_kbps": 2000.0,
+                "encoder": opts.encoder,
+                "exit_status": 0,
+            }
+
+    monkeypatch.setattr(corpus_module, "iter_rows", fake_iter_rows)
+    ladder = build_ladder(
+        src=Path("foo.yuv"),
+        encoder="libx264",
+        resolutions=[(640, 360)],
+        target_vmafs=[89.0],
+    )
+    point = ladder.points[0]
+    assert isinstance(point, UncertaintyLadderPoint)
+    assert point.vmaf_low == pytest.approx(87.0)
+    assert point.vmaf_high == pytest.approx(93.0)
+
+
 def test_build_ladder_default_sampler_propagates_no_scorable_rows(monkeypatch):
     """Empty / all-failing row stream surfaces a clear RuntimeError."""
     from vmaftune import corpus as corpus_module
@@ -440,3 +471,78 @@ def test_build_and_emit_json_format_matches_rung_count():
     )
     payload = json.loads(manifest)
     assert len(payload["renditions"]) == 3
+
+
+def test_build_and_emit_with_uncertainty_inserts_wide_mid_rung():
+    def uncertain_sampler(
+        _src: Path, _encoder: str, w: int, h: int, target_vmaf: float
+    ) -> UncertaintyLadderPoint:
+        if target_vmaf < 90.0:
+            return UncertaintyLadderPoint(
+                width=w,
+                height=h,
+                bitrate_kbps=1000.0,
+                vmaf=80.0,
+                crf=30,
+                vmaf_low=77.0,
+                vmaf_high=83.0,
+            )
+        return UncertaintyLadderPoint(
+            width=w,
+            height=h,
+            bitrate_kbps=8000.0,
+            vmaf=95.0,
+            crf=20,
+            vmaf_low=92.0,
+            vmaf_high=98.0,
+        )
+
+    manifest = build_and_emit(
+        src=Path("dummy.yuv"),
+        encoder="libx264",
+        resolutions=[(1920, 1080)],
+        target_vmafs=[80.0, 95.0],
+        quality_tiers=5,
+        format="json",
+        sampler=uncertain_sampler,
+        with_uncertainty=True,
+    )
+    payload = json.loads(manifest)
+    bitrates = [r["bitrate_kbps"] for r in payload["renditions"]]
+    assert len(bitrates) == 3
+    assert any(1000.0 < b < 8000.0 for b in bitrates)
+
+
+def test_build_and_emit_with_uncertainty_widens_point_only_rows():
+    def point_sampler(_src: Path, _encoder: str, w: int, h: int, target_vmaf: float) -> LadderPoint:
+        if target_vmaf < 90.0:
+            return LadderPoint(
+                width=w,
+                height=h,
+                bitrate_kbps=1000.0,
+                vmaf=80.0,
+                crf=30,
+            )
+        return LadderPoint(
+            width=w,
+            height=h,
+            bitrate_kbps=8000.0,
+            vmaf=95.0,
+            crf=20,
+        )
+
+    manifest = build_and_emit(
+        src=Path("dummy.yuv"),
+        encoder="libx264",
+        resolutions=[(1920, 1080)],
+        target_vmafs=[80.0, 95.0],
+        quality_tiers=5,
+        format="json",
+        sampler=point_sampler,
+        with_uncertainty=True,
+        uncertainty_thresholds=ConfidenceThresholds(wide_interval_min_width=4.0),
+    )
+    payload = json.loads(manifest)
+    bitrates = [r["bitrate_kbps"] for r in payload["renditions"]]
+    assert len(bitrates) == 3
+    assert any(1000.0 < b < 8000.0 for b in bitrates)

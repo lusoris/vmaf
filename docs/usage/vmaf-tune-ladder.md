@@ -11,8 +11,12 @@ the uncertainty flags are omitted.
 This page covers the **uncertainty-aware extension**
 ([ADR-0279](../adr/0279-fr-regressor-v2-probabilistic.md), shipped on
 top of the conformal-VQA prediction surface in PR #488). The
-extension is library-API-first; the CLI flags are scaffold today and
-will fully wire into the production sampler in a follow-up PR.
+extension is wired through both the library API and the CLI. The
+default sampler preserves `vmaf_interval` blocks from corpus rows; when
+those intervals are present, `--with-uncertainty` applies the same
+prune/insert recipe before knee selection. Point-only rows use the
+active `wide_interval_min_width` as a conservative centred fallback,
+so the recipe can still probe uncertain bitrate gaps.
 
 ## Why uncertainty-aware
 
@@ -39,7 +43,7 @@ invariant is preserved.
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--with-uncertainty` | off | Library API plumbing; CLI emits an informational notice today (the production sampler is not yet wired to emit intervals). |
+| `--with-uncertainty` | off | Apply uncertainty-aware rung pruning/insertion. Sampled `vmaf_interval` payloads win; point-only rows use a conservative centred interval based on `wide_interval_min_width`. |
 | `--uncertainty-sidecar PATH` | none | Calibration sidecar JSON (same schema as `recommend --uncertainty-sidecar`). Falls back to the documented Research-0067 floor. |
 | `--rung-overlap-threshold F` | 0.5 | Overlap fraction above which two adjacent rungs are treated as indistinguishable and the lower-bitrate one is dropped. |
 
@@ -143,8 +147,11 @@ tight rung is left alone.
 | Insert | pair-averaged width >= `wide_interval_min_width` | Add a synthetic mid-rung. |
 
 When the sampler ships plain `LadderPoint` rungs without intervals,
-both transforms are no-ops — the ladder builder behaves exactly as
-the pre-uncertainty release.
+`--with-uncertainty` widens each point to a centred fallback interval
+whose width is the active `wide_interval_min_width`. That keeps
+point-only corpora conservative: pruning still has real overlap data
+to evaluate, and wide adjacent gaps can receive a synthetic midpoint
+rung.
 
 ## Worked example — CLI
 
@@ -153,10 +160,6 @@ $ vmaf-tune ladder --src trailer.mp4 --encoder libx264 \
     --resolutions 1920x1080,1280x720,854x480 \
     --target-vmafs 95,90,85 --quality-tiers 5 \
     --with-uncertainty --uncertainty-sidecar calibration.json
-vmaf-tune ladder: --with-uncertainty set; the default sampler still
-emits point-only rungs. The library API
-vmaftune.ladder.apply_uncertainty_recipe is the entry point for
-callers shipping their own interval-aware sampler. Manifest unchanged.
 #EXTM3U
 #EXT-X-VERSION:6
 #EXT-X-STREAM-INF:BANDWIDTH=1200000,RESOLUTION=854x480,CODECS="avc1.640028"
@@ -164,10 +167,12 @@ rendition_854x480_1200k.m3u8
 ...
 ```
 
-The CLI scaffold is intentional: the production sampler wiring (so
-that the default `vmaf-tune ladder` path emits
-`UncertaintyLadderPoint` rungs when a calibration sidecar is shipped)
-lands in a follow-up PR. The library API is fully functional today.
+If the sampled corpus rows contain `vmaf_interval` objects, the CLI
+attaches those intervals to the post-hull rungs, calls
+`apply_uncertainty_recipe()`, and selects knees from the adjusted rung
+set. If the rows are point-only, `--with-uncertainty` loads the
+threshold sidecar and uses its `wide_interval_min_width` as the
+fallback interval width before running the same recipe.
 
 ## What this does NOT change
 
