@@ -31,15 +31,19 @@ import pytest
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "src"))
 
+import vmaftune.predictor_train as predictor_train  # noqa: E402
 from vmaftune.predictor import Predictor, ShotFeatures  # noqa: E402
 from vmaftune.predictor_train import (  # noqa: E402
     CODECS,
     INPUT_DIM,
     TrainConfig,
+    TrainResult,
     generate_synthetic_corpus,
     iter_corpus_files,
     load_corpus,
+    main,
     project_row,
+    train_all_codecs,
     train_one_codec,
     train_val_split,
 )
@@ -183,6 +187,93 @@ def test_load_corpus_reads_all_jsonl_shards_in_directory(tmp_path: Path) -> None
     assert len(rows) == 2
     assert [row["crf"] for row in rows] == [23.0, 28.0]
     assert [row["vmaf_score"] for row in rows] == [95.0, 90.5]
+
+
+def _dummy_train_result(codec: str, output_dir: Path) -> TrainResult:
+    return TrainResult(
+        codec=codec,
+        n_train=1,
+        n_val=0,
+        plcc=1.0,
+        srocc=1.0,
+        rmse=0.0,
+        onnx_path=output_dir / f"predictor_{codec}.onnx",
+        card_path=output_dir / f"predictor_{codec}_card.md",
+        onnx_sha256="0" * 64,
+        onnx_bytes=1,
+        op_allowlist_ok=True,
+        forbidden_ops=(),
+    )
+
+
+def test_train_all_codecs_consumes_directory_corpus(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Directory ``--corpus`` sources must not silently fall back to stubs."""
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "part.jsonl").write_text(
+        '{"encoder":"libx264","crf":23,"bitrate_kbps":3000.0,"vmaf_score":95.0}\n',
+        encoding="utf-8",
+    )
+    seen: list[tuple[str, int, str]] = []
+
+    def fake_train_one_codec(codec, rows, *, cfg, output_dir, corpus_kind):
+        seen.append((codec, len(rows), corpus_kind))
+        return _dummy_train_result(codec, output_dir)
+
+    def fail_synthetic(codec, n_rows):
+        raise AssertionError(f"synthetic fallback used for {codec}")
+
+    monkeypatch.setattr(predictor_train, "CODECS", ("libx264",))
+    monkeypatch.setattr(predictor_train, "train_one_codec", fake_train_one_codec)
+    monkeypatch.setattr(predictor_train, "generate_synthetic_corpus", fail_synthetic)
+
+    results = train_all_codecs(
+        output_dir=tmp_path / "out",
+        cfg=TrainConfig(epochs=1),
+        corpus_path=corpus_dir,
+    )
+
+    assert [r.codec for r in results] == ["libx264"]
+    assert seen == [("libx264", 1, "real-N=1")]
+
+
+def test_main_consumes_directory_corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI orchestration matches ``load_corpus`` directory support."""
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "part.jsonl").write_text(
+        '{"encoder":"libx264","crf":28,"bitrate_kbps":1800.0,"vmaf_score":90.5}\n',
+        encoding="utf-8",
+    )
+    seen: list[tuple[str, int, str]] = []
+
+    def fake_train_one_codec(codec, rows, *, cfg, output_dir, corpus_kind):
+        seen.append((codec, len(rows), corpus_kind))
+        return _dummy_train_result(codec, output_dir)
+
+    def fail_synthetic(codec, n_rows):
+        raise AssertionError(f"synthetic fallback used for {codec}")
+
+    monkeypatch.setattr(predictor_train, "train_one_codec", fake_train_one_codec)
+    monkeypatch.setattr(predictor_train, "generate_synthetic_corpus", fail_synthetic)
+
+    rc = main(
+        [
+            "--corpus",
+            str(corpus_dir),
+            "--codec",
+            "libx264",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--epochs",
+            "1",
+        ]
+    )
+
+    assert rc == 0
+    assert seen == [("libx264", 1, "real-N=1")]
 
 
 # ---------------------------------------------------------------------

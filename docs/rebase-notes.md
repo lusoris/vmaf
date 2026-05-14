@@ -33996,3 +33996,26 @@ skip ratio columns. Do not split the public corpus schema per codec.
 PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_encoder_stats_parser_x264.py -q
 ```
+
+## 2026-05-14 — `vmaf-tune` predictor directory-corpus orchestration
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/predictor_train.py`,
+`tools/vmaf-tune/tests/test_predictor_train.py`, `docs/usage/vmaf-tune.md`.
+
+**Rebase impact**: low. The loader already supported recursive JSONL
+directories; this change removes stale `is_file()` gates in the trainer
+orchestration so CLI/API callers get the documented real-corpus path.
+Model format, feature order, corpus row schema, and shipped model bytes
+are unchanged.
+
+**Invariant to preserve on rebase**: `--corpus <directory>` and
+`train_all_codecs(corpus_path=<directory>)` must call the same
+`load_corpus()` path as single-file inputs. Do not reintroduce
+file-only guards above the loader.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_predictor_train.py -q
+```

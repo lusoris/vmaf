@@ -824,7 +824,7 @@ def train_all_codecs(
 ) -> list[TrainResult]:
     """Train one model per codec, writing ONNX + card artefacts.
 
-    When ``corpus_path`` is None or the file is missing rows for a
+    When ``corpus_path`` is None or the source is missing rows for a
     codec, the synthetic stub corpus is used for that codec. Mixed
     runs (real for some, stub for others) are explicit in the per-codec
     card via ``corpus.kind``.
@@ -832,7 +832,7 @@ def train_all_codecs(
     results: list[TrainResult] = []
     for codec in CODECS:
         rows: list[dict] = []
-        if corpus_path is not None and corpus_path.is_file():
+        if corpus_path is not None:
             rows = load_corpus(corpus_path, codec)
         if rows:
             kind = f"real-N={len(rows)}"
@@ -903,7 +903,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     results: list[TrainResult] = []
     for codec in codecs:
         rows: list[dict] = []
-        if args.corpus is not None and args.corpus.is_file():
+        if args.corpus is not None:
             rows = load_corpus(args.corpus, codec)
         if rows:
             kind = f"real-N={len(rows)}"

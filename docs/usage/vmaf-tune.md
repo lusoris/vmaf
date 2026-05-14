@@ -84,7 +84,9 @@ trainer accepts both current `corpus.py` rows (`encoder`, `crf`,
 `vmaf_score`, `bitrate_kbps`) and older hardware-sweep rows (`codec`,
 `q`/`cq`, `vmaf`, `actual_kbps`). If a codec has no usable rows, that
 codec still falls back to the documented synthetic-stub corpus and the
-model card records `corpus.kind: synthetic-stub-*`.
+model card records `corpus.kind: synthetic-stub-*`. Directory inputs
+are passed through the same loader as single files; a codec with rows in
+any shard records `corpus.kind: real-N=<rows>`.
 
 ## Quick start
 
