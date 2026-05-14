@@ -13,7 +13,7 @@ with [`vmaf`](cli.md), and emits a JSONL corpus of
 |-----------------------|--------------------------------------------------------|------------------------------------------------------------------------------------------------------|
 | `corpus`              | Multi-codec encoder grid sweep + scoring               | [ADR-0237](../adr/0237-quality-aware-encode-automation.md)                                           |
 | `recommend`           | Target-VMAF / target-bitrate predicate (Phase B)       | [Research-0061](../research/0061-vmaf-tune-capability-audit.md), buckets 4+5                         |
-| `tune-per-shot`       | Per-shot CRF zones                                     | [ADR-0276](../adr/0276-vmaf-tune-phase-d-per-shot.md)                                                |
+| `tune-per-shot`       | Per-shot CRF zones                                     | [ADR-0392](../adr/0392-vmaf-tune-phase-d-per-shot.md)                                                |
 | `recommend-saliency`  | Saliency-aware ROI tuning                              | [ADR-0287](../adr/0287-vmaf-tiny-v5-corpus-expansion.md) ecosystem; consumes `vmaf-roi` sidecars     |
 | `ladder`              | Per-title bitrate ladder (Pareto ABR)                  | [ADR-0295](../adr/0295-vmaf-tune-phase-e-bitrate-ladder.md)                                          |
 | `fast`                | Predicted-CRF fast path                                | [ADR-0276](../adr/0276-vmaf-tune-fast-path.md)                                                       |
@@ -1845,29 +1845,25 @@ The shipped unit tests mock `subprocess.run` so the adapter can be
 exercised without either binary present; integration smoke is gated
 to a CI runner that has a `libvvenc`-enabled FFmpeg.
 
-## Phase D — per-shot CRF tuning (scaffold)
+## Phase D — per-shot CRF tuning
 
-The `tune-per-shot` subcommand is the orchestration scaffold for the
-Netflix-style per-shot encoding feature. It cuts the source into shots
+The `tune-per-shot` subcommand drives the Netflix-style per-shot
+encoding path. It cuts the source into shots
 (via the C-side [`vmaf-perShot`](vmaf-perShot.md) binary, which wraps
 TransNet V2 — see [ADR-0223](../adr/0223-transnet-v2-shot-detector.md)),
-picks a CRF per shot, and emits an FFmpeg encoding plan that produces
-one segment per shot plus a final concat-demuxer command.
+extracts each shot to a temporary raw-YUV reference, runs the Phase-B
+target-VMAF bisect for that shot, and emits an FFmpeg encoding plan
+that produces one segment per shot plus a final concat-demuxer command.
 
-Phase D ships **scaffolding**: the orchestration shape is stable, but
-two integration seams remain pluggable while the underlying components
-land:
-
-- The **target-VMAF predicate** defaults to the codec adapter's
-  default CRF; production wiring will use Phase B's bisect once it
-  lands as code.
-- The **codec emission** uses per-segment encodes plus concat instead
-  of native per-shot mechanisms (`--qpfile` for x264, `--zones` for
-  x265, the SVT-AV1 segment table). Native emission lands per-codec
-  alongside each new adapter.
+The target-VMAF predicate remains pluggable for advanced callers:
+`--predicate-module MODULE:CALLABLE` bypasses the default bisect path,
+and the Python API still accepts `tune_per_shot(..., predicate=...)`.
+Codec emission is still portable segment-and-concat output rather than
+native per-shot mechanisms (`--qpfile` for x264, `--zones` for x265, the
+SVT-AV1 segment table).
 
 Design rationale and the decision matrix live in
-[ADR-0276](../adr/0276-vmaf-tune-phase-d-per-shot.md).
+[ADR-0392](../adr/0392-vmaf-tune-phase-d-per-shot.md).
 
 ### Quick start
 
@@ -1895,11 +1891,18 @@ shell script of the per-segment + concat commands.
 | `--pix-fmt PFMT` | `yuv420p` | Forwarded to `vmaf-perShot`. |
 | `--framerate F` | `24.0` | Used to translate frame counts to `-ss` seek seconds. |
 | `--target-vmaf V` | `92.0` | Per-shot quality target. |
-| `--encoder NAME` | `libx264` | Phase D scaffold: `libx264` only. |
+| `--encoder NAME` | `libx264` | Any registered codec adapter accepted by the Phase-B bisect backend. |
 | `--bitdepth N` | `8` | Forwarded to `vmaf-perShot` (`8`, `10`, or `12`). |
 | `--total-frames N` | `0` | Frame count for the single-shot fallback when `vmaf-perShot` is unavailable. |
 | `--per-shot-bin PATH` | `vmaf-perShot` | Override the shot detector binary. |
 | `--ffmpeg-bin PATH` | `ffmpeg` | Override the FFmpeg binary. |
+| `--vmaf-bin PATH` | `vmaf` | Override the libvmaf CLI used by the per-shot scorer. |
+| `--preset NAME` | adapter default | Codec preset forwarded to Phase-B bisect. |
+| `--crf-min / --crf-max` | adapter range | Optional inclusive CRF search bounds; pass both or neither. |
+| `--max-iterations N` | `8` | Maximum encode+score iterations per detected shot. |
+| `--vmaf-model NAME` | `vmaf_v0.6.1` | VMAF model forwarded to the per-shot scorer. |
+| `--score-backend NAME` | `auto` | libvmaf scoring backend for the per-shot scorer (`auto`, `cpu`, `cuda`, `sycl`, `vulkan`). |
+| `--predicate-module SPEC` | — | Advanced hook `MODULE:CALLABLE` matching `(shot, target_vmaf, encoder) -> (crf, measured_vmaf)`; bypasses real bisect. |
 | `--output PATH` | `per_shot_encode.mp4` | Final concatenated encode destination. |
 | `--segment-dir PATH` | `<output>.parent/segments` | Directory for per-shot segment files. |
 | `--plan-out PATH` | stdout | Write the JSON plan here instead of stdout. |
@@ -1911,6 +1914,7 @@ shell script of the per-segment + concat commands.
 {
   "encoder": "libx264",
   "framerate": 24.0,
+  "predicate": "bisect",
   "target_vmaf": 92.0,
   "shots": [
     {"start_frame": 0, "end_frame": 24, "crf": 22, "predicted_vmaf": 93.0},
@@ -1930,13 +1934,13 @@ shell script of the per-segment + concat commands.
 
 `start_frame` is inclusive, `end_frame` is exclusive (Python-slice
 convention). The `vmaf-perShot` CSV/JSON sidecar uses inclusive
-`end_frame`; the scaffold normalises into the half-open form and the
+`end_frame`; the planner normalises into the half-open form and the
 segment commands honour the half-open semantics via `-frames:v`.
 
 ### Single-shot fallback
 
 If the `vmaf-perShot` binary is not on PATH, or it exits non-zero, the
-scaffold falls back to a single shot covering the whole clip
+planner falls back to a single shot covering the whole clip
 (`[0, --total-frames)`). This keeps `tune-per-shot` usable as a smoke
 test on machines that have not built the shot-detector binary yet.
 
@@ -1944,13 +1948,9 @@ test on machines that have not built the shot-detector binary yet.
 
 - Does not run the encodes — only emits the plan. Pipe
   `--script-out plan.sh` through `sh` to execute it manually.
-- Does not yet drive Phase B's bisect; the default predicate returns
-  the codec adapter's default CRF for every shot. Inject a custom
-  predicate via the Python API (`tune_per_shot(..., predicate=...)`)
-  to experiment with real per-shot tuning.
 - Does not emit native per-codec per-shot mechanisms (x264 `--qpfile`,
   x265 `--zones`, SVT-AV1 segment tables). Per-segment encode plus
-  concat-demuxer is the scaffold's portable fallback.
+  concat-demuxer is the portable fallback.
 - Does not handle GOP-aligned shot boundaries — the per-segment
   approach side-steps this by re-encoding each shot from frame 0.
 
@@ -2001,7 +2001,7 @@ isolation.
 | 4 | `skip-saliency` | `meta.content_class` is photographic / live-action (not animation / screen content) | The `recommend_saliency.maybe_apply` stage (ADR-0293). |
 | 5 | `sdr-skip` | `not meta.is_hdr` (per ADR-0300 detector) | The HDR resolution + model-selection branch. |
 | 6 | `sample-clip-propagate` | `--sample-clip-seconds > 0` | Re-deciding clip length per stage; the user-supplied value propagates verbatim (ADR-0301). |
-| 7 | `skip-per-shot` | `duration < 5min` AND `shot_variance < 0.15` | The `tune_per_shot.refine` pass (ADR-0276 phase-d). |
+| 7 | `skip-per-shot` | `duration < 5min` AND `shot_variance < 0.15` | The `tune_per_shot.refine` pass (ADR-0392). |
 | 8 | `low-complexity` | `meta.complexity_score < 200 kbps` (probe-encode bitrate) | The `recommend.coarse_to_fine` sweep — the predictor's point estimate is already tight on simple content. `0.0`/`NaN` does not fire (no probe run yet). |
 | 9 | `baseline-meets-target` | `meta.baseline_vmaf >= target_vmaf` | The full predictor sweep — the default-CRF encode already satisfies the quality target. `0.0`/`NaN` does not fire (no baseline scored yet). |
 | 10 | `no-two-pass` | `adapter.supports_two_pass == False` (ADR-0333) | The two-pass calibration stage. Hardware encoders (`*_nvenc`, `*_amf`, `*_qsv`, `*_videotoolbox`) and most software encoders fire this. Only `libx265` currently sets `supports_two_pass = True`. |

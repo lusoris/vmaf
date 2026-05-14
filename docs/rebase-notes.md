@@ -27,6 +27,24 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/tune-scaffold-gap-pass-2-2026-05-14 — vmaf-tune per-shot real bisect CLI
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/cli.py`,
+  `tools/vmaf-tune/src/vmaftune/per_shot.py`,
+  `tools/vmaf-tune/tests/test_per_shot.py`,
+  `docs/usage/vmaf-tune.md`,
+  `docs/adr/0392-vmaf-tune-phase-d-per-shot.md`,
+  `tools/vmaf-tune/AGENTS.md`.
+- **Invariant**: the CLI default for `vmaf-tune tune-per-shot` is the
+  real Phase-B bisect backend. It extracts each detected half-open shot
+  to temporary raw YUV, passes explicit geometry into
+  `bisect_target_vmaf`, and emits measured per-shot VMAF in the JSON
+  plan. `--predicate-module MODULE:CALLABLE` is the only CLI path that
+  bypasses real bisect; the adapter-default predicate remains
+  library-only dry-run behaviour.
+- **Re-test**: `PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest
+  tools/vmaf-tune/tests/test_per_shot.py -q`.
+
 ### fix/scaffold-gap-pass-2026-05-14b — vmaf-tune compare real bisect CLI
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/cli.py`,

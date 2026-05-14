@@ -480,11 +480,13 @@ Phases B–F per ADR-0237 (bisect / predictor / ladder / MCP) remain
 explicitly out of scope here; do not add that code into this tree
 without an ADR-0237 follow-up promoting the corresponding phase.
 Phase A (corpus generation): grid sweep + JSONL emit, x264 only.
-Phase D scaffold (per-shot CRF tuning, ADR-0276): orchestrates shot
-detection (via the C-side `vmaf-perShot` binary, ADR-0222) and a
-pluggable per-shot CRF predicate that Phase B's bisect will drop
-into. The scaffold deliberately stops before running encodes — it
-emits an FFmpeg encoding plan as JSON.
+Phase D (per-shot CRF tuning, ADR-0276): orchestrates shot detection
+(via the C-side `vmaf-perShot` binary, ADR-0222), extracts each shot
+to raw YUV, and binds the pluggable per-shot CRF predicate to Phase B's
+real bisect backend by default. The CLI deliberately stops before
+running the final segment encodes — it emits an FFmpeg encoding plan as
+JSON plus an optional shell script. `--predicate-module` remains the
+advanced custom/test escape hatch; it is no longer the production path.
 
 Phases B (target-VMAF bisect), C (per-title CRF predictor), E
 (Pareto ABR ladder) and F (MCP tools) per ADR-0237 are explicitly
@@ -497,9 +499,22 @@ corresponding phase.
 - **Predicate signature is the Phase B contract.** The
   ``PredicateFn`` type alias in ``per_shot.py`` is
   ``(Shot, target_vmaf: float, encoder: str) -> (crf: int,
-  predicted_vmaf: float)``. Phase B's bisect must conform to this
-  signature; widening the return tuple is a coordinated change that
-  bumps the public-API surface across both modules in the same PR.
+  measured_or_predicted_vmaf: float)``. The CLI adapter around
+  Phase-B bisect must conform to this signature; widening the return
+  tuple is a coordinated change that bumps the public-API surface
+  across both modules in the same PR.
+- **CLI default is real per-shot bisect.** `vmaf-tune tune-per-shot`
+  must call the Phase-B bisect backend unless
+  `--predicate-module MODULE:CALLABLE` is explicitly supplied. Do not
+  reintroduce the adapter-default CRF as CLI behaviour; that fallback
+  exists only for library dry runs that call `tune_per_shot()` without
+  a predicate.
+- **Bisect inputs are temporary raw YUV shots.** `bisect_target_vmaf`
+  expects raw YUV geometry, so the CLI extracts each detected
+  half-open shot range to a temporary raw-YUV file before calling it.
+  Raw `.yuv` / `.raw` sources are opened with explicit rawvideo
+  demuxer flags (`--width`, `--height`, `--pix-fmt`, `--framerate`);
+  container and Y4M sources are left to FFmpeg's demuxer.
 - **Shot ranges are half-open inside Python.** The C-side
   ``vmaf-perShot`` JSON/CSV sidecar uses inclusive ``end_frame``;
   ``per_shot.py`` normalises into ``[start_frame, end_frame)`` at
