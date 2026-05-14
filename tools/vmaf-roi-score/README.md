@@ -1,4 +1,4 @@
-# vmaf-roi-score (Option C scaffold)
+# vmaf-roi-score (Option C)
 
 Region-of-interest VMAF *scoring* for the lusoris vmaf fork.
 
@@ -8,9 +8,9 @@ Region-of-interest VMAF *scoring* for the lusoris vmaf fork.
 > different surface, different output, related model. The names diverge
 > deliberately so callers cannot confuse them.
 
-Option C scope (this PR): drives the `vmaf` CLI twice (once full-frame,
-once with a saliency-masked distorted YUV) and emits a JSON record
-combining the two pooled scores via a user-controlled weight:
+Option C drives the `vmaf` CLI twice (once full-frame, once with a
+saliency-masked distorted YUV) and emits a JSON record combining the
+two pooled scores via a user-controlled weight:
 
 ```text
 roi_vmaf = (1 - w) * vmaf_full + w * vmaf_masked
@@ -33,7 +33,7 @@ tools/vmaf-roi-score/
     __init__.py                  # version + public API (blend_scores)
     cli.py                       # argparse wiring
     score.py                     # vmaf binary driver (subprocess)
-    mask.py                      # saliency mask materialiser (scaffolded)
+    mask.py                      # saliency mask materialiser
   tests/
     test_combine.py              # smoke test (mocks subprocess)
 ```
@@ -45,7 +45,7 @@ tools/vmaf-roi-score/
 | Combine math (`blend_scores`) | shipped, tested |
 | CLI (`--reference / --distorted / --weight / --synthetic-mask`) | shipped, tested |
 | `vmaf` subprocess seam | shipped, tested (mocked) |
-| `--saliency-model` ONNX inference | scaffolded; exits 64 (see ADR-0288 §Implementation phasing) |
+| `--saliency-model` ONNX inference | shipped for 8-bit planar YUV |
 | Per-pixel saliency-weighted pooling (Option A) | deferred — separate PR + ADR follow-up |
 
 ## Quick start
@@ -53,12 +53,20 @@ tools/vmaf-roi-score/
 ```bash
 # from repo root
 pip install -e tools/vmaf-roi-score
+pip install -e 'tools/vmaf-roi-score[runtime]'
 
 # Smoke (no ONNX) — synthetic mask just exercises the combine plumbing
 vmaf-roi-score \
     --reference /path/to/ref.yuv --distorted /path/to/dis.yuv \
     --width 1920 --height 1080 --pix-fmt yuv420p \
     --synthetic-mask 0.5 --weight 0.7
+
+# Real saliency mask materialisation
+vmaf-roi-score \
+    --reference /path/to/ref.yuv --distorted /path/to/dis.yuv \
+    --width 1920 --height 1080 --pix-fmt yuv420p \
+    --saliency-model model/tiny/saliency_student_v1.onnx \
+    --threshold 0.3 --fade 0.1 --weight 0.7
 ```
 
 ## Testing
@@ -71,7 +79,7 @@ The tests mock `subprocess.run` so no `vmaf` binary is needed.
 
 ## See also
 
-- ADR-0296 — vmaf-roi-score saliency-weighted (this scaffold + Option A roadmap)
+- ADR-0296 — vmaf-roi-score saliency-weighted (Option C + Option A roadmap)
 - Research-0063 — option-space digest (Option A vs B vs C)
 - ADR-0247 — `libvmaf/tools/vmaf_roi.c` (the encoder-steering sibling)
 - ADR-0286 — `saliency_student_v1` (the upstream-of-this saliency model)

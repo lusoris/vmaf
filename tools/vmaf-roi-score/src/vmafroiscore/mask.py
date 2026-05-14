@@ -1,6 +1,6 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""Saliency mask materialiser — Option C scaffold.
+"""Saliency mask materialiser for the Option C ROI-VMAF tool.
 
 Given a reference YUV and a saliency ONNX model, produce a distorted
 YUV variant where low-saliency pixels are replaced by the reference's
@@ -9,10 +9,9 @@ binary score "the salient regions only" — every non-salient pixel
 scores as a perfect match, so the pooled VMAF ends up dominated by the
 saliency-weighted region.
 
-This file declares the interface and a numpy-free synthetic helper.
-Real ONNX-Runtime inference is gated on the ``[runtime]`` optional dep
-and lazy-imported inside :func:`apply_saliency_mask` so that core unit
-tests can run without ``onnxruntime`` installed.
+ONNX-Runtime inference is gated on the ``[runtime]`` optional dep and
+lazy-imported inside :func:`apply_saliency_mask` so that core unit tests
+can run without ``onnxruntime`` installed.
 
 Compose-mode (per-frame mask) is intentionally simple — a hard
 threshold with a fade band so the mask boundary is not a sharp step
@@ -25,6 +24,8 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 from typing import Callable
+
+import numpy as np
 
 
 @dataclasses.dataclass(frozen=True)
@@ -67,19 +68,52 @@ def apply_saliency_mask(
     Returns ``req.output``. Raises ``RuntimeError`` if onnxruntime is
     required but not importable.
 
-    **Status**: Option C scaffold — interface + deterministic synthetic
-    helper ship in the first PR. The YUV reader/writer + ORT
-    pre/post-proc loop is a follow-up under T6-2c (see
-    ADR-0288 §Implementation phasing).
+    Supports 8-bit planar YUV 4:2:0, 4:2:2, and 4:4:4 inputs. The
+    saliency mask is inferred from the reference Y plane converted to
+    RGB and then downsampled for chroma planes when needed.
     """
     if inference is None:
         inference = _lazy_onnx_inference(req.saliency_model)
 
-    raise NotImplementedError(
-        "vmaf-roi-score mask materialisation is scaffolded but not yet "
-        "wired to the YUV I/O loop. Use --synthetic-mask in tests; "
-        "see ADR-0288 for the phased rollout."
-    )
+    layout = _layout_for(req.pix_fmt, req.width, req.height)
+    frame_size = layout.y_size + (2 * layout.c_size)
+    ref_size = req.reference.stat().st_size
+    dis_size = req.distorted.stat().st_size
+    if ref_size != dis_size:
+        raise ValueError("reference and distorted YUV sizes differ: " f"{ref_size} != {dis_size}")
+    if frame_size <= 0 or ref_size % frame_size != 0:
+        raise ValueError(
+            f"input size {ref_size} is not a whole number of {req.pix_fmt} "
+            f"{req.width}x{req.height} frames"
+        )
+
+    req.output.parent.mkdir(parents=True, exist_ok=True)
+    with (
+        req.reference.open("rb") as ref_fh,
+        req.distorted.open("rb") as dis_fh,
+        req.output.open("wb") as out_fh,
+    ):
+        for _frame_idx in range(ref_size // frame_size):
+            ref_frame = ref_fh.read(frame_size)
+            dis_frame = dis_fh.read(frame_size)
+            if len(ref_frame) != frame_size or len(dis_frame) != frame_size:
+                raise ValueError("short read while materialising saliency mask")
+
+            ref_planes = _split_frame(ref_frame, layout)
+            dis_planes = _split_frame(dis_frame, layout)
+            rgb = _yuv_to_rgb_bytes(ref_planes.y, ref_planes.u, ref_planes.v, layout)
+            mask = _coerce_mask(inference(rgb, req.width, req.height), req.width, req.height)
+            alpha_y = _mask_to_alpha(mask, req.threshold, req.fade)
+            alpha_c = _resize_nearest(alpha_y, layout.chroma_width, layout.chroma_height)
+
+            out_y = _blend_plane(ref_planes.y, dis_planes.y, alpha_y)
+            out_u = _blend_plane(ref_planes.u, dis_planes.u, alpha_c)
+            out_v = _blend_plane(ref_planes.v, dis_planes.v, alpha_c)
+            out_fh.write(out_y.tobytes())
+            out_fh.write(out_u.tobytes())
+            out_fh.write(out_v.tobytes())
+
+    return req.output
 
 
 def synthesise_uniform_mask(
@@ -115,18 +149,114 @@ def _lazy_onnx_inference(model_path: Path) -> Callable[[bytes, int, int], "objec
         ) from exc
 
     # Construct the session eagerly so model-load errors surface here
-    # rather than on first frame; the callable closure keeps the session
-    # alive for follow-up T6-2c when the real per-frame inference lands.
+    # rather than on first frame.
     session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+    input_name = session.get_inputs()[0].name
+    output_name = session.get_outputs()[0].name
 
     def _run(rgb_bytes: bytes, width: int, height: int) -> object:
-        # Real preproc/postproc deferred — see apply_saliency_mask docstring.
-        # Reference `session` so the closure keeps it live; the bound
-        # name itself is discarded by the explicit `del`.
-        _ = session
-        del rgb_bytes, width, height
-        raise NotImplementedError(
-            "ORT inference seam wired but YUV->RGB preproc deferred to T6-2c."
-        )
+        rgb = np.frombuffer(rgb_bytes, dtype=np.uint8).reshape((height, width, 3))
+        x = rgb.astype(np.float32) / 255.0
+        mean = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
+        x = ((x - mean) / std).transpose(2, 0, 1)[None, :, :, :]
+        return session.run([output_name], {input_name: x})[0]
 
     return _run
+
+
+@dataclasses.dataclass(frozen=True)
+class _Layout:
+    width: int
+    height: int
+    chroma_width: int
+    chroma_height: int
+
+    @property
+    def y_size(self) -> int:
+        return self.width * self.height
+
+    @property
+    def c_size(self) -> int:
+        return self.chroma_width * self.chroma_height
+
+
+@dataclasses.dataclass(frozen=True)
+class _Planes:
+    y: np.ndarray
+    u: np.ndarray
+    v: np.ndarray
+
+
+def _layout_for(pix_fmt: str, width: int, height: int) -> _Layout:
+    if width <= 0 or height <= 0:
+        raise ValueError(f"width/height must be positive, got {width}x{height}")
+    if "10" in pix_fmt or "12" in pix_fmt or "16" in pix_fmt:
+        raise ValueError(f"vmaf-roi-score mask materialisation supports 8-bit YUV only: {pix_fmt}")
+    if pix_fmt.startswith("yuv444"):
+        return _Layout(width, height, width, height)
+    if pix_fmt.startswith("yuv422"):
+        return _Layout(width, height, (width + 1) // 2, height)
+    if pix_fmt.startswith("yuv420"):
+        return _Layout(width, height, (width + 1) // 2, (height + 1) // 2)
+    raise ValueError(f"unsupported pix_fmt for mask materialisation: {pix_fmt}")
+
+
+def _split_frame(frame: bytes, layout: _Layout) -> _Planes:
+    y_end = layout.y_size
+    u_end = y_end + layout.c_size
+    y = np.frombuffer(frame[:y_end], dtype=np.uint8).reshape((layout.height, layout.width))
+    u = np.frombuffer(frame[y_end:u_end], dtype=np.uint8).reshape(
+        (layout.chroma_height, layout.chroma_width)
+    )
+    v = np.frombuffer(frame[u_end:], dtype=np.uint8).reshape(
+        (layout.chroma_height, layout.chroma_width)
+    )
+    return _Planes(y=y, u=u, v=v)
+
+
+def _yuv_to_rgb_bytes(y: np.ndarray, u: np.ndarray, v: np.ndarray, layout: _Layout) -> bytes:
+    u_full = _resize_nearest(u.astype(np.float32), layout.width, layout.height)
+    v_full = _resize_nearest(v.astype(np.float32), layout.width, layout.height)
+    y_f = y.astype(np.float32)
+    c = y_f - 16.0
+    d = u_full - 128.0
+    e = v_full - 128.0
+    r = (1.164383 * c) + (1.596027 * e)
+    g = (1.164383 * c) - (0.391762 * d) - (0.812968 * e)
+    b = (1.164383 * c) + (2.017232 * d)
+    rgb = np.stack([r, g, b], axis=2)
+    return np.clip(np.rint(rgb), 0, 255).astype(np.uint8).tobytes()
+
+
+def _coerce_mask(mask: object, width: int, height: int) -> np.ndarray:
+    arr = np.asarray(mask, dtype=np.float32)
+    arr = np.squeeze(arr)
+    if arr.shape != (height, width):
+        raise ValueError(f"saliency mask shape {arr.shape} does not match {(height, width)}")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("saliency mask contains non-finite values")
+    return np.clip(arr, 0.0, 1.0)
+
+
+def _mask_to_alpha(mask: np.ndarray, threshold: float, fade: float) -> np.ndarray:
+    if not (0.0 <= threshold <= 1.0):
+        raise ValueError(f"threshold must be in [0, 1], got {threshold!r}")
+    if fade < 0.0:
+        raise ValueError(f"fade must be non-negative, got {fade!r}")
+    if fade == 0.0:
+        return (mask >= threshold).astype(np.float32)
+    return np.clip((mask - threshold) / fade, 0.0, 1.0).astype(np.float32)
+
+
+def _resize_nearest(src: np.ndarray, width: int, height: int) -> np.ndarray:
+    if src.shape == (height, width):
+        return src
+    y_idx = np.minimum((np.arange(height) * src.shape[0]) // height, src.shape[0] - 1)
+    x_idx = np.minimum((np.arange(width) * src.shape[1]) // width, src.shape[1] - 1)
+    return src[y_idx[:, None], x_idx[None, :]]
+
+
+def _blend_plane(ref: np.ndarray, dis: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    blended = (ref.astype(np.float32) * (1.0 - alpha)) + (dis.astype(np.float32) * alpha)
+    return np.clip(np.rint(blended), 0, 255).astype(np.uint8)

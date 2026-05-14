@@ -2,15 +2,10 @@
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
 """argparse entry-point for ``vmaf-roi-score``.
 
-Option C scaffold: drives the ``vmaf`` binary twice (full-frame +
+Option C drives the ``vmaf`` binary twice (full-frame +
 saliency-masked) and emits a JSON record with both pooled scores plus
-the saliency-weighted blend.
-
-Per ADR-0288 phasing this PR ships the CLI surface, the combine-math,
-and the test seam. The mask-materialisation path is behind
-``--saliency-model`` and currently surfaces a clear "deferred" exit
-status — synthetic-mode (``--synthetic-mask``) is used by the smoke
-tests to verify the combine math end-to-end without ONNX Runtime.
+the saliency-weighted blend. Synthetic-mode (``--synthetic-mask``)
+keeps the combine-math smoke independent of ONNX Runtime.
 """
 
 from __future__ import annotations
@@ -18,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 from . import ROI_RESULT_KEYS, SCHEMA_VERSION, __version__, blend_scores
@@ -28,7 +24,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="vmaf-roi-score",
         description=(
-            "Region-of-interest VMAF score (Option C scaffold). Combines "
+            "Region-of-interest VMAF score (Option C). Combines "
             "a full-frame VMAF run with a saliency-masked VMAF run via a "
             "user-supplied weight. Useful for content where bad "
             "background should not penalise a good salient region. "
@@ -84,6 +80,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="saliency-masked component weight in [0, 1] (default 0.5)",
     )
     parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.3,
+        help="saliency threshold for --saliency-model masking in [0, 1] (default 0.3)",
+    )
+    parser.add_argument(
+        "--fade",
+        type=float,
+        default=0.1,
+        help="saliency fade band above --threshold in [0, 1] (default 0.1)",
+    )
+    parser.add_argument(
         "--model",
         default="vmaf_v0.6.1",
         help="VMAF model version passed to the underlying vmaf CLI",
@@ -118,6 +126,10 @@ def _validate(ns: argparse.Namespace) -> None:
         raise SystemExit(f"vmaf-roi-score: distorted not found: {ns.distorted}")
     if not (0.0 <= ns.weight <= 1.0):
         raise SystemExit(f"vmaf-roi-score: --weight must be in [0, 1], got {ns.weight}")
+    if not (0.0 <= ns.threshold <= 1.0):
+        raise SystemExit(f"vmaf-roi-score: --threshold must be in [0, 1], got {ns.threshold}")
+    if not (0.0 <= ns.fade <= 1.0):
+        raise SystemExit(f"vmaf-roi-score: --fade must be in [0, 1], got {ns.fade}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,22 +155,51 @@ def main(argv: list[str] | None = None) -> int:
         return full.exit_status
 
     if ns.saliency_model is not None:
-        # Real saliency-masked variant — Option C wiring deferred (T6-2c).
-        # Surface a clear error rather than silently scoring the same YUV
-        # twice.
-        sys.stderr.write(
-            "vmaf-roi-score: --saliency-model is scaffolded but mask "
-            "materialisation is not wired yet (see ADR-0288). Use "
-            "--synthetic-mask for the combine-math smoke today.\n"
-        )
-        return 64
+        with tempfile.TemporaryDirectory(prefix="vmaf_roi_score_") as tmp:
+            masked_yuv = Path(tmp) / "distorted.saliency-masked.yuv"
+            try:
+                from .mask import MaskRequest, apply_saliency_mask
 
-    # --synthetic-mask path: re-score the same distorted YUV. The two
-    # scalars are identical by construction, so the blend collapses to
-    # vmaf_full. This is the smoke-test contract — it proves the
-    # subprocess seam + JSON parse + combine math without depending on
-    # the deferred mask materialiser.
-    masked = run_score(score_req, vmaf_bin=ns.vmaf_bin)
+                apply_saliency_mask(
+                    MaskRequest(
+                        reference=ns.reference,
+                        distorted=ns.distorted,
+                        output=masked_yuv,
+                        width=ns.width,
+                        height=ns.height,
+                        pix_fmt=ns.pix_fmt,
+                        saliency_model=ns.saliency_model,
+                        threshold=ns.threshold,
+                        fade=ns.fade,
+                    )
+                )
+            except (ImportError, RuntimeError, ValueError) as exc:
+                sys.stderr.write(f"vmaf-roi-score: saliency mask failed: {exc}\n")
+                return 64
+
+            masked_req = ScoreRequest(
+                reference=ns.reference,
+                distorted=masked_yuv,
+                width=ns.width,
+                height=ns.height,
+                pix_fmt=ns.pix_fmt,
+                model=ns.model,
+            )
+            masked = run_score(masked_req, vmaf_bin=ns.vmaf_bin)
+    else:
+        # --synthetic-mask path: re-score the same distorted YUV. The two
+        # scalars are identical by construction, so the blend collapses to
+        # vmaf_full. This is the smoke-test contract — it proves the
+        # subprocess seam + JSON parse + combine math without depending on
+        # ONNX Runtime.
+        masked = run_score(score_req, vmaf_bin=ns.vmaf_bin)
+
+    if masked.exit_status != 0:
+        sys.stderr.write(
+            f"vmaf-roi-score: saliency-masked vmaf run failed (exit={masked.exit_status}); "
+            f"stderr tail:\n{masked.stderr_tail}\n"
+        )
+        return masked.exit_status
 
     roi = blend_scores(full.vmaf_score, masked.vmaf_score, ns.weight)
 
@@ -169,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
         "weight": ns.weight,
         "vmaf_roi": roi,
         "model": ns.model,
-        "saliency_model": "synthetic" if ns.synthetic_mask is not None else None,
+        "saliency_model": "synthetic" if ns.synthetic_mask is not None else str(ns.saliency_model),
         "reference": str(ns.reference),
         "distorted": str(ns.distorted),
     }
