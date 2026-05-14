@@ -33695,6 +33695,28 @@ ninja -C build
 meson test -C build test_cli_parse   # all 5 new tests must pass
 ```
 
+## 2026-05-14 — `vmaf-tune recommend --from-corpus` Row Filtering
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/cli.py`,
+`tools/vmaf-tune/tests/test_recommend.py`, `docs/usage/vmaf-tune.md`,
+`docs/state.md`.
+
+**Rebase impact**: low. This only aligns the CLI `--from-corpus` path
+with the existing `vmaftune.recommend.recommend()` filtering contract. No
+corpus schema, encode path, score path, or model artefact changes.
+
+**Invariant to preserve on rebase**: both CLI and library corpus
+recommendation must filter through `RecommendRequest` / `recommend()` so
+failed rows, `NaN` rows, and non-matching encoder / preset rows cannot win
+from the CLI.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_recommend.py -q
+```
+
 ## 2026-05-14 — `vmaf-tune` Usage-Doc Scaffold Label Cleanup
 
 **Files touched**: `docs/usage/vmaf-tune.md`,

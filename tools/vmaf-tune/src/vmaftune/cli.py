@@ -1053,7 +1053,7 @@ def _run_recommend_from_corpus(args: argparse.Namespace) -> int:
     """Pick a recommendation from a pre-built corpus JSONL (no new encodes)."""
     import json as _json  # noqa: PLC0415
 
-    from .recommend import pick_target_bitrate, pick_target_vmaf  # noqa: PLC0415
+    from .recommend import RecommendRequest, recommend  # noqa: PLC0415
 
     corpus_path: Path = args.from_corpus
     if not corpus_path.exists():
@@ -1075,13 +1075,15 @@ def _run_recommend_from_corpus(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        if target_vmaf is not None:
-            pick = pick_target_vmaf(rows, target_vmaf)
-        elif target_bitrate is not None:
-            pick = pick_target_bitrate(rows, target_bitrate)
-        else:
-            sys.stderr.write("recommend: --target-vmaf or --target-bitrate required\n")
-            return 2
+        pick = recommend(
+            rows,
+            RecommendRequest(
+                target_vmaf=target_vmaf,
+                target_bitrate_kbps=target_bitrate,
+                encoder=args.encoder,
+                preset=args.preset[0] if args.preset else None,
+            ),
+        )
     except ValueError as exc:
         sys.stderr.write(f"recommend: {exc}\n")
         return 2
