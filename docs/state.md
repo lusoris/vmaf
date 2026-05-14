@@ -1,6 +1,7 @@
 # Fork bug-status — `docs/state.md`
 
 <!-- markdownlint-disable MD013 -->
+_Updated: 2026-05-14 (Tiny-AI bisect-cache real-feature bridge added — `ai/scripts/build_bisect_cache.py` now accepts a DMOS/MOS-aligned parquet via `--source-features` / `--target-column`, normalises the target to `mos`, and fits the deterministic ONNX timeline from those real rows while preserving the synthetic default for CI.)_
 _Updated: 2026-05-14 (Tiny-AI frame-loader colour-pixfmt gap closed — `ai/src/vmaf_train/data/frame_loader.py` now decodes `rgb24`, `bgr24`, `rgba`, and `bgra` packed frames as `HxWxC` arrays instead of raising the old gray-only `NotImplementedError`.)_
 _Updated: 2026-05-14 (JSON model loader fixed-size parser cap removed — `read_json_model.c` now grows feature and score-transform knot arrays from the payload, so external models are no longer rejected at 65 features or 11 knots solely because of the old `MAX_FEATURE_COUNT` / `MAX_KNOT_COUNT` constants.)_
 _Updated: 2026-05-14 (`vmaf-tune auto` non-smoke scaffold gap narrowed — emitted cells now use the existing predictor path to choose codec-specific CRFs and predictor bitrate / VMAF estimates instead of the old fixed CRF-23 placeholder.)_

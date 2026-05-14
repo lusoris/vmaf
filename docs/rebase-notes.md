@@ -33971,6 +33971,32 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_benchmark.py -q
 ```
 
+## 2026-05-14 — Tiny-AI Bisect Cache Real-Feature Bridge
+
+**Files touched**: `ai/scripts/build_bisect_cache.py`,
+`ai/tests/test_build_bisect_cache.py`, `ai/testdata/bisect/README.md`,
+`docs/ai/bisect-model-quality.md`, `ai/AGENTS.md`.
+
+**Rebase impact**: low. The committed nightly cache remains generated from
+the existing deterministic synthetic seeds unless callers pass
+`--source-features`. The real-feature path only broadens the generator to
+materialise an operator-provided parquet into the same `features.parquet` +
+linear-ONNX timeline layout.
+
+**Invariant to preserve on rebase**: the output feature order stays
+`adm2`, `vif_scale0`, `vif_scale1`, `vif_scale2`, `vif_scale3`, `motion2`,
+and the output target column stays named `mos` even when the source uses
+`dmos`, `target`, or `score`.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=ai/src .venv/bin/python -m pytest \
+  ai/tests/test_build_bisect_cache.py \
+  ai/tests/test_bisect_model_quality.py -q
+PYTHONPATH=ai/src .venv/bin/python ai/scripts/build_bisect_cache.py --check
+```
+
 ## 2026-05-14 — Vulkan VIF Manual Int64 Subgroup Reduction
 
 **Files touched**: `libvmaf/src/feature/vulkan/shaders/vif.comp`,

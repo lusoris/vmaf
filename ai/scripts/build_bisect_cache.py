@@ -3,12 +3,12 @@
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
 """Generate the deterministic bisect-model-quality fixture cache.
 
-The fixture is a small synthetic placeholder for a future DMOS-aligned
-golden cache (see [Research-0001](../../docs/research/0001-bisect-model-quality-cache.md)).
-What lives in `ai/testdata/bisect/` is fully reproducible from this
-script with fixed seeds; CI re-runs and asserts byte-equality before
-running the bisect, which is how we catch silent drift in pandas /
-pyarrow / onnx serialisation.
+The default fixture is a small synthetic cache, but the same generator
+can now materialise a real DMOS/MOS-aligned feature parquet into the
+nightly-bisect layout. What lives in `ai/testdata/bisect/` is fully
+reproducible from this script with fixed seeds; CI re-runs and asserts
+byte-equality before running the bisect, which is how we catch silent
+drift in pandas / pyarrow / onnx serialisation.
 
 Layout:
 
@@ -26,6 +26,9 @@ Usage:
 
     python ai/scripts/build_bisect_cache.py             # regenerate in place
     python ai/scripts/build_bisect_cache.py --check     # diff against committed
+    python ai/scripts/build_bisect_cache.py \
+        --source-features runs/dmos_features.parquet \
+        --target-column dmos
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ import filecmp
 import shutil
 import sys
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -56,6 +60,7 @@ N_ROWS = 256
 N_MODELS = 8
 FEATURE_SEED = 20260418
 MODEL_SEED = 20260419
+TARGET_COLUMN_CANDIDATES = ("mos", "dmos", "target", "score")
 
 
 def _save_linear_fr(path: Path, weights: np.ndarray, bias: float = 0.0) -> None:
@@ -81,35 +86,99 @@ def _save_linear_fr(path: Path, weights: np.ndarray, bias: float = 0.0) -> None:
     onnx.save(model, str(path))
 
 
-def build_features(out: Path) -> None:
+def _write_features(out: Path, features: np.ndarray, target: np.ndarray) -> None:
+    df = pd.DataFrame({name: features[:, i] for i, name in enumerate(DEFAULT_FEATURES)})
+    df["mos"] = target.astype(np.float32)
+    # Pin the row index so parquet metadata is reproducible.
+    df.index = pd.RangeIndex(start=0, stop=len(df), name="row")
+    df.to_parquet(out, engine="pyarrow", compression="zstd", index=True)
+
+
+def build_features(out: Path) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(FEATURE_SEED)
     feats = rng.uniform(0.2, 0.9, size=(N_ROWS, N_FEATURES)).astype(np.float32)
     # Targets on the [0, 1] band so a sum-of-features predictor correlates
     # ~ perfectly. Add tiny noise so PLCC is < 1 but well above any sane gate.
     target = feats.sum(axis=1) / N_FEATURES
     target += rng.normal(0.0, 1e-3, size=N_ROWS).astype(np.float32)
-    df = pd.DataFrame({name: feats[:, i] for i, name in enumerate(DEFAULT_FEATURES)})
-    df["mos"] = target.astype(np.float32)
-    # Pin the row index so parquet metadata is reproducible.
-    df.index = pd.RangeIndex(start=0, stop=N_ROWS, name="row")
-    df.to_parquet(out, engine="pyarrow", compression="zstd", index=True)
+    _write_features(out, feats, target)
+    return feats, target.astype(np.float32)
 
 
-def build_models(out_dir: Path) -> None:
+def _resolve_target_column(columns: Sequence[str], target_column: str | None) -> str:
+    if target_column is not None:
+        if target_column not in columns:
+            raise ValueError(f"target column not found: {target_column}")
+        return target_column
+    for name in TARGET_COLUMN_CANDIDATES:
+        if name in columns:
+            return name
+    candidates = ", ".join(TARGET_COLUMN_CANDIDATES)
+    raise ValueError(f"no target column found; pass --target-column (tried: {candidates})")
+
+
+def load_source_features(
+    path: Path, target_column: str | None = None
+) -> tuple[np.ndarray, np.ndarray]:
+    """Load a real feature parquet into the bisect-cache input contract."""
+    table = pq.read_table(str(path))
+    columns = table.column_names
+    missing = [name for name in DEFAULT_FEATURES if name not in columns]
+    if missing:
+        joined = ", ".join(missing)
+        raise ValueError(f"source parquet missing required feature columns: {joined}")
+    target_name = _resolve_target_column(columns, target_column)
+    df = table.select([*DEFAULT_FEATURES, target_name]).to_pandas()
+    numeric = df.apply(pd.to_numeric, errors="coerce")
+    numeric = numeric.replace([np.inf, -np.inf], np.nan).dropna()
+    if numeric.empty:
+        raise ValueError("source parquet has no finite feature/target rows")
+    feats = numeric.loc[:, DEFAULT_FEATURES].to_numpy(dtype=np.float32)
+    target = numeric.loc[:, target_name].to_numpy(dtype=np.float32)
+    return feats, target
+
+
+def _fit_linear_weights(features: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, float]:
+    design = np.column_stack([features.astype(np.float64), np.ones(features.shape[0])])
+    coeff, *_ = np.linalg.lstsq(design, target.astype(np.float64), rcond=None)
+    weights = coeff[:N_FEATURES].astype(np.float32)
+    bias = float(coeff[N_FEATURES])
+    return weights, bias
+
+
+def build_models(
+    out_dir: Path,
+    features: np.ndarray | None = None,
+    target: np.ndarray | None = None,
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(MODEL_SEED)
-    good_w = np.full(N_FEATURES, 1.0 / N_FEATURES, dtype=np.float32)
+    if features is None or target is None:
+        good_w = np.full(N_FEATURES, 1.0 / N_FEATURES, dtype=np.float32)
+        bias = 0.0
+    else:
+        good_w, bias = _fit_linear_weights(features, target)
+    noise_scale = np.maximum(np.abs(good_w), np.float32(1.0)) * np.float32(1e-4)
     for i in range(N_MODELS):
         # All models are "good" — tiny perturbations stay well above the
         # PLCC gate. Bisect verdict on this set is "no regression in range".
-        w = good_w + rng.normal(0.0, 1e-4, size=N_FEATURES).astype(np.float32)
-        _save_linear_fr(out_dir / f"model_{i:02d}.onnx", w)
+        w = good_w + rng.normal(0.0, noise_scale, size=N_FEATURES).astype(np.float32)
+        _save_linear_fr(out_dir / f"model_{i:02d}.onnx", w, bias=bias)
 
 
-def regenerate(out_dir: Path) -> None:
+def regenerate(
+    out_dir: Path,
+    source_features: Path | None = None,
+    target_column: str | None = None,
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    build_features(out_dir / "features.parquet")
-    build_models(out_dir / "models")
+    if source_features is None:
+        build_features(out_dir / "features.parquet")
+        build_models(out_dir / "models")
+    else:
+        feats, target = load_source_features(source_features, target_column=target_column)
+        _write_features(out_dir / "features.parquet", feats, target)
+        build_models(out_dir / "models", feats, target)
 
 
 def _compare_parquet(committed: Path, fresh: Path) -> str | None:
@@ -146,7 +215,11 @@ def _compare_onnx(committed: Path, fresh: Path) -> str | None:
     return f"byte drift: {committed.relative_to(committed.parents[1])}"
 
 
-def check(out_dir: Path) -> int:
+def check(
+    out_dir: Path,
+    source_features: Path | None = None,
+    target_column: str | None = None,
+) -> int:
     """Return 0 if regenerated content matches the committed tree.
 
     Parquet files are compared by typed Arrow Table content; ONNX
@@ -156,7 +229,7 @@ def check(out_dir: Path) -> int:
     assert out_dir.is_dir(), f"expected committed cache at {out_dir}"
     with tempfile.TemporaryDirectory() as tmp_str:
         tmp = Path(tmp_str)
-        regenerate(tmp)
+        regenerate(tmp, source_features=source_features, target_column=target_column)
         diffs: list[str] = []
         for committed in sorted(out_dir.rglob("*")):
             if committed.is_dir():
@@ -210,9 +283,23 @@ def main() -> int:
         action="store_true",
         help="Diff regenerated bytes against committed; exit 1 on drift",
     )
+    p.add_argument(
+        "--source-features",
+        type=Path,
+        help=(
+            "Optional real feature parquet with adm2/vif_scale0..3/motion2 plus a target "
+            "column. When omitted, the deterministic synthetic cache is generated."
+        ),
+    )
+    p.add_argument(
+        "--target-column",
+        help="Target column in --source-features (default: first of mos,dmos,target,score)",
+    )
     args = p.parse_args()
     if args.check:
-        return check(args.out)
+        return check(
+            args.out, source_features=args.source_features, target_column=args.target_column
+        )
     # Wipe only generated artifacts; preserve hand-written siblings such as
     # README.md that explain the cache to future readers.
     parquet = args.out / "features.parquet"
@@ -221,7 +308,7 @@ def main() -> int:
         parquet.unlink()
     if models.exists():
         shutil.rmtree(models)
-    regenerate(args.out)
+    regenerate(args.out, source_features=args.source_features, target_column=args.target_column)
     print(f"OK  wrote {args.out}")
     return 0
 

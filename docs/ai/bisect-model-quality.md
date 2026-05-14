@@ -55,7 +55,7 @@ Cron: `37 4 * * *` (04:37 UTC). Steps:
 
 1. Set up Python 3.12, install the `ai/` package.
 2. Run `python ai/scripts/build_bisect_cache.py --check` — regenerates
-   the synthetic cache from fixed seeds and asserts byte-equality
+   the committed cache from fixed seeds and asserts content equality
    against the committed tree. Catches drift in `pandas` / `pyarrow` /
    `onnx` serialisation.
 3. Run `vmaf-train bisect-model-quality --fail-on-first-bad` against
@@ -77,14 +77,31 @@ green, so the per-step PLCC/SROCC/RMSE numbers are one click from the
 issue. The full historical report set lives in the workflow-artifact
 retention window.
 
-## Synthetic placeholder cache
+## Cache generator
 
-The committed `ai/testdata/bisect/` is a deterministic synthetic
-placeholder, not a DMOS-labelled real cache — see the
-[fixture README](../../ai/testdata/bisect/README.md) for why and
-[Research-0001](../research/0001-bisect-model-quality-cache.md) for the
-swap path. The synthetic-regression case ("introducing a deliberately
-bad ONNX trips the alert") is covered by the unit test
+The committed `ai/testdata/bisect/` defaults to deterministic synthetic
+data so the nightly check is fully reproducible from a clean checkout.
+The generator also accepts a real DMOS/MOS-aligned feature parquet and
+materialises the same cache shape:
+
+```bash
+python ai/scripts/build_bisect_cache.py \
+  --source-features runs/dmos_features.parquet \
+  --target-column dmos
+```
+
+The source parquet must contain the canonical six columns (`adm2`,
+`vif_scale0`, `vif_scale1`, `vif_scale2`, `vif_scale3`, `motion2`) and a
+target column. Without `--target-column`, the script tries `mos`,
+`dmos`, `target`, then `score`. The generated `features.parquet` always
+renames the target to `mos`, and the generated ONNX timeline is fit from
+that target before deterministic tiny perturbations are applied.
+
+See the [fixture README](../../ai/testdata/bisect/README.md) for the
+exact cache contract and [Research-0001](../research/0001-bisect-model-quality-cache.md)
+for the original swap-path investigation. The synthetic-regression case
+("introducing a deliberately bad ONNX trips the alert") is covered by
+the unit test
 [`test_bisect_localises_first_bad`](../../ai/tests/test_bisect_model_quality.py),
 not by the committed timeline.
 
