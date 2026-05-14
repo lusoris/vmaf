@@ -247,6 +247,7 @@ def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list
 _FFMPEG_VERSION_RE = re.compile(r"ffmpeg version (\S+)")
 _X264_VERSION_RE = re.compile(r"x264 - core (\d+)")
 _X265_VERSION_RE = re.compile(r"x265 \[info\]: HEVC encoder version (\S+)")
+_LIBVPX_VP9_VERSION_RE = re.compile(r"\[libvpx-vp9 @ [^\]]+\]\s+v(\S+)")
 # SVT-AV1 banner formats across versions:
 #   older: "SVT-AV1 ENCODER v1.7.0"
 #   newer: "Svt[info]:SVT-AV1 Encoder Lib v2.1.0"
@@ -258,7 +259,8 @@ def parse_versions(stderr: str, encoder: str = "libx264") -> tuple[str, str]:
 
     ``encoder`` selects the per-codec version regex. Supported values
     match the codec_adapters registry: ``libx264`` (default), ``libx265``,
-    ``libsvtav1``, any HW encoder token (h264_nvenc, hevc_amf, …).
+    ``libsvtav1``, ``libvpx-vp9``, any HW encoder token
+    (h264_nvenc, hevc_amf, …).
     HW encoders don't advertise a version in stderr; the encoder token
     string is returned verbatim so corpus rows carry a stable identifier.
 
@@ -291,6 +293,9 @@ def parse_versions(stderr: str, encoder: str = "libx264") -> tuple[str, str]:
     elif encoder in ("libsvtav1", "libsvtav1-vbr"):
         m = _SVTAV1_VERSION_RE.search(stderr)
         enc_str = f"libsvtav1-{m.group(1)}" if m else "unknown"
+    elif encoder == "libvpx-vp9":
+        m = _LIBVPX_VP9_VERSION_RE.search(stderr)
+        enc_str = f"libvpx-vp9-{m.group(1)}" if m else "unknown"
     else:
         # Known HW encoder tokens (nvenc/amf/qsv/videotoolbox): no version
         # string in stderr; return the token as the stable identifier.

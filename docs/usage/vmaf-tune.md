@@ -23,13 +23,14 @@ with [`vmaf`](cli.md), and emits a JSONL corpus of
 
 ## Codec adapters
 
-17 adapters under `tools/vmaf-tune/src/vmaftune/codec_adapters/`:
+18 adapters under `tools/vmaf-tune/src/vmaftune/codec_adapters/`:
 
 | Family | Software           | NVIDIA NVENC                                                                                               | Intel QSV     | AMD AMF       | Apple VideoToolbox    |
 |--------|--------------------|------------------------------------------------------------------------------------------------------------|---------------|---------------|-----------------------|
 | AV1    | `libaom`, `svtav1` | `av1_nvenc` ([ADR-0290](../adr/0290-vmaf-tune-nvenc-adapters.md))                                          | `av1_qsv`     | `av1_amf`     | —                     |
 | H.264  | `x264` (Phase A)   | `h264_nvenc`                                                                                               | `h264_qsv`    | `h264_amf`    | `h264_videotoolbox`   |
 | HEVC   | `x265` ([ADR-0288](../adr/0288-vmaf-tune-codec-adapter-x265.md)) | `hevc_nvenc`                                                              | `hevc_qsv`    | `hevc_amf`    | `hevc_videotoolbox`   |
+| VP9    | `libvpx-vp9`       | —                                                                                                          | —             | —             | —                     |
 | VVC    | `vvenc`            | —                                                                                                          | —             | —             | —                     |
 
 ## Pipeline
@@ -134,6 +135,7 @@ before invoking FFmpeg.
 | --- | --- | --- | --- | --- |
 | `libx264` | `0..51` | `(15, 40)` | `23` | `ultrafast`, `superfast`, `veryfast`, `faster`, `fast`, `medium`, `slow`, `slower`, `veryslow` |
 | `libsvtav1` | `0..63` | `(20, 50)` | `35` | `placebo`, `slowest`, `slower`, `slow`, `medium`, `fast`, `faster`, `veryfast` |
+| `libvpx-vp9` | `0..63` | `(0, 63)` | `32` | `placebo`, `slowest`, `slower`, `slow`, `medium`, `fast`, `faster`, `veryfast`, `superfast`, `ultrafast` |
 
 ### SVT-AV1 preset name -> integer mapping
 
@@ -185,7 +187,7 @@ The mapping is closed and order-stable; see
 | `--force-sdr` | off | Treat all sources as SDR; skip HDR detection. |
 | `--force-hdr-pq` | off | Treat all sources as HDR PQ (SMPTE-2084) without probing. Useful for raw YUV refs that ffprobe cannot read color metadata from. |
 | `--force-hdr-hlg` | off | Treat all sources as HDR HLG (ARIB STD-B67) without probing. |
-| `--two-pass` | off | Phase F (ADR-0333). Run a 2-pass encode for codecs whose adapter sets `supports_two_pass = True` (today: `libx264`, `libx265`). Codecs without 2-pass support fall back to single-pass with a stderr warning. Doubles encode wall time. |
+| `--two-pass` | off | Phase F (ADR-0333). Run a 2-pass encode for codecs whose adapter sets `supports_two_pass = True` (today: `libx264`, `libx265`, `libvpx-vp9`). Codecs without 2-pass support fall back to single-pass with a stderr warning. Doubles encode wall time. |
 
 ## Resolution-aware mode
 
@@ -1651,6 +1653,7 @@ encoder sidecars when the run completes — successful or not.
 | --- | --- | --- |
 | `libx265` | yes | First Phase F implementation. ADR-0333. |
 | `libx264` | yes | FFmpeg-native `-pass` / `-passlogfile` wiring. |
+| `libvpx-vp9` | yes | FFmpeg-native `-pass` / `-passlogfile`; adapter emits VP9 CRF mode via `-b:v 0`. |
 | `libsvtav1` | not yet | Sibling PR planned. Uses `-svtav1-params passes=2`. |
 | `libvvenc` | not yet | Sibling PR planned. Uses `-vvenc-params`. |
 | `libaom-av1` | not yet | Possible sibling PR; encode time prohibitive on long sources. |
@@ -1683,12 +1686,12 @@ file is unique per slice. No special handling required.
 - No per-title or per-shot CRF prediction (Phase C / D).
 - No real-corpus end-to-end ladder validation against a Netflix per-
   title baseline yet.
-- 2-pass on codecs other than `libx264` / `libx265` (Phase F sibling PRs land
-  one-file-at-a-time per the ADR-0288 / ADR-0333 pattern).
-- The shipped `encode.py` driver only wires the `-preset` argv shape
-  used by x264/x265. The libaom-av1 adapter's metadata + preset
-  mapping land here; routing its codec-specific argv through the
-  driver follows when the codec-pluggable encode path lands.
+- 2-pass on codecs other than `libx264` / `libx265` / `libvpx-vp9`
+  (Phase F sibling PRs land one-file-at-a-time per the ADR-0288 /
+  ADR-0333 pattern).
+- Encoder-stats parsing for `libvpx-vp9`: FFmpeg's libvpx passlog is
+  binary first-pass data, not the x264/x265 text schema consumed by
+  `encoder_stats.py`.
 
 ## Phase A.5 — opt-in `fast` recommend
 
@@ -1779,10 +1782,30 @@ vmaf-tune fast --src ref.yuv --target-vmaf 92 || \
 Per-shot parallelisation remains a separate integration with TransNet
 V2 and `vmaf-perShot`.
 
-- `libsvtav1` / `libvpx-vp9` / `libvvenc` are still pending —
-  they will land via the codec adapter interface in
-  `tools/vmaf-tune/src/vmaftune/codec_adapters/`. `libx264` and
-  `libx265` are wired today.
+`fast` accepts any registered codec adapter in production mode. Smoke
+mode remains synthetic and x264-shaped by design.
+
+## libvpx-vp9 example
+
+The VP9 adapter routes `--encoder libvpx-vp9` through FFmpeg's
+`libvpx-vp9` wrapper. It maps the shared preset vocabulary to
+`-deadline good -cpu-used N`, emits `-crf`, and forces VP9
+constant-quality mode with `-b:v 0`.
+
+```shell
+vmaf-tune corpus \
+    --encoder libvpx-vp9 \
+    --source ref.yuv \
+    --width 1920 --height 1080 --pix-fmt yuv420p \
+    --framerate 24 --duration 10 \
+    --preset medium --preset fast \
+    --crf 28 --crf 32 --crf 36 \
+    --output corpus_vp9.jsonl
+```
+
+`--two-pass` is supported for VP9 via FFmpeg's generic `-pass` /
+`-passlogfile` switches. Per-frame encoder-stats columns remain zero
+for VP9 until a binary libvpx first-pass parser lands.
 
 ## x265 example
 
@@ -1807,21 +1830,9 @@ adapter reports the corresponding HEVC profile (`main10`) via
 `X265Adapter.profile_for(pix_fmt)` for downstream consumers that need
 it.
 
-- Software adapters beyond `libx264` (`libx265` / `libsvtav1` /
-  `libvpx-vp9` / `libvvenc`) ship in parallel PRs via the codec
-  adapter interface in `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
-- Software codecs other than `libx264` — `libx265` / `libsvtav1` /
-  `libvpx-vp9` / `libvvenc` are next via the codec adapter interface in
-  `tools/vmaf-tune/src/vmaftune/codec_adapters/`. NVENC / QSV adapters
-  ship in companion PRs.
-- Beyond `libx264` + the three QSV adapters above, `libx265` /
-  `libsvtav1` / `libvpx-vp9` / `libvvenc` / NVENC / AMF land via
-  one-file additions under
-  `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
-- Only `libx264` is registered on master; the codec adapter
-  interface is now codec-agnostic so each in-flight adapter PR
-  (#360, #362, #364, #366, #367, #368, #370, #373) can register
-  itself without touching `encode.py`.
+The software adapters (`libx264`, `libx265`, `libsvtav1`,
+`libaom-av1`, `libvpx-vp9`, `libvvenc`) all route through the same
+codec-adapter registry; the search loop does not branch on codec name.
 
 ## VVenC (H.266 / VVC)
 

@@ -55,11 +55,17 @@ for the option-space digest.
   ten-name preset tuple (`placebo, slowest, slower, slow, medium,
   fast, faster, veryfast, superfast, ultrafast`) is shared across
   AV1-family adapters so a single `--preset` axis covers x264 / x265
-  / svtav1 / libaom-av1 in one sweep. Each adapter maps the name
+  / svtav1 / libaom-av1 / libvpx-vp9 in one sweep. Each adapter maps the name
   onto its codec-specific knob (cpu-used, preset enum, ...). Do not
   introduce per-adapter preset names; if the codec needs a knob the
   shared vocabulary cannot express, route it through `extra_params`
   rather than splitting the preset axis.
+- **`libvpx-vp9` two-pass is FFmpeg-generic, encoder-stats is not.**
+  The adapter may set `supports_two_pass = True` because FFmpeg's
+  libvpx wrapper honours `-pass` / `-passlogfile`, but
+  `supports_encoder_stats` stays `False`: VP9 first-pass stats are a
+  binary libvpx packet stream, not the x264/x265 text stats schema
+  consumed by `encoder_stats.py`.
 - **The codec-adapter contract is multi-codec from day one.**
   `codec_adapters/__init__.py` exposes a registry the search loop must
   use uniformly. Do not branch on codec name in `corpus.py` /

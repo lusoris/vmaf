@@ -27,6 +27,21 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/vmaf-tune-libvpx-adapter-2026-05-14 — vmaf-tune libvpx-vp9 adapter
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py`,
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/libvpx.py`,
+  `tools/vmaf-tune/src/vmaftune/encode.py`, and
+  `docs/usage/vmaf-tune*.md`.
+- **Invariant**: `libvpx-vp9` stays a normal codec-adapter registry
+  entry. Do not add VP9 branches to corpus / encode search loops; the
+  adapter owns `-deadline good`, `-cpu-used`, `-crf`, `-b:v 0`,
+  `-row-mt 1`, and FFmpeg-native `-pass` / `-passlogfile` wiring.
+  `supports_encoder_stats` remains false until a binary VP9 first-pass
+  stats parser lands.
+- **Re-test**:
+  `PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest tools/vmaf-tune/tests/test_codec_adapter_libvpx.py tools/vmaf-tune/tests/test_encode_multi_codec.py -q`
+
 ### fix/backlog-gap-pass-10-2026-05-14 — KonViD-150k split score ingestion
 
 - **Touches**: `ai/scripts/konvid_150k_to_corpus_jsonl.py`,
