@@ -17,12 +17,11 @@ The predicate signature is::
 
     predicate(codec: str, src: Path, target_vmaf: float) -> RecommendResult
 
-The shipped default predicate raises ``NotImplementedError``: the
-real recommend backend lands in Phase B (target-VMAF bisect, ADR-0237).
-Until then the CLI accepts a ``--predicate-module`` hook that points
-at any importable callable matching the signature above; this lets
-downstream consumers (and the test suite) drive ``compare`` against
-a shim today.
+The programmatic default predicate returns an ``ok=False`` row when
+callers do not bind the source geometry required by Phase B bisect.
+The CLI binds :func:`vmaftune.bisect.make_bisect_predicate` from its
+``--width`` / ``--height`` / source-shape flags by default, and still
+accepts a ``--predicate-module`` hook for custom backends or tests.
 """
 
 from __future__ import annotations

@@ -27,6 +27,34 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/scaffold-gap-pass-2026-05-14b — vmaf-tune compare real bisect CLI
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/cli.py`,
+  `tools/vmaf-tune/src/vmaftune/compare.py`,
+  `tools/vmaf-tune/tests/test_compare.py`, `docs/usage/vmaf-tune.md`,
+  `docs/usage/vmaf-tune-bisect.md`, `tools/vmaf-tune/AGENTS.md`.
+- **Invariant**: the CLI default for `vmaf-tune compare` is the real
+  Phase-B bisect backend when source geometry is supplied. The
+  programmatic `compare_codecs()` default may still return `ok=False`
+  because it lacks geometry, but the CLI must not silently rank using
+  a placeholder predicate. `--predicate-module MODULE:CALLABLE` is the
+  explicit custom/test escape hatch.
+- **Re-test**: `PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest
+  tools/vmaf-tune/tests/test_compare.py -q`.
+
+### fix/scaffold-gap-pass-2026-05-14 — vmaf-tune hardware predictor real weights
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/predictor_train.py`,
+  `model/predictor_{h264,hevc,av1}_{nvenc,qsv}.onnx`, matching model
+  cards, `docs/ai/predictor.md`, `tools/vmaf-tune/AGENTS.md`.
+- **Invariant**: the trainer accepts canonical Phase-A rows and
+  historical hardware-sweep aliases. Do not add an external
+  corpus-conversion script for
+  `runs/phase_a/full_grid/comprehensive.jsonl`; the loader is the
+  compatibility seam.
+- **Re-test**: `PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest
+  tools/vmaf-tune/tests/test_predictor_train.py -q`.
+
 ### fix/vmaf-tune-ai-scaffold-state-cleanup — auto HDR dispatch + ensemble seed registry flip (2026-05-14)
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/auto.py`,
@@ -33634,4 +33662,55 @@ The `libvmaf_metal.h` change is docstring-only (no API surface delta).
 meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false --buildtype=debug
 ninja -C build
 meson test -C build test_cli_parse   # all 5 new tests must pass
+```
+
+## 2026-05-14 — `vmaf-tune` Usage-Doc Scaffold Label Cleanup
+
+**Files touched**: `docs/usage/vmaf-tune.md`,
+`docs/usage/vmaf-tune-coarse-to-fine.md`,
+`docs/usage/vmaf-tune-bitrate-ladder.md`,
+`docs/usage/vmaf-tune-ladder-default-sampler.md`,
+`docs/usage/vmaf-tune-saliency-aware.md`.
+
+**Rebase impact**: documentation-only. The implementation already lives in
+`tools/vmaf-tune/src/vmaftune/corpus.py`, `ladder.py`, `saliency.py`, and
+`fast.py`; this PR removes stale user-facing stub labels that survived after
+those surfaces were wired.
+
+**Invariant to preserve on rebase**: usage docs are implementation-status
+contracts, not backlog labels. If a command is wired and tested, do not call it
+a stub/scaffold in `docs/usage/`; describe the shipped path and name any
+remaining production limit precisely.
+
+**Smoke-test after rebase**:
+
+```bash
+rg -n 'scaffold-only|Status: scaffold only|\(stub\)|\*\*Stub\*\*|recommend --saliency-aware|advisory in scaffold' \
+  docs/usage/vmaf-tune.md \
+  docs/usage/vmaf-tune-coarse-to-fine.md \
+  docs/usage/vmaf-tune-bitrate-ladder.md \
+  docs/usage/vmaf-tune-ladder-default-sampler.md \
+  docs/usage/vmaf-tune-saliency-aware.md
+```
+
+## 2026-05-14 — `vmaf-tune fast --time-budget-s` Timeout Wiring
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/fast.py`,
+`tools/vmaf-tune/src/vmaftune/cli.py`, `tools/vmaf-tune/tests/test_fast.py`,
+`docs/usage/vmaf-tune.md`, `docs/usage/vmaf-tune-fast-path.md`.
+
+**Rebase impact**: low. This is a fast-path user-surface fix only; no libvmaf
+public C API, model schema, or FFmpeg patch stack is touched.
+
+**Invariant to preserve on rebase**: `time_budget_s` is a soft Optuna timeout.
+Do not revert it to metadata-only. The JSON `n_trials` field reports completed
+trials because it may be lower than the requested `--n-trials` when the timeout
+fires.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_fast.py \
+  tools/vmaf-tune/tests/test_cli_fast.py -q
 ```

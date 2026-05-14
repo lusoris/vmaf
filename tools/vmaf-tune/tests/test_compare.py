@@ -252,17 +252,6 @@ def test_emit_report_unknown_format_raises():
         emit_report(report, format="yaml")
 
 
-@pytest.mark.skip(
-    reason=(
-        "The `--predicate-module` CLI flag this test exercises is not "
-        "wired in the minimal `compare` subcommand shipped here; "
-        "predicate-module dynamic-import lands in the Phase B bisect "
-        "follow-up. Production callers can already pass a predicate "
-        "via `compare_codecs(...)` directly — the `compare` module-level "
-        "test_compare_codecs_runs_predicate_per_encoder and "
-        "test_compare_codecs_supports_parallel cover that surface."
-    )
-)
 def test_cli_compare_stdout_smoke(capsys, monkeypatch, tmp_path):
     """End-to-end CLI smoke through ``--predicate-module``."""
     # Inject a shim module the CLI can import via --predicate-module.
@@ -300,3 +289,96 @@ def test_cli_compare_stdout_smoke(capsys, monkeypatch, tmp_path):
     codecs = [r["codec"] for r in reader]
     # Ranked by bitrate: libx265 (1700) < libsvtav1 (1900) < libx264 (2400).
     assert codecs == ["libx265", "libsvtav1", "libx264"]
+
+
+def test_cli_compare_requires_geometry_without_predicate_module(capsys, tmp_path):
+    """Default CLI path is real bisect, so source geometry is mandatory."""
+    from vmaftune.cli import main
+
+    rc = main(
+        [
+            "compare",
+            "--src",
+            str(tmp_path / "ref.yuv"),
+            "--target-vmaf",
+            "92",
+            "--encoders",
+            "libx264,libx265",
+        ]
+    )
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--width and --height are required" in err
+
+
+def test_cli_compare_binds_real_bisect_predicate(monkeypatch, capsys, tmp_path):
+    """Geometry flags build the Phase-B bisect predicate for each codec."""
+    from vmaftune import cli as cli_module
+
+    captured: list[dict] = []
+
+    def fake_make_bisect_predicate(**kwargs):
+        captured.append(kwargs)
+
+        def predicate(codec: str, src: Path, target_vmaf: float) -> RecommendResult:
+            return RecommendResult(
+                codec=codec,
+                best_crf=23 if codec == "libx264" else 27,
+                bitrate_kbps=2400.0 if codec == "libx264" else 1700.0,
+                encode_time_ms=100.0,
+                vmaf_score=target_vmaf,
+                encoder_version=f"{codec}-fake",
+            )
+
+        return predicate
+
+    monkeypatch.setattr(
+        "vmaftune.bisect.make_bisect_predicate",
+        fake_make_bisect_predicate,
+    )
+
+    rc = cli_module.main(
+        [
+            "compare",
+            "--src",
+            str(tmp_path / "ref.yuv"),
+            "--target-vmaf",
+            "92",
+            "--encoders",
+            "libx264,libx265",
+            "--width",
+            "1920",
+            "--height",
+            "1080",
+            "--framerate",
+            "24",
+            "--duration",
+            "10",
+            "--crf-min",
+            "15",
+            "--crf-max",
+            "40",
+            "--format",
+            "json",
+        ]
+    )
+    assert rc == 0
+    assert captured == [
+        {
+            "target_vmaf": 92.0,
+            "width": 1920,
+            "height": 1080,
+            "pix_fmt": "yuv420p",
+            "framerate": 24.0,
+            "duration_s": 10.0,
+            "preset": None,
+            "crf_range": (15, 40),
+            "max_iterations": 8,
+            "vmaf_model": "vmaf_v0.6.1",
+            "score_backend": None,
+            "ffmpeg_bin": "ffmpeg",
+            "vmaf_bin": "vmaf",
+        }
+    ]
+    payload = json.loads(capsys.readouterr().out)
+    assert [row["codec"] for row in payload["rows"]] == ["libx265", "libx264"]

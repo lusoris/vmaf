@@ -17,7 +17,7 @@ for the algorithmic feasibility digest.
 | Use case | What to use |
 |---|---|
 | One source, one codec, one target VMAF — find the CRF | `vmaftune.bisect.bisect_target_vmaf` |
-| Many codecs, same source + target — rank by bitrate | `vmaftune.compare.compare_codecs(predicate=make_bisect_predicate(...))` |
+| Many codecs, same source + target — rank by bitrate | `vmaf-tune compare --width ... --height ...` or `vmaftune.compare.compare_codecs(predicate=make_bisect_predicate(...))` |
 | Per-shot CRF tuning across a movie | `vmaftune.per_shot.tune_per_shot(predicate=...)` (Phase D) |
 | Per-resolution × per-target ladder | `vmaftune.ladder.build_ladder(...)` (Phase E) |
 | Sweeping the entire `(preset, CRF)` plane | `vmaftune.corpus.coarse_to_fine_search` ([ADR-0306](../adr/0306-vmaf-tune-coarse-to-fine.md)) |
@@ -80,6 +80,21 @@ ffmpeg / vmaf binary settings (`ffmpeg_bin`, `vmaf_bin`,
 flow through verbatim.
 
 ## Quick start — multi-codec compare
+
+CLI:
+
+```shell
+vmaf-tune compare \
+    --src ref.yuv \
+    --width 1920 --height 1080 --pix-fmt yuv420p \
+    --framerate 24 --duration 10 \
+    --target-vmaf 92 \
+    --encoders libx264,libx265,libsvtav1 \
+    --crf-min 15 --crf-max 40 \
+    --format markdown
+```
+
+Python API:
 
 ```python
 from pathlib import Path
@@ -159,9 +174,10 @@ the comparison schema.
 - **No cache**: every call re-encodes; integrating the
   [ADR-0298](../adr/0298-vmaf-tune-cache.md) cache key fields is a
   one-call insertion.
-- **No CLI subcommand**: the bisect is a programmatic primitive.
-  Operators use it via `compare`, `tune-per-shot`, `ladder`, or
-  direct Python import.
+- **No standalone `bisect` CLI subcommand**: the primitive is exposed
+  through `vmaf-tune compare` for multi-codec ranking and through the
+  Python API for custom orchestration. `tune-per-shot` and `ladder`
+  can bind the same predicate from Python.
 
 ## See also
 

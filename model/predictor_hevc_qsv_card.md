@@ -1,13 +1,12 @@
 # `predictor_hevc_qsv` — VMAF predictor model card
 
 - **Codec adapter**: `hevc_qsv`
-- **Training date**: 2026-05-08
+- **Training date**: 2026-05-14
 - **ONNX opset**: 18
 - **Graph nodes**: 10
 - **File**: `model/predictor_hevc_qsv.onnx` (21877 bytes)
-- **SHA-256**: `b76d8422db9dc5621dff9393f29a8cb632d4c51d2acf4ab682a87aee307af035`
+- **SHA-256**: `3a157b816bb71b8fdc9fc42d1308e93880bf5d97d8d2f27253be1c55a138b609`
 
-> **Warning — synthetic-stub model.** Trained on a deterministic synthetic-100 corpus seeded by the codec name. Predictions are a smooth re-encoding of the analytical fallback; PLCC / SROCC / RMSE below are artificially high because the regression target *is* the fallback. **Do not use this model to drive production CRF picks.** Generate a real corpus via `vmaftune.corpus` and re-run `predictor_train.py` against it.
 
 ## 1. Purpose
 
@@ -19,9 +18,9 @@ predict-then-verify loop.
 
 ## 2. Training data
 
-- **Corpus kind**: `synthetic-stub-N=100`
-- **Train rows**: 80
-- **Held-out rows**: 20
+- **Corpus kind**: `real-N=1620`
+- **Train rows**: 1296
+- **Held-out rows**: 324
 - **Split**: 80 / 20 with seeded shuffle (seed = 42).
 - **Schema**: vmaf-tune Phase A JSONL (`CORPUS_ROW_KEYS` v2).
 
@@ -41,17 +40,14 @@ Computed on the 20 % held-out split.
 
 | Metric | Value |
 |--------|-------|
-| PLCC   | 0.9919 |
-| SROCC  | 0.9921 |
-| RMSE   | 1.1712 VMAF |
+| PLCC   | 0.8302 |
+| SROCC  | 0.8322 |
+| RMSE   | 9.7754 VMAF |
 
 ## 5. Signing
 
-- **Sigstore signature**: PLACEHOLDER — the stub model ships unsigned.
-  Production weights will land with a Sigstore-keyless OIDC signature
-  attached at the release-please tag step (per the existing
-  `model/tiny/*.onnx` pattern). See
-  [`docs/development/release.md`](../docs/development/release.md).
+- **Sigstore signature**: unsigned in-tree artefact. Release automation attaches the Sigstore-keyless OIDC signature for the published tag; verify that bundle when consuming release assets. See
+[`docs/development/release.md`](../docs/development/release.md).
 
 ## Architecture
 

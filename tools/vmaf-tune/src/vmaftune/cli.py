@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import importlib
 import json
 import sys
 from collections.abc import Callable
@@ -595,6 +596,46 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="report destination (default: stdout)",
+    )
+    compare.add_argument("--width", type=int, default=None, help="source width for real bisect")
+    compare.add_argument("--height", type=int, default=None, help="source height for real bisect")
+    compare.add_argument("--pix-fmt", default="yuv420p", help="source pixel format")
+    compare.add_argument("--framerate", type=float, default=24.0, help="source framerate")
+    compare.add_argument(
+        "--duration",
+        type=float,
+        default=0.0,
+        help="source duration in seconds, used for bitrate math",
+    )
+    compare.add_argument("--preset", default=None, help="codec preset for the bisect backend")
+    compare.add_argument("--crf-min", type=int, default=None, help="inclusive lower CRF bound")
+    compare.add_argument("--crf-max", type=int, default=None, help="inclusive upper CRF bound")
+    compare.add_argument(
+        "--max-iterations",
+        type=int,
+        default=8,
+        help="maximum encode+score iterations per codec",
+    )
+    compare.add_argument(
+        "--vmaf-model",
+        default="vmaf_v0.6.1",
+        help="VMAF model name forwarded to the bisect scorer",
+    )
+    compare.add_argument(
+        "--score-backend",
+        default=None,
+        choices=(*ALL_BACKENDS, "auto"),
+        help="libvmaf score backend for the bisect scorer",
+    )
+    compare.add_argument("--ffmpeg-bin", default="ffmpeg", help="ffmpeg binary")
+    compare.add_argument("--vmaf-bin", default="vmaf", help="vmaf binary")
+    compare.add_argument(
+        "--predicate-module",
+        default=None,
+        help=(
+            "advanced hook MODULE:CALLABLE matching "
+            "(codec, src, target_vmaf) -> RecommendResult; bypasses real bisect"
+        ),
     )
 
     auto = sub.add_parser(
@@ -1511,17 +1552,20 @@ def _run_ladder(args: argparse.Namespace) -> int:
 
 
 def _run_compare(args: argparse.Namespace) -> int:
-    """Compare codec adapters at a target VMAF — Phase B-lite ranking.
+    """Compare codec adapters at a target VMAF using Phase B bisect.
 
     Parses the comma-separated ``--encoders`` list, delegates to
     :func:`vmaftune.compare.compare_codecs` (which runs the per-codec
     predicate in a thread pool and ranks by smallest bitrate), then
     emits a markdown / JSON / CSV report via
-    :func:`vmaftune.compare.emit_report`. Falls back to the module's
-    default predicate (which raises ``NotImplementedError`` pending the
-    Phase B bisect wiring); production callers inject their own via
-    the module-level Python API.
+    :func:`vmaftune.compare.emit_report`.
+
+    Default CLI behaviour now binds :func:`vmaftune.bisect.make_bisect_predicate`
+    from the source geometry flags, so ``compare`` is no longer a
+    report-only scaffold. ``--predicate-module`` remains as an advanced
+    test/operator hook and bypasses the bisect backend.
     """
+    from .bisect import make_bisect_predicate
     from .compare import compare_codecs, emit_report, supported_formats
 
     encoders = [token.strip() for token in args.encoders.split(",") if token.strip()]
@@ -1534,12 +1578,50 @@ def _run_compare(args: argparse.Namespace) -> int:
             f"expected one of {supported_formats()}\n"
         )
         return 2
+    predicate = None
+    if args.predicate_module:
+        try:
+            predicate = _load_compare_predicate(args.predicate_module)
+        except (AttributeError, ImportError, ValueError) as exc:
+            sys.stderr.write(f"vmaf-tune compare: invalid --predicate-module: {exc}\n")
+            return 2
+    else:
+        if args.width is None or args.height is None:
+            sys.stderr.write(
+                "vmaf-tune compare: --width and --height are required for the "
+                "real bisect backend. Use --predicate-module MODULE:CALLABLE "
+                "to provide a custom predicate.\n"
+            )
+            return 2
+        crf_range = None
+        if args.crf_min is not None or args.crf_max is not None:
+            if args.crf_min is None or args.crf_max is None:
+                sys.stderr.write("vmaf-tune compare: pass both --crf-min and --crf-max\n")
+                return 2
+            crf_range = (args.crf_min, args.crf_max)
+        score_backend = None if args.score_backend in (None, "auto") else args.score_backend
+        predicate = make_bisect_predicate(
+            target_vmaf=args.target_vmaf,
+            width=args.width,
+            height=args.height,
+            pix_fmt=args.pix_fmt,
+            framerate=args.framerate,
+            duration_s=args.duration,
+            preset=args.preset,
+            crf_range=crf_range,
+            max_iterations=args.max_iterations,
+            vmaf_model=args.vmaf_model,
+            score_backend=score_backend,
+            ffmpeg_bin=args.ffmpeg_bin,
+            vmaf_bin=args.vmaf_bin,
+        )
     report = compare_codecs(
         src=args.src,
         target_vmaf=args.target_vmaf,
         encoders=encoders,
         parallel=not args.no_parallel,
         max_workers=args.max_workers,
+        predicate=predicate,
     )
     rendered = emit_report(report, format=args.format)
     if args.output is not None:
@@ -1551,6 +1633,20 @@ def _run_compare(args: argparse.Namespace) -> int:
         if not rendered.endswith("\n"):
             sys.stdout.write("\n")
     return 0 if report.best() is not None else 1
+
+
+def _load_compare_predicate(spec: str):
+    """Load ``MODULE:CALLABLE`` for ``vmaf-tune compare``."""
+    if ":" not in spec:
+        raise ValueError("expected MODULE:CALLABLE")
+    module_name, attr_name = spec.split(":", 1)
+    if not module_name or not attr_name:
+        raise ValueError("expected MODULE:CALLABLE")
+    module = importlib.import_module(module_name)
+    predicate = getattr(module, attr_name)
+    if not callable(predicate):
+        raise ValueError(f"{spec!r} is not callable")
+    return predicate
 
 
 def _run_auto(args: argparse.Namespace) -> int:
@@ -1668,7 +1764,10 @@ def _add_fast_args(p: argparse.ArgumentParser) -> None:
         "--time-budget-s",
         type=int,
         default=300,
-        help="advisory wall-clock cap in seconds (default 300; not yet enforced)",
+        help=(
+            "soft wall-clock cap in seconds for the Optuna TPE loop "
+            "(default 300; in-flight trials are allowed to finish)"
+        ),
     )
     p.add_argument(
         "--proxy-tolerance",
@@ -1982,8 +2081,9 @@ def _run_fast(args: argparse.Namespace) -> int:
             encode_runner=encode_runner,
             proxy_tolerance=args.proxy_tolerance,
         )
-    except RuntimeError as exc:
-        # fast.fast_recommend raises RuntimeError when Optuna is missing.
+    except (RuntimeError, ValueError) as exc:
+        # fast.fast_recommend raises RuntimeError when Optuna is missing
+        # and ValueError for invalid in-process arguments.
         sys.stderr.write(f"vmaf-tune fast: {exc}\n")
         return 2
     except NotImplementedError as exc:

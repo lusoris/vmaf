@@ -1,24 +1,60 @@
-# `vmaf-tune` ladder default sampler (stub)
+# `vmaf-tune` Ladder Default Sampler
 
-> **Stub** — placeholder per
-> [Research-0086](../research/0086-usage-doc-coverage-audit-2026-05-08.md).
-> Cite the ADR for the authoritative shape; full prose follows in a
-> later PR.
+The ladder default sampler is the production fallback used when
+`vmaftune.ladder.build_ladder(..., sampler=None)` is called. It is
+implemented in `tools/vmaf-tune/src/vmaftune/ladder.py::_default_sampler`.
 
-The `--sampler` flag selects the rate-axis sampler used by the Phase E
-bitrate-ladder generator (per
-[ADR-0307](../adr/0307-vmaf-tune-ladder-default-sampler.md)). The
-default is the *log-space-uniform* sampler over a `(min_kbps,
-max_kbps)` envelope; alternative samplers cover Pareto-frontier
-geometric sequences (per
-[ADR-0295](../adr/0295-vmaf-tune-phase-e-bitrate-ladder.md)).
+## Contract
 
-Status: Accepted. Wired in `tools/vmaf-tune/src/vmaftune/cli.py`.
+For each `(source, encoder, width, height, target_vmaf)` cell, the
+sampler:
 
-## See also
+1. Chooses the codec adapter's `medium` preset when available, or the
+   middle declared preset otherwise.
+2. Runs the canonical 5-point CRF sweep:
+   `18, 23, 28, 33, 38`.
+3. Uses the normal `vmaftune.corpus.iter_rows()` encode+score path.
+4. Picks the row closest to the requested VMAF target via
+   `vmaftune.recommend.pick_target_vmaf()`.
+5. Returns a `LadderPoint(width, height, bitrate_kbps, vmaf, crf)`.
 
-- [`vmaf-tune.md`](vmaf-tune.md) — the base tool, especially the
-  Phase E ladder section once implemented.
-- [ADR-0295](../adr/0295-vmaf-tune-phase-e-bitrate-ladder.md) /
-  [ADR-0307](../adr/0307-vmaf-tune-ladder-default-sampler.md) —
-  design decisions.
+The sampler deliberately stays replaceable. Operators that need a
+different CRF grid, source shape, sample-clip policy, or precomputed
+corpus should pass an explicit `sampler=` callable to `build_ladder()`.
+
+## Defaults
+
+| Setting | Value |
+| --- | --- |
+| CRF sweep | `18,23,28,33,38` |
+| Pixel format | `yuv420p` |
+| Framerate | `24.0` |
+| Nominal duration | `1.0` second |
+| Encode cleanup | temporary directory, deleted after each cell |
+
+## Example Override
+
+```python
+from pathlib import Path
+from vmaftune.ladder import LadderPoint, build_ladder
+
+def sampler(src: Path, encoder: str, width: int, height: int, target: float) -> LadderPoint:
+    return LadderPoint(width, height, bitrate_kbps=2400.0, vmaf=target, crf=23)
+
+ladder = build_ladder(
+    Path("ref.yuv"),
+    "libx264",
+    resolutions=[(1920, 1080), (1280, 720)],
+    target_vmafs=[95.0, 92.0, 88.0],
+    sampler=sampler,
+)
+```
+
+## See Also
+
+- [`vmaf-tune-bitrate-ladder.md`](vmaf-tune-bitrate-ladder.md) — CLI
+  ladder workflow.
+- [ADR-0307](../adr/0307-vmaf-tune-ladder-default-sampler.md) — sampler
+  decision.
+- [ADR-0295](../adr/0295-vmaf-tune-phase-e-bitrate-ladder.md) — ladder
+  design.

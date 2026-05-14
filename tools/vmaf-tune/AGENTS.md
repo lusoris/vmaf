@@ -117,6 +117,11 @@ for the option-space digest.
   fallback contract for proxy-OOD sources. The `fast` subcommand
   surfaces its smoke vs production mode in the CLI output's
   `notes` field — keep that visibility when extending the loop.
+- **Fast-path time budgets are enforced by Optuna, not just reported.**
+  `fast.fast_recommend(time_budget_s=...)` passes the value to
+  `study.optimize(timeout=...)`, and the emitted `n_trials` field is
+  the number of completed trials, not the requested cap. Preserve that
+  distinction so wrappers can tell when the budget cut a search short.
 - **`vmaf-tune fast` CLI exit-code contract is the fall-back
   signal** (HP-3, ADR-0276 § Status update 2026-05-08). `_run_fast`
   in `cli.py` exits `0` for an in-tolerance recommendation, `2`
@@ -140,6 +145,13 @@ for the option-space digest.
   on hosts that never run the fast path. The lazy-import guard in
   `fast.py` is the only correct entry point; tests that exercise
   `fast.py` use `pytest.importorskip("optuna")`.
+- **Usage docs describe shipped implementation status.** The
+  dedicated `docs/usage/vmaf-tune-*.md` pages and the umbrella
+  `docs/usage/vmaf-tune.md` page are user-discoverable contracts,
+  not backlog scratch space. When a tune surface leaves scaffold
+  state, update both the standalone page and the umbrella page in
+  the same PR; do not leave `(stub)`, `scaffold-only`, or stale CLI
+  names on paths backed by implementation and tests.
 - **Fast-path proxy invariant
   ([ADR-0304](../../docs/adr/0304-vmaf-tune-fast-path-prod-wiring.md)).**
   The production proxy is **always** `fr_regressor_v2` (no smoke
@@ -252,17 +264,18 @@ for the option-space digest.
   corpus subcommand and unit tests work without it installed.
 - **Compare predicate is the recommend seam.** `compare.compare_codecs`
   takes a `predicate(codec, src, target_vmaf) -> RecommendResult`
-  callable. The default predicate now returns `ok=False` pointing
-  callers at `bisect.make_bisect_predicate(target_vmaf, *, width=...,
-  height=..., framerate=..., duration_s=...)` — Phase B
+  callable. The programmatic default predicate returns `ok=False`
+  pointing callers at `bisect.make_bisect_predicate(target_vmaf, *,
+  width=..., height=..., framerate=..., duration_s=...)` because the
+  bare predicate signature does not carry source geometry. The
+  `vmaf-tune compare` CLI binds that Phase B
   ([ADR-0326](../../docs/adr/0326-vmaf-tune-phase-b-bisect.md))
-  ships the bisect, but the bare predicate signature does not carry
-  source geometry so operators bind it once via the closure adapter.
-  `tests/test_compare.py` injects a fake predicate so the comparison
-  ranking is exercised without `ffmpeg` / `vmaf` binaries; production
-  callers route the real bisect in via the same seam. Do not branch
-  on codec name inside `compare.py` — route every per-codec call
-  through the predicate / adapter registry.
+  predicate from its explicit geometry flags by default; the
+  `--predicate-module MODULE:CALLABLE` hook is the only supported
+  way to bypass real bisect. `tests/test_compare.py` injects fake
+  predicates so ranking is exercised without `ffmpeg` / `vmaf`
+  binaries. Do not branch on codec name inside `compare.py` — route
+  every per-codec call through the predicate / adapter registry.
 - **Phase B bisect assumes monotone-decreasing VMAF in CRF
   ([ADR-0326](../../docs/adr/0326-vmaf-tune-phase-b-bisect.md)).**
   `vmaftune.bisect.bisect_target_vmaf` aborts with a clear error when
@@ -635,8 +648,13 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
 
 ## Predictor stub-models policy (ADR-0325)
 
-The fork ships one synthetic-stub `model/predictor_<codec>.onnx` per
-codec adapter. The trainer
+The fork ships one `model/predictor_<codec>.onnx` per codec adapter.
+As of 2026-05-14 the NVENC / QSV predictors (`h264_nvenc`,
+`hevc_nvenc`, `av1_nvenc`, `h264_qsv`, `hevc_qsv`, `av1_qsv`) are
+real-corpus retrains from `runs/phase_a/full_grid/comprehensive.jsonl`
+and their cards carry `corpus.kind: real-N=<rows>`. Software and AMF
+predictors remain synthetic stubs until matching real corpora exist.
+The trainer
 (`tools/vmaf-tune/src/vmaftune/predictor_train.py`) sources its
 `CODECS` tuple from `predictor._DEFAULT_COEFFS` so the two stay
 single-source. When a new codec adapter is added (e.g. a future
@@ -654,4 +672,7 @@ Stub models are explicitly **not** for production CRF picks. The
 synthetic target *is* the analytical fallback, so PLCC / SROCC
 numbers in stub cards are artificially high. Real-corpus retrains
 follow the same trainer entry point with `--corpus path/to/file.jsonl`
-and produce honest metrics.
+and produce honest metrics. The loader accepts both canonical
+`encoder` / `crf` / `vmaf_score` / `bitrate_kbps` rows and historical
+hardware-sweep `codec` / `q` / `vmaf` / `actual_kbps` aliases; do not
+reintroduce external conversion scripts for those local corpora.
