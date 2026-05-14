@@ -283,4 +283,33 @@ closes NVIDIA + Arc + RADV at 0/48 5-run-deterministic at API 1.4
 with no perf regression on Arc/RADV, OR (b) NVIDIA ships a driver
 release that closes the residual.
 
+### Status update 2026-05-14: Phase 3c — manual int64 subgroup reduction closes VIF residual
+
+Phase 3c replaces `vif.comp`'s seven Phase-4 `subgroupAdd(int64_t)`
+calls with an explicit `subgroupShuffleXor` butterfly helper. The
+shader now requires `GL_KHR_shader_subgroup_shuffle`; host descriptors,
+push constants, accumulator layout, and CPU/CUDA/SYCL score contracts
+are unchanged.
+
+Local API-1.4 validation on the same three-device host used in Phase
+3b closes the residual:
+
+| device | hardware                         | gate result after Phase 3c |
+| ------ | -------------------------------- | -------------------------- |
+| 0      | NVIDIA RTX 4090 + 595.71.05      | 0/48 OK on every scale; scale 2 max `2.000000e-06` |
+| 1      | Intel Arc A380 + Mesa-ANV 26.1.0 | 0/48 OK on every scale; scale 2 max `2.000000e-06` |
+| 2      | AMD RADV (CPU) + Mesa 26.1.0     | 0/48 OK on every scale; scale 2 max `2.000000e-06` |
+
+The NVIDIA gate was repeated five times and stayed 0/48 on every run.
+This confirms the Research-0090 working hypothesis sufficiently for
+the fork: the remaining VIF blocker was NVIDIA's int64 subgroup-add
+lowering path, not the shared-memory fences. Rebase invariant:
+`vif.comp`'s Phase-4 accumulator path must keep the manual int64
+shuffle reduction and must not be simplified back to
+`subgroupAdd(int64_t)`.
+
+The ciede2000 f32/f64 precision tail remains separately documented
+under ADR-0273; Phase 3c only closes the VIF half of the API-1.4
+blocker.
+
 ADR body (above) remains frozen per ADR-0028.
