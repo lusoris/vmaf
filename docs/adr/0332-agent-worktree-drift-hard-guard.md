@@ -1,6 +1,9 @@
 # ADR-0332: Agent worktree-drift hard guard
 
-- **Status**: Proposed
+- **Status**: Accepted
+- **Status update 2026-05-15**: implemented;
+  `scripts/ci/check-agent-worktree-drift.sh` present; wired into
+  `.pre-commit-config.yaml`; landed in commit 1141faa15.
 - **Date**: 2026-05-09
 - **Deciders**: lusoris, Claude (agent kit)
 - **Tags**: agents, ci, build, fork-local

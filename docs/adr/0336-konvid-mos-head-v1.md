@@ -1,7 +1,9 @@
 # ADR-0336: KonViD MOS head v1 (ADR-0325 Phase 3)
 
-- **Status**: Proposed (corpus blocker removed 2026-05-15; awaits
-  real-corpus PLCC gate)
+- **Status**: Accepted
+- **Status update 2026-05-15**: implemented;
+  `model/konvid_mos_head_v1.onnx` and model card present on master;
+  MOS surface exposed via `Predictor.predict_mos()`.
 - **Date**: 2026-05-08
 - **Deciders**: @Lusoris
 - **Tags**: ai, training, mos, konvid, fork-local
