@@ -432,10 +432,11 @@ for the option-space digest.
   (rawvideo demuxer fast-seek); the score side uses libvmaf's
   `--frame_skip_ref` / `--frame_cnt`. They MUST stay in sync — the
   centre-anchored window is computed once in `_resolve_sample_clip`
-  and threaded through both `EncodeRequest` and `ScoreRequest`. Do
-  not slice the reference YUV on disk into a temp file (the
-  zero-I/O frame-skip path is the design); do not use output-side
-  `-ss` (it decodes the full source first, defeating the speedup).
+  for corpus rows or `_sample_clip_window` for Phase-B bisect and
+  threaded through both `EncodeRequest` and `ScoreRequest`. Do not
+  slice the reference YUV on disk into a temp file (the zero-I/O
+  frame-skip path is the design); do not use output-side `-ss` (it
+  decodes the full source first, defeating the speedup).
 - **Coarse-to-fine search is layered on `iter_rows`, not duplicated
   (ADR-0296).** `corpus.coarse_to_fine_search()` builds two
   `dataclasses.replace(job, cells=...)` jobs (coarse + fine) and

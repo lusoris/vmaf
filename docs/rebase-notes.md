@@ -34338,6 +34338,37 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_predictor_train.py -q
 ```
 
+## 2026-05-14 — `vmaf-tune` Phase-B Bisect Sample Clips
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/bisect.py`,
+`tools/vmaf-tune/src/vmaftune/cli.py`,
+`tools/vmaf-tune/tests/test_bisect.py`,
+`tools/vmaf-tune/tests/test_compare.py`, `tools/vmaf-tune/AGENTS.md`,
+`docs/usage/vmaf-tune.md`, `docs/usage/vmaf-tune-bisect.md`,
+`docs/research/0109-vmaf-tune-bisect-sample-clip-2026-05-14.md`.
+
+**Rebase impact**: low. The public addition is one `vmaf-tune compare`
+flag and one Python bisect argument. It does not change the compare
+report schema, codec adapter registry, libvmaf public API, or FFmpeg
+patch stack.
+
+**Invariant to preserve on rebase**: `sample_clip_seconds` in
+`bisect_target_vmaf`, `make_bisect_predicate`, and `vmaf-tune compare`
+must compute one centre-anchored sample window and thread it into both
+`EncodeRequest` (`sample_clip_start_s` / `sample_clip_seconds`) and
+`ScoreRequest` (`frame_skip_ref` / `frame_cnt`). Bitrate must be
+normalised against the sample duration when sample-clip mode is active.
+Unknown duration, non-positive framerate, or samples not shorter than
+the source remain full-source mode.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_bisect.py \
+  tools/vmaf-tune/tests/test_compare.py -q
+```
+
 ## 2026-05-14 — `vmaf-tune ladder` spacing alias fix
 
 **Files touched**: `tools/vmaf-tune/src/vmaftune/cli.py`,

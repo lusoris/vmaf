@@ -245,6 +245,29 @@ def test_no_real_subprocess_invoked(monkeypatch):
     assert result.ok is True
 
 
+def test_sample_clip_aligns_encode_and_score_windows():
+    enc, sc, log = _make_runners(lambda c: 100.0 - c, bytes_per_crf=lambda _c: 4_000_000)
+    result = bisect_target_vmaf(
+        Path("ref.yuv"),
+        "libx264",
+        target_vmaf=80.0,
+        crf_range=(20, 20),
+        max_iterations=1,
+        sample_clip_seconds=4.0,
+        encode_runner=enc,
+        score_runner=sc,
+        **_kwargs(duration_s=10.0, framerate=24.0),
+    )
+    assert result.ok is True
+    assert result.bitrate_kbps == 8000.0
+    encode_argv = next(entry["argv"] for entry in log if entry["kind"] == "encode")
+    score_argv = next(entry["argv"] for entry in log if entry["kind"] == "score")
+    assert encode_argv[encode_argv.index("-ss") + 1] == "3.0"
+    assert encode_argv[encode_argv.index("-t") + 1] == "4.0"
+    assert score_argv[score_argv.index("--frame_skip_ref") + 1] == "72"
+    assert score_argv[score_argv.index("--frame_cnt") + 1] == "96"
+
+
 def test_predicate_adapter_plugs_into_compare_codecs():
     enc, sc, _log = _make_runners(lambda c: 100.0 - c)
     predicate = make_bisect_predicate(
@@ -390,6 +413,27 @@ def test_predicate_with_multiple_codecs():
     for codec_name in ("libx264", "libx265"):
         assert rows_by_codec[codec_name].ok is True
         assert rows_by_codec[codec_name].best_crf == 20
+
+
+def test_predicate_forwards_sample_clip_seconds():
+    enc, sc, log = _make_runners(lambda c: 100.0 - c)
+    predicate = make_bisect_predicate(
+        target_vmaf=80.0,
+        crf_range=(20, 20),
+        max_iterations=1,
+        sample_clip_seconds=2.0,
+        encode_runner=enc,
+        score_runner=sc,
+        **_kwargs(duration_s=8.0, framerate=30.0),
+    )
+    row = predicate("libx264", Path("ref.yuv"), 80.0)
+    assert row.ok is True
+    encode_argv = next(entry["argv"] for entry in log if entry["kind"] == "encode")
+    score_argv = next(entry["argv"] for entry in log if entry["kind"] == "score")
+    assert encode_argv[encode_argv.index("-ss") + 1] == "3.0"
+    assert encode_argv[encode_argv.index("-t") + 1] == "2.0"
+    assert score_argv[score_argv.index("--frame_skip_ref") + 1] == "90"
+    assert score_argv[score_argv.index("--frame_cnt") + 1] == "60"
 
 
 def test_module_exports_match_public_surface():

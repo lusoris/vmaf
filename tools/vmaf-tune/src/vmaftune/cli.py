@@ -656,6 +656,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="source duration in seconds, used for bitrate math",
     )
+    compare.add_argument(
+        "--sample-clip-seconds",
+        type=float,
+        default=0.0,
+        help=(
+            "score a centered N-second source window per bisect iteration "
+            "(ADR-0301). 0 = full source."
+        ),
+    )
     compare.add_argument("--preset", default=None, help="codec preset for the bisect backend")
     compare.add_argument("--crf-min", type=int, default=None, help="inclusive lower CRF bound")
     compare.add_argument("--crf-max", type=int, default=None, help="inclusive upper CRF bound")
@@ -1853,6 +1862,7 @@ def _run_compare(args: argparse.Namespace) -> int:
             pix_fmt=args.pix_fmt,
             framerate=args.framerate,
             duration_s=args.duration,
+            sample_clip_seconds=args.sample_clip_seconds,
             preset=args.preset,
             crf_range=crf_range,
             max_iterations=args.max_iterations,
