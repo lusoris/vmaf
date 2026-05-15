@@ -1,6 +1,6 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""Saliency-aware ROI tests for x265 / SVT-AV1 / libvvenc adapters (ADR-0370).
+"""Saliency-aware ROI tests for x265 / SVT-AV1 / libaom / libvvenc adapters.
 
 All ONNX inference is mocked via ``session_factory``; no onnxruntime
 install required. All file I/O uses ``tmp_path``; no encoder binaries
@@ -19,6 +19,7 @@ sys.path.insert(0, str(_HERE.parent / "src"))
 
 np = pytest.importorskip("numpy")
 
+from vmaftune.codec_adapters.libaom import LibaomAdapter  # noqa: E402
 from vmaftune.codec_adapters.svtav1 import SvtAv1Adapter  # noqa: E402
 from vmaftune.codec_adapters.vvenc import VVenCAdapter  # noqa: E402
 from vmaftune.codec_adapters.x265 import X265Adapter  # noqa: E402
@@ -28,6 +29,7 @@ from vmaftune.saliency import (  # noqa: E402
     SVTAV1_SB_SIDE,
     VVENC_CTU_SIDE,
     X264_MB_SIDE,
+    augment_extra_params_with_libaom_qpfile,
     augment_extra_params_with_svtav1_qpmap,
     augment_extra_params_with_vvenc_roi,
     augment_extra_params_with_x265_zones,
@@ -133,6 +135,48 @@ def test_x265_adapter_supports_two_pass_unchanged():
     # ADR-0370 must NOT touch two-pass support.
     a = X265Adapter()
     assert a.supports_two_pass is True
+
+
+# ===========================================================================
+# LibaomAdapter.qpfile_from_saliency
+# ===========================================================================
+
+
+def test_augment_extra_params_with_libaom_qpfile_appends_top_level_qpfile(tmp_path):
+    qpfile = tmp_path / "roi.qpfile.txt"
+    qpfile.write_text("0 I 0\n", encoding="ascii")
+    out = augment_extra_params_with_libaom_qpfile((), qpfile)
+    assert out == ("-qpfile", str(qpfile))
+
+
+def test_augment_extra_params_with_libaom_qpfile_preserves_base(tmp_path):
+    qpfile = tmp_path / "roi.qpfile.txt"
+    qpfile.write_text("0 I 0\n", encoding="ascii")
+    base = ("-threads", "4")
+    out = augment_extra_params_with_libaom_qpfile(base, qpfile)
+    assert out == ("-threads", "4", "-qpfile", str(qpfile))
+
+
+def test_libaom_adapter_has_supports_saliency_roi():
+    a = LibaomAdapter()
+    assert a.supports_qpfile is True
+    assert a.supports_saliency_roi is True
+
+
+def test_libaom_adapter_qpfile_from_saliency_writes_file(tmp_path):
+    a = LibaomAdapter()
+    blocks = _make_saliency_offsets(64, 64, block=X264_MB_SIDE, fill=-4)
+    out = tmp_path / "libaom.qpfile.txt"
+    result = a.qpfile_from_saliency(blocks, out, duration_frames=2)
+    assert Path(result) == out
+    text = out.read_text(encoding="ascii")
+    assert text.startswith("0 I 0\n")
+    assert "1 P 0\n" in text
+
+
+def test_libaom_adapter_extra_params_unchanged():
+    a = LibaomAdapter()
+    assert a.extra_params() == ()
 
 
 # ===========================================================================

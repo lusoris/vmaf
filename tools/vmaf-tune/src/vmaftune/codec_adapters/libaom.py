@@ -29,6 +29,7 @@ search loop stays codec-agnostic by speaking only ``preset`` and
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
 
@@ -72,7 +73,8 @@ class LibaomAdapter:
     # canonical preset name maps to cpu-used 9 in _PRESET_CPU_USED.
     probe_preset: str = "ultrafast"
     probe_quality: int = 35
-    supports_qpfile: bool = False
+    supports_qpfile: bool = True
+    supports_saliency_roi: bool = True
     # ADR-0332: this encoder has no parseable first-pass stats file.
     supports_encoder_stats: bool = False
 
@@ -127,6 +129,18 @@ class LibaomAdapter:
     def extra_params(self) -> tuple[str, ...]:
         """No additional non-codec argv for libaom-av1."""
         return ()
+
+    def qpfile_from_saliency(
+        self,
+        block_offsets: object,
+        out_path: Path,
+        *,
+        duration_frames: int = 1,
+    ) -> Path:
+        """Write the x264-style qpfile consumed by patched FFmpeg libaom."""
+        from vmaftune.saliency import write_x264_qpfile
+
+        return write_x264_qpfile(block_offsets, Path(out_path), duration_frames=duration_frames)
 
     def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
         """FFmpeg ``-g`` / ``-keyint_min``, honoured by libaom-av1."""

@@ -1,8 +1,8 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""End-to-end dispatch tests for saliency-aware ROI encoding (ADR-0370).
+"""End-to-end dispatch tests for saliency-aware ROI encoding.
 
-One test per target encoder (x265 / SVT-AV1 / libvvenc) verifying that
+One test per target encoder (x265 / SVT-AV1 / libaom / libvvenc) verifying that
 ``saliency_aware_encode`` produces the correct per-codec argv when called
 with each encoder.  ONNX inference and the encode runner are mocked so no
 ffmpeg or onnxruntime install is required.
@@ -113,9 +113,9 @@ def _capture_runner(tmp_path: Path) -> tuple[dict, object]:
 # ---------------------------------------------------------------------------
 
 
-def test_saliency_dispatch_table_contains_all_three_targets():
-    """_SALIENCY_DISPATCH must wire x265, libsvtav1, and libvvenc."""
-    for enc in ("libx265", "libsvtav1", "libvvenc"):
+def test_saliency_dispatch_table_contains_roi_targets():
+    """_SALIENCY_DISPATCH must wire every saliency ROI target."""
+    for enc in ("libx264", "libaom-av1", "libx265", "libsvtav1", "libvvenc"):
         assert enc in _SALIENCY_DISPATCH, f"{enc!r} missing from _SALIENCY_DISPATCH"
 
 
@@ -191,6 +191,100 @@ def test_saliency_aware_encode_x265_does_not_emit_x264_params(tmp_path):
     )
 
     assert "-x264-params" not in captured["cmd"]
+
+
+# ---------------------------------------------------------------------------
+# libaom-av1 — shared qpfile via patched FFmpeg -qpfile
+# ---------------------------------------------------------------------------
+
+
+def test_saliency_aware_encode_libaom_emits_qpfile(tmp_path):
+    """libaom dispatch: top-level ``-qpfile <path>`` appears in the argv."""
+    request, _ = _make_request(tmp_path, "libaom-av1")
+    fake_model = tmp_path / "saliency_student_v1.onnx"
+    fake_model.write_bytes(b"\x00")
+    captured, runner = _capture_runner(tmp_path)
+
+    cfg = SaliencyConfig(foreground_offset=-4, frame_samples=2, persist_qpfile=True)
+    result = saliency_aware_encode(
+        request,
+        duration_frames=4,
+        model_path=fake_model,
+        config=cfg,
+        encode_runner=runner,
+        session_factory=_session_factory_for(128, 128),
+    )
+
+    assert result.exit_status == 0
+    cmd = captured["cmd"]
+    assert "-qpfile" in cmd, "expected -qpfile flag in ffmpeg argv"
+    qpfile = Path(cmd[cmd.index("-qpfile") + 1])
+    assert qpfile.exists()
+    assert qpfile.name.endswith(".libaom-qpfile.txt")
+
+
+def test_saliency_aware_encode_libaom_qpfile_has_16x16_granularity(tmp_path):
+    """The written libaom qpfile should use the shared 16x16 MB grid."""
+    request, _ = _make_request(tmp_path, "libaom-av1", width=64, height=64)
+    fake_model = tmp_path / "saliency_student_v1.onnx"
+    fake_model.write_bytes(b"\x00")
+    captured, runner = _capture_runner(tmp_path)
+
+    saliency_aware_encode(
+        request,
+        duration_frames=1,
+        model_path=fake_model,
+        config=SaliencyConfig(frame_samples=1, persist_qpfile=True),
+        encode_runner=runner,
+        session_factory=_session_factory_for(64, 64),
+    )
+
+    qpfile = Path(captured["cmd"][captured["cmd"].index("-qpfile") + 1])
+    data_lines = qpfile.read_text(encoding="ascii").splitlines()[1:]
+    assert len(data_lines) == 4, f"expected 4 MB rows (64/16), got {len(data_lines)}"
+    for line in data_lines:
+        cols = line.split()
+        assert len(cols) == 4, f"expected 4 MB columns (64/16), got {len(cols)}: {line!r}"
+
+
+def test_saliency_aware_encode_libaom_does_not_emit_encoder_private_roi_params(tmp_path):
+    """libaom path must not use another encoder's private ROI channel."""
+    request, _ = _make_request(tmp_path, "libaom-av1")
+    fake_model = tmp_path / "saliency_student_v1.onnx"
+    fake_model.write_bytes(b"\x00")
+    captured, runner = _capture_runner(tmp_path)
+
+    saliency_aware_encode(
+        request,
+        duration_frames=1,
+        model_path=fake_model,
+        config=SaliencyConfig(frame_samples=1, persist_qpfile=True),
+        encode_runner=runner,
+        session_factory=_session_factory_for(128, 128),
+    )
+
+    for forbidden in ("-x264-params", "-x265-params", "-svtav1-params", "-vvenc-params"):
+        assert forbidden not in captured["cmd"], f"unexpected flag {forbidden!r} in libaom argv"
+
+
+def test_saliency_aware_encode_libaom_cleans_ephemeral_qpfile(tmp_path):
+    """Non-persisted libaom qpfiles are removed after the encode returns."""
+    request, _ = _make_request(tmp_path, "libaom-av1")
+    fake_model = tmp_path / "saliency_student_v1.onnx"
+    fake_model.write_bytes(b"\x00")
+    captured, runner = _capture_runner(tmp_path)
+
+    saliency_aware_encode(
+        request,
+        duration_frames=1,
+        model_path=fake_model,
+        config=SaliencyConfig(frame_samples=1, persist_qpfile=False),
+        encode_runner=runner,
+        session_factory=_session_factory_for(128, 128),
+    )
+
+    qpfile = Path(captured["cmd"][captured["cmd"].index("-qpfile") + 1])
+    assert not qpfile.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -378,5 +472,5 @@ def test_saliency_aware_encode_unknown_encoder_falls_back_to_plain(tmp_path):
     )
 
     # None of the saliency-specific argv flags should appear.
-    for flag in ("-x264-params", "-x265-params", "-svtav1-params", "-vvenc-params"):
+    for flag in ("-qpfile", "-x264-params", "-x265-params", "-svtav1-params", "-vvenc-params"):
         assert flag not in captured.get("cmd", [])

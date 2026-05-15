@@ -116,7 +116,7 @@ class CorpusOptions:
     # off — single-pass behaviour stays the canonical path. When set
     # against an adapter where ``supports_two_pass = False``, the
     # encode driver writes a one-line stderr warning and runs
-    # single-pass (matching the saliency x264-only fallback
+    # single-pass (matching the saliency unsupported-ROI fallback
     # precedent).
     two_pass: bool = False
     # Content-addressed encode cache (ADR-0298): when enabled, iter_rows

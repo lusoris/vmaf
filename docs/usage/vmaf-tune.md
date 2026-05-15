@@ -1137,7 +1137,7 @@ vmaf-tune recommend-saliency \
 | --- | --- |
 | Bitrate (same VMAF) | **−10 % to −20 %** for content with strong attention focus (faces, action, sport). Background-uniform content sees little change. |
 | Encode time | **+5 %** typical (saliency inference + per-MB reduce; per-frame model time is sub-millisecond on CPU at SD/HD). |
-| Decode time | unchanged (the bitstream is standard-compliant for all four supported encoders). |
+| Decode time | unchanged (the bitstream is standard-compliant for all five supported encoders). |
 | Quality (VMAF) | unchanged at the **clip-mean** level; concentrated where the eye looks. |
 
 Numbers are indicative. Today's `recommend-saliency` subcommand is a
@@ -1156,21 +1156,25 @@ opportunistic. This matches the
 
 ### Encoder targets
 
-The saliency pipeline supports four encoder ROI mechanisms:
+The saliency pipeline supports five encoder ROI mechanisms:
 
 | Encoder | ROI channel | Granularity | argv slot |
 | --- | --- | --- | --- |
 | `libx264` | ASCII `--qpfile` (x264 r2390+) | 16×16 luma MB | `-x264-params qpfile=…` |
+| `libaom-av1` | patched FFmpeg `-qpfile` ROI bridge | 16×16 luma MB mapped onto libaom MI cells | `-qpfile …` |
 | `libx265` | `--zones` QP delta (per-clip mean) | full-clip spatial mean | `-x265-params zones=0,N,q=<delta>` |
 | `libsvtav1` | `--qp-file` offset map (SVT-AV1 v1.7+) | 64×64 super-block | `-svtav1-params qp-file=…` |
 | `libvvenc` | `ROIFile` CSV (VVenC v1.14.0+) | 64×64 CTU | `-vvenc-params ROIFile=…` |
 
 See [ADR-0293](../adr/0293-vmaf-tune-saliency-aware.md) (x264 baseline) and
 [ADR-0370](../adr/0370-saliency-roi-x265-svtav1-vvenc.md) (x265 / SVT-AV1 / VVenC).
+The libaom-av1 row uses the shared `-qpfile` bridge documented in
+[`vmaf-tune-ffmpeg.md`](vmaf-tune-ffmpeg.md#libaom-av1--full-roi-bridge).
 
 Per-adapter helpers in `vmaftune.saliency`:
 
 - `write_x265_zones_arg(block_offsets, duration_frames)` → zones string
+- `write_x264_qpfile(block_offsets, out_path, duration_frames)` → x264/libaom qpfile
 - `write_svtav1_qpoffset_map(block_offsets, out_path, duration_frames)` → Path
 - `write_vvenc_roi_csv(block_offsets, out_path, duration_frames)` → Path
 
@@ -1184,6 +1188,9 @@ Per-adapter helpers in `vmaftune.saliency`:
   granularity but not per-block spatial granularity. The zone carries
   the mean QP delta across all blocks. Per-block x265 ROI requires a
   future x265 qpfile port (different format from x264).
+- **libaom segment quantisation.** The FFmpeg bridge maps 16×16 qpfile
+  deltas onto libaom's MI grid and at most eight segment QPs. Very
+  fine-grained deltas are therefore quantised to the nearest segment.
 - **SVT-AV1 / VVenC: 64×64 granularity.** Both encoders document
   64×64 as their ROI-map unit. The saliency mask is reduced to this
   grid via `reduce_qp_map_to_blocks(qp_map, block=64)` before writing.
@@ -1667,7 +1674,7 @@ encoder sidecars when the run completes — successful or not.
 
 When `--two-pass` is set against a codec where `supports_two_pass = False`,
 vmaf-tune writes a one-line warning to stderr and runs single-pass.
-(Mirrors the saliency.py "x264-only, fallback to plain encode"
+(Mirrors the saliency.py "unsupported ROI encoder, fallback to plain encode"
 precedent.) To fail loud instead, callers using the Python API can
 pass `on_unsupported="raise"` to `run_two_pass_encode`.
 

@@ -559,7 +559,7 @@ def run_two_pass_encode(
 
     - ``"fallback"`` (default) — log a one-line stderr warning and
       run a single-pass encode (returning that result). Mirrors the
-      saliency.py "x264-only, fall back to plain encode" precedent.
+      saliency.py "unsupported ROI encoder, fall back to plain encode" precedent.
     - ``"raise"`` — raise :class:`ValueError`. For callers that want
       to fail loudly rather than silently degrade.
     """
