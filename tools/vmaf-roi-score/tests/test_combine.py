@@ -6,9 +6,9 @@ Mocks the ``vmaf`` subprocess so no binaries are required. Pins:
 
 - the combine-math is a pure linear blend on Python ``float``;
 - the JSON output schema (key order, schema_version);
-- the synthetic-mask code path produces a score *between* the two
-  underlying VMAF runs (the contract the user-facing docstring
-  promises).
+- the synthetic-mask code path materialises a masked YUV and produces
+  a score *between* the two underlying VMAF runs (the contract the
+  user-facing docstring promises).
 """
 
 from __future__ import annotations
@@ -214,16 +214,24 @@ def test_cli_synthetic_smoke(monkeypatch, tmp_path: Path):
     """
     ref = tmp_path / "ref.yuv"
     dis = tmp_path / "dis.yuv"
-    ref.write_bytes(b"\x80" * 16)
-    dis.write_bytes(b"\x80" * 16)
+    ref.write_bytes(bytes([10] * 16 + [20] * 4 + [30] * 4))
+    dis.write_bytes(bytes([110] * 16 + [120] * 4 + [130] * 4))
     out = tmp_path / "result.json"
+    distorted_paths: list[Path] = []
+    masked_bytes: list[bytes] = []
 
     def _fake_run(cmd, capture_output=False, text=False, check=False):
         # Find the --output path argparse handed us and drop a JSON
         # there in the modern pooled_metrics shape.
+        dis_idx = cmd.index("--distorted")
+        distorted = Path(cmd[dis_idx + 1])
+        distorted_paths.append(distorted)
+        if distorted != dis:
+            masked_bytes.append(distorted.read_bytes())
         out_idx = cmd.index("--output")
+        score = 80.0 if distorted == dis else 90.0
         Path(cmd[out_idx + 1]).write_text(
-            json.dumps({"pooled_metrics": {"vmaf": {"mean": 87.5}}}),
+            json.dumps({"pooled_metrics": {"vmaf": {"mean": score}}}),
             encoding="utf-8",
         )
         return _FakeCompleted(0, stderr="VMAF version: smoke-mock\n")
@@ -237,11 +245,15 @@ def test_cli_synthetic_smoke(monkeypatch, tmp_path: Path):
             "--distorted",
             str(dis),
             "--width",
-            "576",
+            "4",
             "--height",
-            "324",
+            "4",
             "--synthetic-mask",
             "0.5",
+            "--threshold",
+            "0",
+            "--fade",
+            "1",
             "--weight",
             "0.7",
             "--output",
@@ -252,11 +264,12 @@ def test_cli_synthetic_smoke(monkeypatch, tmp_path: Path):
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert tuple(payload.keys()) == ROI_RESULT_KEYS
     assert payload["schema_version"] == SCHEMA_VERSION
-    # Synthetic-mask path scores the same YUV twice; both legs are 87.5
-    # so the blend is also 87.5 regardless of weight.
-    assert payload["vmaf_full"] == 87.5
-    assert payload["vmaf_masked"] == 87.5
-    assert payload["vmaf_roi"] == 87.5
+    assert distorted_paths[0] == dis
+    assert distorted_paths[1] != dis
+    assert masked_bytes == [bytes([60] * 16 + [70] * 4 + [80] * 4)]
+    assert payload["vmaf_full"] == 80.0
+    assert payload["vmaf_masked"] == 90.0
+    assert payload["vmaf_roi"] == 87.0
     assert payload["weight"] == 0.7
     assert payload["saliency_model"] == "synthetic"
 
