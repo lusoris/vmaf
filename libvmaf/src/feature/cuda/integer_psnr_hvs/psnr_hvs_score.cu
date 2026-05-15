@@ -8,11 +8,13 @@
  *  differences. One CUDA kernel, one block per output 8×8
  *  block (step=7), 64 threads/block.
  *
- *  Cooperative load + thread-0-serial reductions matching CPU's
+ *  Cooperative load + thread-0-serial float reductions matching CPU's
  *  linear i,j summation order (same precision strategy as the
  *  Vulkan kernel: lock per-block bit-order to CPU's calc_psnrhvs
- *  computation pattern). DCT + masking + accumulation all run
- *  in thread 0; only the sample load is parallel across threads.
+ *  computation pattern). The two integer DCT passes are row/column
+ *  parallel across the first eight CUDA threads; masking and float
+ *  accumulation stay on thread 0 to preserve the established
+ *  reduction order.
  */
 
 #include "cuda_helper.cuh"
@@ -139,38 +141,41 @@ __device__ static void od_bin_fdct8(int &y0, int &y1, int &y2, int &y3, int &y4,
     y7 = t7;
 }
 
-__device__ static void od_bin_fdct8x8(int blk[64])
+__device__ static void od_bin_fdct8x8_parallel(int blk[64], int z[64], unsigned lane)
 {
-    int z[64];
     /* Pass 1: read input column i, write z[8i + 0..7] = column DCT. */
-    for (int i = 0; i < 8; i++) {
+    if (lane < 8u) {
         int y0, y1, y2, y3, y4, y5, y6, y7;
-        od_bin_fdct8(y0, y1, y2, y3, y4, y5, y6, y7, blk[0 * 8 + i], blk[1 * 8 + i], blk[2 * 8 + i],
-                     blk[3 * 8 + i], blk[4 * 8 + i], blk[5 * 8 + i], blk[6 * 8 + i],
-                     blk[7 * 8 + i]);
-        z[i * 8 + 0] = y0;
-        z[i * 8 + 1] = y1;
-        z[i * 8 + 2] = y2;
-        z[i * 8 + 3] = y3;
-        z[i * 8 + 4] = y4;
-        z[i * 8 + 5] = y5;
-        z[i * 8 + 6] = y6;
-        z[i * 8 + 7] = y7;
+        od_bin_fdct8(y0, y1, y2, y3, y4, y5, y6, y7, blk[0 * 8 + lane], blk[1 * 8 + lane],
+                     blk[2 * 8 + lane], blk[3 * 8 + lane], blk[4 * 8 + lane], blk[5 * 8 + lane],
+                     blk[6 * 8 + lane], blk[7 * 8 + lane]);
+        z[lane * 8 + 0] = y0;
+        z[lane * 8 + 1] = y1;
+        z[lane * 8 + 2] = y2;
+        z[lane * 8 + 3] = y3;
+        z[lane * 8 + 4] = y4;
+        z[lane * 8 + 5] = y5;
+        z[lane * 8 + 6] = y6;
+        z[lane * 8 + 7] = y7;
     }
+    __syncthreads();
+
     /* Pass 2: read column i of z, write blk[8i + 0..7] = 2-D DCT row. */
-    for (int i = 0; i < 8; i++) {
+    if (lane < 8u) {
         int y0, y1, y2, y3, y4, y5, y6, y7;
-        od_bin_fdct8(y0, y1, y2, y3, y4, y5, y6, y7, z[0 * 8 + i], z[1 * 8 + i], z[2 * 8 + i],
-                     z[3 * 8 + i], z[4 * 8 + i], z[5 * 8 + i], z[6 * 8 + i], z[7 * 8 + i]);
-        blk[i * 8 + 0] = y0;
-        blk[i * 8 + 1] = y1;
-        blk[i * 8 + 2] = y2;
-        blk[i * 8 + 3] = y3;
-        blk[i * 8 + 4] = y4;
-        blk[i * 8 + 5] = y5;
-        blk[i * 8 + 6] = y6;
-        blk[i * 8 + 7] = y7;
+        od_bin_fdct8(y0, y1, y2, y3, y4, y5, y6, y7, z[0 * 8 + lane], z[1 * 8 + lane],
+                     z[2 * 8 + lane], z[3 * 8 + lane], z[4 * 8 + lane], z[5 * 8 + lane],
+                     z[6 * 8 + lane], z[7 * 8 + lane]);
+        blk[lane * 8 + 0] = y0;
+        blk[lane * 8 + 1] = y1;
+        blk[lane * 8 + 2] = y2;
+        blk[lane * 8 + 3] = y3;
+        blk[lane * 8 + 4] = y4;
+        blk[lane * 8 + 5] = y5;
+        blk[lane * 8 + 6] = y6;
+        blk[lane * 8 + 7] = y7;
     }
+    __syncthreads();
 }
 
 __device__ static inline int sample_to_int(float v, int bpc)
@@ -185,16 +190,21 @@ __device__ static inline int sample_to_int(float v, int bpc)
 }
 
 /* psnr_hvs kernel: one CUDA block per output 8×8 image block.
- * Cooperative load (64 threads), then thread 0 runs the entire
- * per-block math in CPU's exact i,j summation order — matches
- * `calc_psnrhvs` byte-for-byte to lock float bit-order at the
- * level Vulkan does (places=3, max ~8e-5 on Y per ADR-0191). */
+ * Cooperative load (64 threads), then thread 0 runs the float
+ * means / variances in CPU's exact i,j summation order. The first
+ * eight threads run the integer DCT passes in parallel; thread 0
+ * resumes for the masking and final float reduction so the
+ * established CUDA/Vulkan numeric contract stays unchanged. */
 __global__ void psnr_hvs(VmafCudaBuffer ref_in, VmafCudaBuffer dist_in, VmafCudaBuffer partials_out,
                          unsigned width, unsigned height, unsigned num_blocks_x,
                          unsigned num_blocks_y, int plane, int bpc)
 {
     __shared__ int s_ref[64];
     __shared__ int s_dist[64];
+    __shared__ int dct_s[64];
+    __shared__ int dct_d[64];
+    __shared__ int z_s[64];
+    __shared__ int z_d[64];
 
     const unsigned blk_x = blockIdx.x;
     const unsigned blk_y = blockIdx.y;
@@ -220,18 +230,9 @@ __global__ void psnr_hvs(VmafCudaBuffer ref_in, VmafCudaBuffer dist_in, VmafCuda
     }
     s_ref[local_idx] = my_ref;
     s_dist[local_idx] = my_dist;
+    dct_s[local_idx] = my_ref;
+    dct_d[local_idx] = my_dist;
     __syncthreads();
-
-    if (local_idx != 0u)
-        return;
-
-    /* Thread 0: full per-block computation in CPU order. */
-    int dct_s[64];
-    int dct_d[64];
-    for (int i = 0; i < 64; i++)
-        dct_s[i] = s_ref[i];
-    for (int i = 0; i < 64; i++)
-        dct_d[i] = s_dist[i];
 
     float s_means[4] = {0.f, 0.f, 0.f, 0.f};
     float d_means[4] = {0.f, 0.f, 0.f, 0.f};
@@ -241,51 +242,56 @@ __global__ void psnr_hvs(VmafCudaBuffer ref_in, VmafCudaBuffer dist_in, VmafCuda
     float s_gvar = 0.f, d_gvar = 0.f;
     float s_mc = 0.f, d_mc = 0.f;
 
-    /* Pass 1: means. */
-    for (int i = 0; i < 8; i++) {
-        for (int j = 0; j < 8; j++) {
-            const int sub = ((i & 12) >> 2) + ((j & 12) >> 1);
-            s_gmean += (float)dct_s[i * 8 + j];
-            d_gmean += (float)dct_d[i * 8 + j];
-            s_means[sub] += (float)dct_s[i * 8 + j];
-            d_means[sub] += (float)dct_d[i * 8 + j];
+    if (local_idx == 0u) {
+        /* Pass 1: means. */
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                const int sub = ((i & 12) >> 2) + ((j & 12) >> 1);
+                s_gmean += (float)s_ref[i * 8 + j];
+                d_gmean += (float)s_dist[i * 8 + j];
+                s_means[sub] += (float)s_ref[i * 8 + j];
+                d_means[sub] += (float)s_dist[i * 8 + j];
+            }
         }
-    }
-    s_gmean /= 64.f;
-    d_gmean /= 64.f;
-    for (int i = 0; i < 4; i++)
-        s_means[i] /= 16.f;
-    for (int i = 0; i < 4; i++)
-        d_means[i] /= 16.f;
+        s_gmean /= 64.f;
+        d_gmean /= 64.f;
+        for (int i = 0; i < 4; i++)
+            s_means[i] /= 16.f;
+        for (int i = 0; i < 4; i++)
+            d_means[i] /= 16.f;
 
-    /* Pass 2: variances. */
-    for (int i = 0; i < 8; i++) {
-        for (int j = 0; j < 8; j++) {
-            const int sub = ((i & 12) >> 2) + ((j & 12) >> 1);
-            const float ds = (float)dct_s[i * 8 + j] - s_gmean;
-            const float dd = (float)dct_d[i * 8 + j] - d_gmean;
-            s_gvar += ds * ds;
-            d_gvar += dd * dd;
-            const float qs = (float)dct_s[i * 8 + j] - s_means[sub];
-            const float qd = (float)dct_d[i * 8 + j] - d_means[sub];
-            s_vars[sub] += qs * qs;
-            d_vars[sub] += qd * qd;
+        /* Pass 2: variances. */
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                const int sub = ((i & 12) >> 2) + ((j & 12) >> 1);
+                const float ds = (float)s_ref[i * 8 + j] - s_gmean;
+                const float dd = (float)s_dist[i * 8 + j] - d_gmean;
+                s_gvar += ds * ds;
+                d_gvar += dd * dd;
+                const float qs = (float)s_ref[i * 8 + j] - s_means[sub];
+                const float qd = (float)s_dist[i * 8 + j] - d_means[sub];
+                s_vars[sub] += qs * qs;
+                d_vars[sub] += qd * qd;
+            }
         }
+        s_gvar *= 1.f / 63.f * 64.f;
+        d_gvar *= 1.f / 63.f * 64.f;
+        for (int i = 0; i < 4; i++)
+            s_vars[i] *= 1.f / 15.f * 16.f;
+        for (int i = 0; i < 4; i++)
+            d_vars[i] *= 1.f / 15.f * 16.f;
+        if (s_gvar > 0.f)
+            s_gvar = (s_vars[0] + s_vars[1] + s_vars[2] + s_vars[3]) / s_gvar;
+        if (d_gvar > 0.f)
+            d_gvar = (d_vars[0] + d_vars[1] + d_vars[2] + d_vars[3]) / d_gvar;
     }
-    s_gvar *= 1.f / 63.f * 64.f;
-    d_gvar *= 1.f / 63.f * 64.f;
-    for (int i = 0; i < 4; i++)
-        s_vars[i] *= 1.f / 15.f * 16.f;
-    for (int i = 0; i < 4; i++)
-        d_vars[i] *= 1.f / 15.f * 16.f;
-    if (s_gvar > 0.f)
-        s_gvar = (s_vars[0] + s_vars[1] + s_vars[2] + s_vars[3]) / s_gvar;
-    if (d_gvar > 0.f)
-        d_gvar = (d_vars[0] + d_vars[1] + d_vars[2] + d_vars[3]) / d_gvar;
 
-    /* DCT in place. */
-    od_bin_fdct8x8(dct_s);
-    od_bin_fdct8x8(dct_d);
+    /* Integer DCT in place, parallel across the first eight threads. */
+    od_bin_fdct8x8_parallel(dct_s, z_s, local_idx);
+    od_bin_fdct8x8_parallel(dct_d, z_d, local_idx);
+
+    if (local_idx != 0u)
+        return;
 
     /* Pass 3: per-coefficient mask·dct² accumulation, skipping DC. */
     float mask[64];

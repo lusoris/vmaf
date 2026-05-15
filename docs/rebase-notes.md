@@ -34546,3 +34546,31 @@ frame. `--bitdepth` remains limited to `8|10|12|16`.
 ```bash
 meson test -C libvmaf/build-pershot-pixfmt test_vmaf_per_shot --print-errorlogs
 ```
+
+## 2026-05-15 — CUDA `psnr_hvs` DCT Parallelisation
+
+**Files touched**:
+`libvmaf/src/feature/cuda/integer_psnr_hvs/psnr_hvs_score.cu`,
+`libvmaf/src/feature/cuda/AGENTS.md`,
+`docs/backends/cuda/overview.md`,
+`docs/research/0130-cuda-psnr-hvs-dct-parallel-2026-05-15.md`.
+
+**Rebase impact**: low. The host lifecycle, feature names, CLI surface,
+and public APIs are unchanged. This is a CUDA-kernel scheduling
+optimisation for an existing extractor.
+
+**Invariant to preserve on rebase**: only the integer 8x8 DCT passes
+run across the first eight CUDA threads. Float means, variances,
+masking, and masked-error accumulation stay thread-0 serial in CPU scan
+order; do not convert them to warp/block reductions without a separate
+numeric-contract ADR and cross-backend tolerance update.
+
+**Smoke-test after rebase**:
+
+```bash
+python3 scripts/ci/cross_backend_vif_diff.py \
+  --vmaf-binary "$PWD/libvmaf/build-cuda/tools/vmaf" \
+  --reference testdata/ref_576x324_48f.yuv \
+  --distorted testdata/dis_576x324_48f.yuv \
+  --width 576 --height 324 --feature psnr_hvs --backend cuda --places 3
+```
