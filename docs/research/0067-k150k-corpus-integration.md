@@ -1,4 +1,4 @@
-# Research-0067: K150K-A corpus integration feasibility and pipeline design
+# Research-0067 — K150K-A corpus integration feasibility and pipeline design
 
 **Date:** 2026-05-09
 **ADR:** [ADR-0362](../adr/0362-k150k-corpus-integration.md)
@@ -22,8 +22,8 @@ run.
 | Duration | ~5 s per clip |
 | Container | MP4, H.264/AVC |
 | MOS range | 1.0 – 5.0 (crowd-sourced scale) |
-| Local path | `.corpus/konvid-150k/k150ka_extracted/` |
-| Labels CSV | `.corpus/konvid-150k/k150ka_scores.csv` |
+| Local path | `.workingdir2/konvid-150k/k150ka_extracted/` |
+| Labels CSV | `.workingdir2/konvid-150k/k150ka_scores.csv` |
 
 ## Extraction pipeline
 

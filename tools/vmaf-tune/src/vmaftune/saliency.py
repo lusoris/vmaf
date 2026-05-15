@@ -74,10 +74,6 @@ _IMAGENET_STD = (0.229, 0.224, 0.225)
 # scoring extractor uses for per-clip aggregates.
 DEFAULT_FRAME_SAMPLES = 8
 
-SALIENCY_AGGREGATORS = ("mean", "ema", "max", "motion-weighted")
-DEFAULT_SALIENCY_AGGREGATOR = "mean"
-DEFAULT_SALIENCY_EMA_ALPHA = 0.6
-
 
 class SaliencyUnavailableError(RuntimeError):
     """Raised when saliency inference is requested but onnxruntime or
@@ -99,12 +95,6 @@ class SaliencyConfig:
     # encoded artifact (gitignored). If False, use a
     # ``tempfile.NamedTemporaryFile`` cleaned up by the OS.
     persist_qpfile: bool = False
-    # Temporal reducer for the sampled per-frame saliency masks.
-    # ``mean`` preserves the historical aggregate. ``ema`` and ``max``
-    # are cheap video-saliency baselines from ADR-0396 Phase 1.
-    temporal_aggregator: str = DEFAULT_SALIENCY_AGGREGATOR
-    # Current-frame weight for the EMA reducer.
-    ema_alpha: float = DEFAULT_SALIENCY_EMA_ALPHA
 
 
 def _import_numpy() -> Any:
@@ -201,25 +191,6 @@ def _frame_count(path: Path, width: int, height: int) -> int:
     return fsize // _yuv420p_frame_size(width, height)
 
 
-def _validate_temporal_aggregator(temporal_aggregator: str, ema_alpha: float) -> None:
-    if temporal_aggregator not in SALIENCY_AGGREGATORS:
-        raise ValueError(
-            f"temporal_aggregator must be one of {SALIENCY_AGGREGATORS}, "
-            f"got {temporal_aggregator!r}"
-        )
-    if not (0.0 < float(ema_alpha) <= 1.0):
-        raise ValueError(f"ema_alpha must be in (0, 1], got {ema_alpha!r}")
-
-
-def _motion_weight(prev_y: "np.ndarray | None", y: "np.ndarray") -> float:
-    """Return a non-zero saliency weight from luma motion energy."""
-    if prev_y is None:
-        return 1.0
-    np = _import_numpy()
-    delta = np.abs(y.astype(np.float32) - prev_y.astype(np.float32))
-    return max(float(delta.mean() / 255.0), 1.0e-6)
-
-
 def compute_saliency_map(
     video_path: Path,
     width: int,
@@ -227,22 +198,12 @@ def compute_saliency_map(
     *,
     model_path: Path | None = None,
     frame_samples: int = DEFAULT_FRAME_SAMPLES,
-    temporal_aggregator: str = DEFAULT_SALIENCY_AGGREGATOR,
-    ema_alpha: float = DEFAULT_SALIENCY_EMA_ALPHA,
     session_factory: Any = None,
 ) -> "np.ndarray":
     """Run ``saliency_student_v1`` over a sampled subset of frames.
 
-    Returns a ``float32 [H, W]`` aggregate saliency mask in ``[0, 1]``.
-    ``temporal_aggregator`` controls how sampled per-frame masks are
-    reduced:
-
-    - ``mean``: historical per-pixel arithmetic mean.
-    - ``ema``: exponential moving average, current-frame weight
-      ``ema_alpha``.
-    - ``max``: per-pixel maximum over sampled masks.
-    - ``motion-weighted``: per-pixel weighted mean where each frame's
-      weight is the mean luma delta from the previous sampled frame.
+    Returns a ``float32 [H, W]`` aggregate saliency mask in ``[0, 1]``
+    — the per-pixel mean of the per-frame outputs.
 
     ``session_factory`` is the test seam: tests pass a fake that
     returns a stub session object exposing ``.run(...)``.
@@ -251,7 +212,6 @@ def compute_saliency_map(
     model file cannot be loaded.
     """
     np = _import_numpy()
-    _validate_temporal_aggregator(temporal_aggregator, ema_alpha)
 
     if model_path is None:
         model_path = DEFAULT_SALIENCY_MODEL_RELPATH
@@ -274,40 +234,15 @@ def compute_saliency_map(
     indices = _sample_frame_indices(nframes, frame_samples)
 
     accum = np.zeros((height, width), dtype=np.float32)
-    max_mask = np.zeros((height, width), dtype=np.float32)
-    ema_mask: np.ndarray | None = None
-    weight_sum = 0.0
-    prev_y: np.ndarray | None = None
     for fi in indices:
         y, u, v = _read_yuv420p_planes(video_path, fi, width, height)
         tensor = _yuv420p_to_rgb_imagenet(y, u, v)
         outputs = session.run(None, {"input": tensor})
         # saliency_student_v1 returns NCHW [1, 1, H, W] in [0, 1].
         mask = np.asarray(outputs[0]).reshape(height, width)
-        mask = mask.astype(np.float32)
-        if temporal_aggregator == "mean":
-            accum += mask
-        elif temporal_aggregator == "max":
-            max_mask = np.maximum(max_mask, mask)
-        elif temporal_aggregator == "ema":
-            if ema_mask is None:
-                ema_mask = mask.copy()
-            else:
-                ema_mask = (float(ema_alpha) * mask) + ((1.0 - float(ema_alpha)) * ema_mask)
-        else:
-            weight = _motion_weight(prev_y, y)
-            accum += mask * weight
-            weight_sum += weight
-            prev_y = y.copy()
+        accum += mask.astype(np.float32)
 
-    if temporal_aggregator == "mean":
-        accum /= float(len(indices))
-    elif temporal_aggregator == "max":
-        accum = max_mask
-    elif temporal_aggregator == "ema":
-        accum = ema_mask if ema_mask is not None else accum
-    else:
-        accum /= weight_sum
+    accum /= float(len(indices))
     # Numerically pin to [0, 1] in case of FP drift on the boundary.
     return np.clip(accum, 0.0, 1.0)
 
@@ -818,8 +753,6 @@ def saliency_aware_encode(
             request.height,
             model_path=model_path,
             frame_samples=cfg.frame_samples,
-            temporal_aggregator=cfg.temporal_aggregator,
-            ema_alpha=cfg.ema_alpha,
             session_factory=session_factory,
         )
     except SaliencyUnavailableError as exc:
@@ -868,8 +801,6 @@ def saliency_aware_encode(
 
 __all__ = [
     "DEFAULT_FRAME_SAMPLES",
-    "DEFAULT_SALIENCY_AGGREGATOR",
-    "DEFAULT_SALIENCY_EMA_ALPHA",
     "DEFAULT_SALIENCY_MODEL_RELPATH",
     "QP_OFFSET_MAX",
     "QP_OFFSET_MIN",
@@ -878,7 +809,6 @@ __all__ = [
     "X264_MB_SIDE",
     "SaliencyConfig",
     "SaliencyUnavailableError",
-    "SALIENCY_AGGREGATORS",
     "augment_extra_params_with_libaom_qpfile",
     "augment_extra_params_with_qpfile",
     "augment_extra_params_with_svtav1_qpmap",

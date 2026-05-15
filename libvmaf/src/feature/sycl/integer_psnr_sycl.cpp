@@ -43,7 +43,6 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
-#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 
@@ -73,9 +72,6 @@ struct PsnrStateSycl {
      * layout leaves `min_sse`-driven per-plane formulas a one-line
      * change away. */
     double psnr_max[PSNR_NUM_PLANES];
-    /* `enable_chroma` option: when false, only luma is dispatched.
-     * Default true mirrors CPU integer_psnr.c — see ADR-0453. */
-    bool enable_chroma;
     /* Number of active planes (1 for YUV400, 3 otherwise). */
     unsigned n_planes;
 
@@ -226,14 +222,7 @@ static void config_psnr_slot(void *priv, int slot)
 
 extern "C" {
 
-static const VmafOption options_psnr_sycl[] = {{
-                                                   .name = "enable_chroma",
-                                                   .help = "enable calculation for chroma channels",
-                                                   .offset = offsetof(PsnrStateSycl, enable_chroma),
-                                                   .type = VMAF_OPT_TYPE_BOOL,
-                                                   .default_val.b = true,
-                                               },
-                                               {0}};
+static const VmafOption options_psnr_sycl[] = {{0}};
 
 static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
@@ -254,19 +243,10 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         s->n_planes = PSNR_NUM_PLANES;
         const int ss_hor = (pix_fmt != VMAF_PIX_FMT_YUV444P);
         const int ss_ver = (pix_fmt == VMAF_PIX_FMT_YUV420P);
-        const unsigned cw = ss_hor ? ((w + 1U) >> 1) : w;
-        const unsigned ch = ss_ver ? ((h + 1U) >> 1) : h;
+        const unsigned cw = ss_hor ? (w / 2U) : w;
+        const unsigned ch = ss_ver ? (h / 2U) : h;
         s->width[1] = s->width[2] = cw;
         s->height[1] = s->height[2] = ch;
-    }
-    /* Mirror CPU integer_psnr.c::init's enable_chroma guard (ADR-0453):
-     * when the caller passes enable_chroma=false, skip chroma dispatches
-     * identically to the YUV400 path above. YUV400 already forces
-     * n_planes=1, so this only activates for 4:2:0/4:2:2/4:4:4. */
-    if (!s->enable_chroma && s->n_planes > 1U) {
-        s->n_planes = 1U;
-        s->width[1] = s->width[2] = 0U;
-        s->height[1] = s->height[2] = 0U;
     }
 
     s->bpc = bpc;

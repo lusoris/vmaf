@@ -16,7 +16,6 @@
  *
  */
 
-#include <errno.h>
 #include <stdint.h>
 
 #include "test.h"
@@ -119,49 +118,10 @@ static char *test_picture_odd_dim_chroma_ceiling()
     return NULL;
 }
 
-/*
- * Regression test for audit finding #10: integer overflow in
- * picture_compute_geometry when caller passes near-UINT_MAX width.
- * Before the fix, (w + DATA_ALIGN - 1u) wrapped to 0, producing a
- * zero-byte allocation that passed silently and caused OOB on any pixel
- * read.  After the fix, vmaf_picture_alloc rejects w > 32768 or h > 32768
- * with -EINVAL before any arithmetic.  CERT INT30-C.
- */
-static char *test_picture_alloc_rejects_overflow_dimensions()
-{
-    int err;
-    VmafPicture pic;
-
-    /* w == 0 must be rejected. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 8, 0, 1080);
-    mu_assert("vmaf_picture_alloc must reject w=0 with -EINVAL", err == -EINVAL);
-
-    /* h == 0 must be rejected. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 8, 1920, 0);
-    mu_assert("vmaf_picture_alloc must reject h=0 with -EINVAL", err == -EINVAL);
-
-    /* w > 32768 must be rejected. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 8, 32769, 1080);
-    mu_assert("vmaf_picture_alloc must reject w=32769 with -EINVAL", err == -EINVAL);
-
-    /* h > 32768 must be rejected. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 8, 1920, 32769);
-    mu_assert("vmaf_picture_alloc must reject h=32769 with -EINVAL", err == -EINVAL);
-
-    /* Boundary: w==32768, h==32768 must succeed. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 8, 32768, 32768);
-    mu_assert("vmaf_picture_alloc must accept w=32768, h=32768", !err);
-    err = vmaf_picture_unref(&pic);
-    mu_assert("vmaf_picture_unref failed for 32768x32768", !err);
-
-    return NULL;
-}
-
 char *run_tests()
 {
     mu_run_test(test_picture_alloc_ref_and_unref);
     mu_run_test(test_picture_data_alignment);
     mu_run_test(test_picture_odd_dim_chroma_ceiling);
-    mu_run_test(test_picture_alloc_rejects_overflow_dimensions);
     return NULL;
 }

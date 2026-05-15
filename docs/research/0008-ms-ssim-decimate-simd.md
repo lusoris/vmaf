@@ -1,4 +1,4 @@
-# Research-0008: MS-SSIM decimate SIMD — FLOP accounting, summation order, bit-exactness
+# Research-0002: MS-SSIM decimate SIMD — FLOP accounting, summation order, bit-exactness
 
 - **Status**: Active
 - **Workstream**: [ADR-0125](../adr/0125-ms-ssim-decimate-simd.md)

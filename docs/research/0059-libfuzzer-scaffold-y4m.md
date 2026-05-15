@@ -1,4 +1,4 @@
-# Research-0059: libFuzzer scaffold for the Y4M parser
+# Research digest 0054 — libFuzzer scaffold for the Y4M parser
 
 - **Date**: 2026-05-03
 - **Author**: Claude (Opus 4.7, 1M context) on behalf of lusoris

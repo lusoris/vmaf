@@ -64,7 +64,6 @@ See [CLAUDE.md §5](CLAUDE.md) — identical. Briefly:
 - `mcp-server/` — MCP JSON-RPC server
 - `model/` — VMAF models (.json / .pkl / .onnx)
 - `testdata/` — fork-added YUV + snapshot JSONs
-- `dev/` — dev-MCP Docker container (`Containerfile`, `docker-compose.yml`, `scripts/`)
 - `docs/principles.md` — canonical engineering standards
 
 ## 6. Coding standards
@@ -361,19 +360,6 @@ linked AGENTS.md before resolving conflicts.
   Netflix's feature/motion several-options commit; PR #213 (open)
   ports `d3647c73` `feature/speed` extractors (`speed_chroma` +
   `speed_temporal`).
-
-- **dev-MCP Docker container**
-  ([ADR-0435](docs/adr/0435-local-dev-mcp-container.md)):
-  `dev/Containerfile` pins `cuda-toolkit-12-6`, `intel-basekit-2025.3`,
-  and ROCm 6.x apt repos. If SDK versions are bumped (routine security
-  maintenance), update the version pins and the apt repo URL paths in
-  `dev/Containerfile` before merging.
-  `dev/scripts/smoke-probe-loop.sh` assumes the golden pair lives at
-  `${VMAF_TESTDATA_PATH}/ref_576x324_48f.yuv` / `dis_576x324_48f.yuv`
-  — do not rename these files. The probe JSON schema fields (`ts`,
-  `host_id`, `backend_results`, `mcp_results`) are an internal format;
-  update `docs/development/dev-mcp.md` if the schema changes. This
-  directory does not affect the libvmaf C build or any CI gate.
 
 ## 14. Interaction style — prefer structured popup questions
 

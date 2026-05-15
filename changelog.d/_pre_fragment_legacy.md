@@ -1069,7 +1069,7 @@
 - **Tiny-AI training scaffold for the Netflix VMAF corpus (ADR-0242)**
   (fork-local): scaffold-only PR preparing the tiny-AI training pipeline for
   the local Netflix VMAF corpus (9 ref / 70 distorted YUVs at
-  `.corpus/netflix/`). Ships `docs/ai/training-data.md` with the corpus
+  `.workingdir2/netflix/`). Ships `docs/ai/training-data.md` with the corpus
   path convention and `--data-root` loader API; `docs/adr/0199-*.md` with
   the architecture-choice space and distillation-vs-from-scratch alternatives
   table; `docs/research/0019-tiny-ai-netflix-training.md` surveying VMAF

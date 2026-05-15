@@ -19,7 +19,6 @@
 #ifndef FEATURE_VIF_H_
 #define FEATURE_VIF_H_
 
-#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <assert.h>

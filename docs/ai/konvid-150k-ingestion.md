@@ -11,30 +11,6 @@ needs three things the Phase 1 path does not — resumable downloads,
 attrition tolerance, and an `"ugc-mixed"` encoder slot — all detailed
 below.
 
-## Corpus availability (status 2026-05-15)
-
-The corpus is **materialized locally** at `.corpus/konvid-150k/`
-(gitignored, ~179 GB). Inventory:
-
-| Artefact | Size | Purpose |
-| --- | --- | --- |
-| `clips/` | ~150 GB | 307 682 extracted MP4 files |
-| `k150ka_scores.csv` | 4.9 MB | k150k-A score-drop |
-| `k150kb_scores.csv` | 59 KB | k150k-B score-drop |
-| `k150ka_votes.csv` | 94 MB | per-vote raw data (A) |
-| `k150kb_votes.csv` | 28 MB | per-vote raw data (B) |
-| `konvid_150k.jsonl` | 64 MB | corpus JSONL (Phase 2 adapter output) |
-| `manifest.csv` | 4.9 MB | corpus manifest |
-| `k150ka_extracted/` + `k150kb_extracted/` | ~8 GB | extracted-frame fixtures |
-
-[ADR-0325](../adr/0325-konvid-150k-corpus-ingestion.md) flipped to
-`Accepted` on 2026-05-15 once availability was confirmed. Phase 3
-(real-corpus MOS head training) is the next gate; tracked under
-[ADR-0336](../adr/0336-konvid-mos-head-v1.md). `train_konvid_mos_head.py`
-is unblocked and queued behind the in-flight CHUG feature extraction's
-GPU usage; once the GPU frees up, the production-flip gate (`PLCC ≥ 0.85`
-mean, `SROCC ≥ 0.82`, `RMSE ≤ 0.45`) gets run.
-
 See [ADR-0325](../adr/0325-konvid-150k-corpus-ingestion.md) for the
 two-phase decision and
 [Research-0086](../research/0086-konvid-150k-corpus-feasibility.md)
@@ -66,7 +42,7 @@ ADR-0325 §License).
 URL-manifest layout:
 
 ```text
-.corpus/konvid-150k/
+.workingdir2/konvid-150k/
   ├── manifest.csv                   # operator drops this
   ├── .download-progress.json        # written by this script (resumable state)
   ├── clips/                         # populated by this script
@@ -79,7 +55,7 @@ URL-manifest layout:
 Split score-drop layout:
 
 ```text
-.corpus/konvid-150k/
+.workingdir2/konvid-150k/
   ├── k150ka_scores.csv              # video_name,video_score
   ├── k150ka_extracted/              # K150K-A MP4 clips
   ├── k150kb_scores.csv              # video_name,mos,video_score
@@ -101,13 +77,13 @@ The Phase 2 ingestion is a per-row download → ffprobe → JSONL emit
 loop:
 
 ```text
-   .corpus/konvid-150k/manifest.csv
+   .workingdir2/konvid-150k/manifest.csv
             │
             │  ai/scripts/konvid_150k_to_corpus_jsonl.py
             │      (per row: curl → ffprobe → MOS join)
             │      (writes .download-progress.json after each clip)
             ▼
-   .corpus/konvid-150k/konvid_150k.jsonl
+   .workingdir2/konvid-150k/konvid_150k.jsonl
             │
             │  (Phase 3 — out of scope here, ADR-0325 §Phase 3)
             ▼
@@ -134,13 +110,13 @@ parquet shards.
 ## 4. Run command
 
 After dropping either the URL manifest or the split score/extracted
-layout under `.corpus/konvid-150k/`:
+layout under `.workingdir2/konvid-150k/`:
 
 ```bash
 python ai/scripts/konvid_150k_to_corpus_jsonl.py
 ```
 
-Default output path is `.corpus/konvid-150k/konvid_150k.jsonl`.
+Default output path is `.workingdir2/konvid-150k/konvid_150k.jsonl`.
 Override with `--output`. Override the input root with `--konvid-dir`.
 Passing `--manifest-csv` is strict: if that explicit file is missing,
 the script fails instead of falling back to split CSV discovery. This
@@ -161,7 +137,7 @@ The summary line lands on stderr on completion:
 The single largest difference from Phase 1: a full pass takes
 hours-to-days, so `Ctrl-C` + re-run **must** pick up where the prior
 run left off without re-downloading. State is recorded in
-`.corpus/konvid-150k/.download-progress.json`, written
+`.workingdir2/konvid-150k/.download-progress.json`, written
 atomically (tempfile + rename) at most every 50 clips and once at the
 end of every run.
 
@@ -285,7 +261,7 @@ adapter is exercised by
 [`ai/tests/test_konvid_150k.py`](../../ai/tests/test_konvid_150k.py),
 which mocks both ffprobe **and** curl via the script's injectable
 `runner` seam and stands up a temporary
-`.corpus/konvid-150k/`-shaped tree on disk. The tests run in well
+`.workingdir2/konvid-150k/`-shaped tree on disk. The tests run in well
 under one second and require neither curl, ffprobe, nor the corpus.
 
 ## 11. Operational notes

@@ -1,6 +1,6 @@
 # ADR-0341: `paths-ignore` filter on heavy CI workflows for doc-only PRs
 
-- **Status**: Accepted
+- **Status**: Proposed
 - **Date**: 2026-05-09
 - **Deciders**: Lusoris, Claude
 - **Tags**: `ci`, `build`, `policy`, `fork-local`

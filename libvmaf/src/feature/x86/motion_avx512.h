@@ -19,7 +19,6 @@
 #ifndef X86_AVX512_MOTION_H_
 #define X86_AVX512_MOTION_H_
 
-#include <stddef.h>
 #include <stdint.h>
 
 void x_convolution_16_avx512(const uint16_t *src, uint16_t *dst, unsigned width, unsigned height,
