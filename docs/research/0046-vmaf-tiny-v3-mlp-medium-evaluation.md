@@ -1,4 +1,4 @@
-# Research-0046: `vmaf_tiny_v3` mlp_medium evaluation vs v2 mlp_small
+# Research-0046 — `vmaf_tiny_v3` mlp_medium evaluation vs v2 mlp_small
 
 - **Status**: Active
 - **Companion ADR**: [ADR-0241](../adr/0241-vmaf-tiny-v3-mlp-medium.md)
