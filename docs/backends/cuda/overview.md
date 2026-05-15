@@ -243,6 +243,13 @@ to surface an unexpected delta.
   passes `0` for the new trailing `channel` argument (Y-plane only,
   preserving CUDA pre-port behaviour). UV-plane motion on GPU is a
   follow-up tracked in [docs/state.md](../../state.md).
+- **`psnr_hvs_cuda` DCT scheduling** — the backend keeps the
+  established places=3 cross-backend contract by leaving the float
+  means, variances, masking, and masked-error accumulation in
+  thread-0 CPU scan order. The 8×8 integer DCT itself is parallelised
+  across the first eight CUDA threads inside each block; this is a
+  scheduling optimisation only and does not change emitted feature
+  names or CLI/API usage.
 - **SSIMULACRA 2** — `ssimulacra2_cuda` shipped per
   [ADR-0206](../../adr/0206-ssimulacra2-cuda-sycl.md) (hybrid
   host/GPU pipeline, IIR fatbin pinned with `--fmad=false`). The

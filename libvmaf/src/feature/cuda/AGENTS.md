@@ -129,6 +129,14 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
   change is CUDA-only and does not require SYCL / Vulkan twin edits
   because it does not alter kernel math or emitted metrics.
 
+- **`integer_psnr_hvs/psnr_hvs_score.cu` parallelises only the integer
+  DCT passes.** The first eight CUDA threads perform the two 8-point
+  DCT passes over shared memory; all float means, variance, masking,
+  and final masked-error accumulation remain thread-0 serial in CPU
+  scan order. Do not move the float reductions into warp or block
+  reductions without a new numeric-contract ADR and a refreshed
+  cross-backend tolerance row.
+
 - **`integer_cambi_cuda.c` + `integer_cambi/cambi_score.cu` are
   Strategy II hybrid** (ADR-0360 / T3-15a). The GPU kernels
   (`cambi_spatial_mask_kernel`, `cambi_decimate_kernel`,
