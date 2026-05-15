@@ -1,6 +1,6 @@
 # ADR-0365: Wire the CoreML execution provider into tiny-AI ORT dispatch
 
-- **Status**: Accepted
+- **Status**: Proposed
 - **Date**: 2026-05-09
 - **Deciders**: lusoris, Claude (Anthropic)
 - **Tags**: ai, dnn, coreml, apple-silicon, fork-local

@@ -1,4 +1,4 @@
-# Research-0086: SYCL / oneAPI / QSV toolchain audit (2026-05-08)
+# Research-0086 — SYCL / oneAPI / QSV toolchain audit (2026-05-08)
 
 - **Status**: Active — research only, no code in this PR.
 - **Workstream**: Backlog T7-8 (oneAPI 2025.0.4 → 2025.3.1 bump audit,

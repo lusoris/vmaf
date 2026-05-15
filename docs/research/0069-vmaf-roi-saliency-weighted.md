@@ -1,4 +1,4 @@
-# Research-0069: Region-of-interest VMAF — option-space digest
+# Research-0063: Region-of-interest VMAF — option-space digest
 
 - **Status**: digest (informs ADR-0288)
 - **Date**: 2026-05-03

@@ -180,16 +180,6 @@ ninja -C build-cuda
     -p 420 -b 8 --backend cuda --feature cambi_cuda
 ```
 
-**Implementation note (PR #870):** `submit_fex_cuda` downloads the distorted
-picture from device memory to a transient host copy before passing it to
-`vmaf_cambi_preprocessing`. This is required because the host-side preprocessing
-path (`decimate_generic_uint8_and_convert_to_10b`) dereferences `pic->data[0]`
-as a host pointer; on a CUDA picture that field holds a `CUdeviceptr` (device
-address), causing SIGSEGV. The download uses `vmaf_cuda_picture_download_async`
-on the picture's private CUDA stream followed by `cuStreamSynchronize`. The host
-copy is unreferenced before `submit_fex_cuda` returns. Cross-backend parity
-versus CPU `cambi` is verified at `places=4` per ADR-0214.
-
 ### Vulkan
 
 ```bash
@@ -201,26 +191,6 @@ ninja -C build-vulkan
 ./build-vulkan/tools/vmaf -r ref.yuv -d dis.yuv -w W -h H \
     -p 420 -b 8 --backend vulkan --feature cambi
 ```
-
-### SYCL
-
-The SYCL backend (`--backend sycl --feature cambi_sycl`) supports the same
-option surface as CUDA and Vulkan. See
-[ADR-0415](../adr/0415-cambi-sycl-port.md) for the implementation notes.
-
-### Option parity note — `src_width` / `src_height`
-
-All three GPU backends (CUDA, SYCL, Vulkan) now accept `src_width` and
-`src_height` via the same syntax as the CPU backend:
-
-```bash
---feature cambi=src_width=1920:src_height=1080
-```
-
-These fields default to 0 (resolved to the actual input dimensions at
-`init()` time). They are only meaningful when `full_ref=true`, which is not
-yet supported on any GPU backend; a non-zero value is stored and preserved
-for forward compatibility once `full_ref` is ported.
 
 Companion research digests:
 [Research-0032](../research/0032-cambi-vulkan-integration.md) (Vulkan),

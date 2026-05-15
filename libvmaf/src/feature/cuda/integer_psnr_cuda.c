@@ -75,15 +75,11 @@ typedef struct PsnrStateCuda {
     VmafCudaKernelReadback rb[PSNR_NUM_PLANES];
     CUfunction funcbpc8;
     CUfunction funcbpc16;
-    CUmodule module;
     unsigned index;
     unsigned width[PSNR_NUM_PLANES];
     unsigned height[PSNR_NUM_PLANES];
     unsigned bpc;
     uint32_t peak;
-    /* `enable_chroma` option: when false, only luma is dispatched.
-     * Default true mirrors CPU integer_psnr.c — see ADR-0453. */
-    bool enable_chroma;
     /* Number of active planes (1 for YUV400, 3 otherwise). */
     unsigned n_planes;
     /* Per-plane psnr_max — `(6 * bpc) + 12` in the default branch
@@ -94,14 +90,7 @@ typedef struct PsnrStateCuda {
     VmafDictionary *feature_name_dict;
 } PsnrStateCuda;
 
-static const VmafOption options[] = {{
-                                         .name = "enable_chroma",
-                                         .help = "enable calculation for chroma channels",
-                                         .offset = offsetof(PsnrStateCuda, enable_chroma),
-                                         .type = VMAF_OPT_TYPE_BOOL,
-                                         .default_val.b = true,
-                                     },
-                                     {0}};
+static const VmafOption options[] = {{0}};
 
 static int psnr_cuda_dispatch(const VmafPicture *ref, const VmafPicture *dis, VmafCudaBuffer *sse,
                               unsigned width, unsigned height, unsigned plane, unsigned bpc,
@@ -145,15 +134,6 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         s->width[1] = s->width[2] = cw;
         s->height[1] = s->height[2] = ch;
     }
-    /* Mirror CPU integer_psnr.c::init's enable_chroma guard (ADR-0453):
-     * when the caller passes enable_chroma=false, skip chroma dispatches
-     * identically to the YUV400 path above. YUV400 already forces
-     * n_planes=1, so this only activates for 4:2:0/4:2:2/4:4:4. */
-    if (!s->enable_chroma && s->n_planes > 1U) {
-        s->n_planes = 1U;
-        s->width[1] = s->width[2] = 0U;
-        s->height[1] = s->height[2] = 0U;
-    }
 
     /* Stream + event pair via the template — replaces the
      * cuCtxPushCurrent → cuStreamCreateWithPriority → cuEventCreate ×2
@@ -168,7 +148,8 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     int ctx_pushed = 0;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, psnr_score_ptx), fail);
+    CUmodule module;
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, psnr_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc8, module, "calculate_psnr_kernel_8bpc"),
                     fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc16, module, "calculate_psnr_kernel_16bpc"),
@@ -314,8 +295,6 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
      * destroy events). Best-effort error aggregation matches the
      * old hand-rolled CHECK_CUDA_GOTO chain. */
     int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
-    if (s->module)
-        (void)fex->cu_state->f->cuModuleUnload(s->module);
     for (unsigned p = 0; p < s->n_planes; p++) {
         const int err = vmaf_cuda_kernel_readback_free(&s->rb[p], fex->cu_state);
         if (err && rc == 0)

@@ -14,13 +14,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from extract_k150k_features import DEFAULT_CHUG_SPLIT_SEED, _load_jsonl_metadata
-
-from aiutils.parquet_utils import write_parquet_atomic
 
 
 def _is_missing(value: Any) -> bool:
@@ -67,6 +66,23 @@ def enrich_frame(
     }
 
 
+def write_parquet_atomic(frame: pd.DataFrame, out_path: Path) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        prefix=out_path.name + ".",
+        suffix=".tmp",
+        dir=out_path.parent,
+        delete=False,
+    ) as fh:
+        tmp = Path(fh.name)
+    try:
+        frame.to_parquet(tmp, index=False)
+        tmp.replace(out_path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="enrich_k150k_parquet_metadata.py")
     ap.add_argument(
@@ -79,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         "--metadata-jsonl",
         type=Path,
         required=True,
-        help="Corpus JSONL sidecar, e.g. .corpus/chug/chug.jsonl.",
+        help="Corpus JSONL sidecar, e.g. .workingdir2/chug/chug.jsonl.",
     )
     ap.add_argument(
         "--out",
@@ -112,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         overwrite=args.overwrite_metadata,
     )
     out_path = args.out or args.features_parquet
-    write_parquet_atomic(enriched, out_path, index=False)
+    write_parquet_atomic(enriched, out_path)
     print(json.dumps({"out": str(out_path), **stats}, sort_keys=True))
     return 0
 

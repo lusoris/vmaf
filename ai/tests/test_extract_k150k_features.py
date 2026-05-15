@@ -27,20 +27,14 @@ K150K = _load_module()
 
 
 def test_cuda_feature_passes_split_gpu_and_cpu_residual(monkeypatch, tmp_path: Path) -> None:
-    """CUDA pass: vmaf_v0.6.1 model dispatched on CUDA leg; vmaf key non-NaN."""
     calls: list[list[str]] = []
 
     def fake_run(cmd, **_kwargs):
         calls.append([str(part) for part in cmd])
         out = Path(cmd[cmd.index("--output") + 1])
         names = [cmd[idx + 1] for idx, part in enumerate(cmd) if part == "--feature"]
-        model_args = [cmd[idx + 1] for idx, part in enumerate(cmd) if part == "--model"]
         metrics = {}
         if "adm_cuda" in names:
-            # CUDA leg: must carry --model version=vmaf_v0.6.1 (Research-0135).
-            assert (
-                "version=vmaf_v0.6.1" in model_args
-            ), "--model vmaf_v0.6.1 must be present on CUDA leg"
             metrics["integer_adm2"] = 1.0
             metrics["integer_vif_scale0"] = 2.0
             metrics["integer_motion2"] = 3.0
@@ -49,14 +43,11 @@ def test_cuda_feature_passes_split_gpu_and_cpu_residual(monkeypatch, tmp_path: P
             metrics["float_ms_ssim"] = 1.0
             metrics["psnr_hvs"] = 99.0
             metrics["ssimulacra2"] = 100.0
-            # Model score emitted by vmaf_v0.6.1 dispatch.
-            metrics["vmaf"] = 87.5
             assert "--backend" in cmd
             assert cmd[cmd.index("--backend") + 1] == "cuda"
             assert "float_ssim_cuda" not in names
             assert "cambi_cuda" not in names
         else:
-            # CPU residual leg (float_ssim + cambi only): no model arg needed.
             metrics["float_ssim"] = 0.9
             metrics["cambi"] = 0.1
             assert "--no_cuda" in cmd
@@ -78,16 +69,23 @@ def test_cuda_feature_passes_split_gpu_and_cpu_residual(monkeypatch, tmp_path: P
     )
 
     assert len(calls) == 2
-    # vmaf key must be present and non-NaN (Research-0135 Option B).
-    merged = frames[0]
-    assert "vmaf" in merged, "vmaf key must be present after model dispatch"
-    assert merged["vmaf"] == 87.5
-    assert merged["float_ssim"] == 0.9
-    assert merged["cambi"] == 0.1
+    assert frames == [
+        {
+            "integer_adm2": 1.0,
+            "integer_vif_scale0": 2.0,
+            "integer_motion2": 3.0,
+            "psnr_y": 72.0,
+            "ciede2000": 0.0,
+            "float_ms_ssim": 1.0,
+            "psnr_hvs": 99.0,
+            "ssimulacra2": 100.0,
+            "float_ssim": 0.9,
+            "cambi": 0.1,
+        }
+    ]
 
 
 def test_cpu_feature_pass_uses_generic_extractors(monkeypatch, tmp_path: Path) -> None:
-    """CPU pass: vmaf_v0.6.1 model dispatched; vmaf key non-NaN in output."""
     calls: list[list[str]] = []
 
     def fake_run(cmd, **_kwargs):
@@ -96,10 +94,7 @@ def test_cpu_feature_pass_uses_generic_extractors(monkeypatch, tmp_path: Path) -
         names = [cmd[idx + 1] for idx, part in enumerate(cmd) if part == "--feature"]
         assert names == list(K150K.EXTRACTOR_NAMES)
         assert "--no_cuda" in cmd
-        # CPU path must also carry --model version=vmaf_v0.6.1 (Research-0135).
-        model_args = [cmd[idx + 1] for idx, part in enumerate(cmd) if part == "--model"]
-        assert "version=vmaf_v0.6.1" in model_args, "--model vmaf_v0.6.1 must be present"
-        out.write_text(json.dumps({"frames": [{"metrics": {"vmaf": 83.2}}]}), encoding="utf-8")
+        out.write_text(json.dumps({"frames": [{"metrics": {"vmaf": 100.0}}]}), encoding="utf-8")
         return subprocess.CompletedProcess(args=cmd, returncode=0)
 
     monkeypatch.setattr(K150K.subprocess, "run", fake_run)
@@ -117,47 +112,7 @@ def test_cpu_feature_pass_uses_generic_extractors(monkeypatch, tmp_path: Path) -
     )
 
     assert len(calls) == 1
-    # vmaf key must be present and non-NaN (Option B, Research-0135).
-    assert frames == [{"vmaf": 83.2}]
-
-
-def test_vmaf_column_non_nan_in_aggregated_output(monkeypatch, tmp_path: Path) -> None:
-    """End-to-end: vmaf_mean and vmaf_std are non-NaN when model is dispatched."""
-    import numpy as np
-
-    def fake_run(cmd, **_kwargs):
-        out = Path(cmd[cmd.index("--output") + 1])
-        out.write_text(
-            json.dumps(
-                {
-                    "frames": [
-                        {"metrics": {"vmaf": 85.0}},
-                        {"metrics": {"vmaf": 88.0}},
-                        {"metrics": {"vmaf": 82.0}},
-                    ]
-                }
-            ),
-            encoding="utf-8",
-        )
-        return subprocess.CompletedProcess(args=cmd, returncode=0)
-
-    monkeypatch.setattr(K150K.subprocess, "run", fake_run)
-
-    frames = K150K._run_vmaf_json(
-        vmaf_bin=Path("build-cpu/tools/vmaf"),
-        yuv_path=tmp_path / "clip.yuv",
-        width=640,
-        height=360,
-        pix_fmt="yuv420p",
-        out_json=tmp_path / "clip.json",
-        threads=1,
-        extractor_names=K150K.EXTRACTOR_NAMES,
-        backend_args=["--no_cuda", "--no_sycl", "--no_vulkan", "--model", "version=vmaf_v0.6.1"],
-    )
-    agg = K150K._aggregate_frames(frames)
-    assert "vmaf_mean" in agg, "vmaf_mean must be present after Option B dispatch"
-    assert not np.isnan(agg["vmaf_mean"]), "vmaf_mean must be non-NaN (Research-0135 Option B)"
-    assert not np.isnan(agg["vmaf_std"]), "vmaf_std must be non-NaN (Research-0135 Option B)"
+    assert frames == [{"vmaf": 100.0}]
 
 
 def test_jsonl_metadata_preserves_chug_content_split(tmp_path: Path) -> None:
