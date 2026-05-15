@@ -1,6 +1,6 @@
 # ADR-0394: Local sidecar training — on-host bias-correction model
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-08
 - **Deciders**: Lusoris, Claude
 - **Tags**: ai, vmaf-tune, sidecar, online-learning, privacy, fork-local
