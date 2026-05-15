@@ -1,9 +1,28 @@
 # ADR-0336: KonViD MOS head v1 (ADR-0325 Phase 3)
 
-- **Status**: Proposed
+- **Status**: Proposed (corpus blocker removed 2026-05-15; awaits
+  real-corpus PLCC gate)
 - **Date**: 2026-05-08
 - **Deciders**: @Lusoris
 - **Tags**: ai, training, mos, konvid, fork-local
+
+## Status update (2026-05-15)
+
+The corpus-availability blocker called out in the original Context is
+REMOVED — `.workingdir2/konvid-150k/` materialized 2026-05-09 with the
+full 179 GB corpus (307 682 clips, k150ka/k150kb scores CSV, JSONL,
+manifest). Per [ADR-0325](0325-konvid-150k-corpus-ingestion.md) status
+update of the same date.
+
+The remaining gate is the real-corpus PLCC verification:
+`train_konvid_mos_head.py` against the materialized corpus must clear
+`PLCC ≥ 0.85` mean, `≤ 0.005` spread, `SROCC ≥ 0.82`,
+`RMSE ≤ 0.45`. Tracked as Batch 22 of
+`.workingdir/GAP-FILL-PLAN-2026-05-15.md`; runs after the in-flight CHUG
+feature extraction releases the GPU (~10 h ETA from 2026-05-15
+21:00 local).
+
+Status stays `Proposed` until the production-flip gate clears.
 
 ## Context
 
