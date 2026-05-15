@@ -34683,3 +34683,26 @@ green on `master` before a docs-affecting PR is merged; do not weaken
 ```bash
 .venv/bin/python -m mkdocs build --strict
 ```
+
+## 2026-05-15 — CHUG FULL_FEATURES Parquet Metadata Enrichment
+
+**Files touched**: `ai/scripts/enrich_k150k_parquet_metadata.py`,
+`ai/tests/test_enrich_k150k_parquet_metadata.py`, `ai/AGENTS.md`,
+`docs/ai/chug-ingestion.md`, and `docs/ai/datasets/k150k.md`.
+
+**Rebase impact**: low. This adds a recovery utility for local
+FULL_FEATURES parquet jobs that predate `--metadata-jsonl`; it does not
+change the extraction schema or feature column order.
+
+**Invariant to preserve on rebase**: the enrichment utility matches rows
+by `clip_name`, fills missing metadata cells by default, writes parquet
+atomically, and leaves feature/MOS columns unchanged unless the operator
+passes `--overwrite-metadata`.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=ai/src .venv/bin/python -m pytest \
+  ai/tests/test_enrich_k150k_parquet_metadata.py \
+  ai/tests/test_extract_k150k_features.py -q
+```

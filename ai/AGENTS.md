@@ -580,6 +580,11 @@ threshold). When extending these scripts:
   gate for CHUG experiments. Preserve its ffprobe transfer / primaries /
   pix-fmt counters and malformed-PQ/HLG-without-BT.2020 row list when
   touching the materialiser.
+- `ai/scripts/enrich_k150k_parquet_metadata.py` is the recovery path for
+  FULL_FEATURES parquet jobs that were started without `--metadata-jsonl`.
+  It must match metadata by `clip_name` / JSONL basename, fill missing
+  metadata cells by default, and keep feature/MOS columns unchanged unless
+  `--overwrite-metadata` is explicitly passed.
 
 ## K150K-A corpus extraction (ADR-0362, ADR-0382)
 

@@ -180,3 +180,17 @@ python ai/scripts/train_konvid_mos_head.py \
 FULL_FEATURES aggregate columns (`adm2_mean`). If the parquet was written
 with `--metadata-jsonl`, the trainer also honors the `split` column so the
 CHUG content-level holdout survives the parquet path.
+
+If a long-running extraction was started without `--metadata-jsonl`, do
+not rerun the feature pass just to recover split metadata. Enrich the
+finished parquet in place from `chug.jsonl`:
+
+```bash
+python ai/scripts/enrich_k150k_parquet_metadata.py \
+  --features-parquet .workingdir2/chug/training/full_features_chug.parquet \
+  --metadata-jsonl .workingdir2/chug/chug.jsonl
+```
+
+The enrichment utility matches rows by `clip_name`, fills missing CHUG
+side columns, and leaves existing feature/MOS columns untouched unless
+`--overwrite-metadata` is passed.
