@@ -76,7 +76,7 @@ XYB conversion and final combine on the host.
 
 ## See Also
 
-- [Feature extractor matrix](features.md#ssimulacra-2--perceptual-similarity-in-xyb-space)
+- [Feature extractor matrix](features.md#ssimulacra-2-perceptual-similarity-in-xyb-space)
 - [ADR-0130](../adr/0130-ssimulacra2-scalar-implementation.md)
 - [ADR-0164](../adr/0164-ssimulacra2-snapshot-gate.md)
 - [ADR-0201](../adr/0201-ssimulacra2-vulkan-kernel.md)

@@ -34663,3 +34663,23 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_hdr.py \
   tools/vmaf-tune/tests/test_auto_short_circuits.py -q
 ```
+
+## 2026-05-15 — Docs Pages Strict-Anchor Repair
+
+**Files touched**: `docs/ai/quantization.md`, `docs/api/gpu.md`,
+`docs/metrics/ssimulacra2.md`, `docs/usage/vmaf-tune.md`,
+`changelog.d/fixed/docs-pages-anchor-strict.md`.
+
+**Rebase impact**: low. This only corrects MkDocs-rendered internal
+anchors and adds the missing `docs/api/gpu.md` HIP / Metal section
+targets consumed by `docs/api/index.md`.
+
+**Invariant to preserve on rebase**: `mkdocs build --strict` must stay
+green on `master` before a docs-affecting PR is merged; do not weaken
+`validation.links.anchors: warn` to hide anchor drift.
+
+**Smoke-test after rebase**:
+
+```bash
+.venv/bin/python -m mkdocs build --strict
+```

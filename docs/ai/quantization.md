@@ -146,9 +146,9 @@ same workaround introduced for `vmaf_tiny_v1*.onnx` in PR #174
 `vmaf_tiny_v3` and `vmaf_tiny_v4` joined the dynamic-PTQ family in
 [ADR-0275](../adr/0275-vmaf-tiny-v3-v4-ptq.md). Their model cards
 carry the per-model reproduction commands and measured PLCC drops:
-[`vmaf_tiny_v3`](models/vmaf_tiny_v3.md#quantisation-dynamic-ptq-int8-sidecar--adr-0275)
+[`vmaf_tiny_v3`](models/vmaf_tiny_v3.md#quantisation-dynamic-ptq-int8-sidecar-adr-0275)
 and
-[`vmaf_tiny_v4`](models/vmaf_tiny_v4.md#quantisation-dynamic-ptq-int8-sidecar--adr-0275).
+[`vmaf_tiny_v4`](models/vmaf_tiny_v4.md#quantisation-dynamic-ptq-int8-sidecar-adr-0275).
 
 ## Per-model PR template
 
