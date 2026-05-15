@@ -585,11 +585,18 @@ threshold). When extending these scripts:
   as the default — the CUDA binary has a latent CLI double-write bug when
   `--feature <x>` is combined with the auto-loaded default VMAF model
   (see Research-0096 / ADR-0382 for details).
+- **CUDA split invariant:** when operators explicitly pass a CUDA-capable
+  `--vmaf-bin`, the script must use explicit CUDA extractor names for the
+  GPU-safe pass and `--cpu-vmaf-bin` for the residual CPU pass
+  (`float_ssim`, `cambi`). Do not re-collapse this into one generic
+  `--backend cuda` invocation; CHUG/K150K 10-bit clips can fail
+  `context could not be synchronized` through that path.
 - **Parallelism model:** the script uses `concurrent.futures.ProcessPoolExecutor`
   with `--threads-cuda` workers (default 8). Each worker is fully independent.
-  The `--threads-cuda` flag is named for historical reasons; the workers run
-  on CPU regardless. Do not switch to threading — libvmaf subprocess invocations
-  are not thread-safe for concurrent parallel pipelines.
+  The `--threads-cuda` flag is named for historical reasons; it controls outer
+  process parallelism for both CPU and split CUDA modes. Do not switch to
+  threading — libvmaf subprocess invocations are not thread-safe for concurrent
+  parallel pipelines.
 - **Checkpoint thread-safety:** `_append_done()` is called only from the main
   process (after `fut.result()` returns in the `as_completed()` loop). Do not
   call it from worker processes — the append-only guarantee relies on single-writer
