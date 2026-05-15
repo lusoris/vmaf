@@ -1,4 +1,4 @@
-# Research-0017: SSIMULACRA 2 `picture_to_linear_rgb` SIMD (T3-1 phase 3)
+# Research digest 0017 — SSIMULACRA 2 `picture_to_linear_rgb` SIMD (T3-1 phase 3)
 
 - **Status**: Active (captures decision path for ADR-0163)
 - **Related ADRs**: [ADR-0161](../adr/0161-ssimulacra2-simd-bitexact.md)
