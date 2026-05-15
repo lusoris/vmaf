@@ -1,5 +1,5 @@
 - **dev-MCP Docker container with all four GPU backends and continuous smoke probe
-  ([ADR-0435](../docs/adr/0435-local-dev-mcp-container.md)).**
+  ([ADR-0451](../docs/adr/0451-local-dev-mcp-container.md)).**
   Ships a multi-stage `dev/Containerfile` (Ubuntu 24.04) that installs CUDA 12.6,
   Intel oneAPI 2025.3 (icpx / Level Zero), Vulkan + lavapipe, and ROCm 6.x/HIP,
   then builds libvmaf from source with all backends and the embedded MCP UDS server

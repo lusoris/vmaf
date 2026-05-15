@@ -7,9 +7,14 @@
 #   Stage 1 (build-deps)  — base tools: meson, ninja, nasm, gcc-13, clang-19,
 #                           python3.12, pkg-config, git, curl, ca-certificates
 #   Stage 2 (gpu-sdks)    — GPU SDK layer on top of Stage 1:
-#                           CUDA 12.6, Intel oneAPI 2025.3, Vulkan + lavapipe,
-#                           ROCm 6.x (HIP toolchain; build-only on NVIDIA host)
+#                           CUDA latest (`cuda-toolkit` meta-package, currently
+#                           13.x; tracks host driver), Intel oneAPI latest,
+#                           Vulkan + lavapipe, ROCm latest (HIP toolchain;
+#                           build-only on NVIDIA host)
 #   Stage 3 (libvmaf)     — source build of libvmaf with all backends enabled
+#                           against an in-tree FFmpeg n8.1.1 (or `FFMPEG_TAG`
+#                           build-arg override) with the fork's
+#                           `ffmpeg-patches/series.txt` applied
 #   Stage 4 (python-env)  — install vmaf-mcp + vmaf-train + vmaf-tune
 #
 # RUNTIME PREREQUISITES (host):
