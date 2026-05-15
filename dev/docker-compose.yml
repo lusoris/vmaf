@@ -54,7 +54,10 @@ services:
   # -------------------------------------------------------------------------
   dev-mcp:
     build:
-      context: ..
+      # Paths are relative to --project-directory (repo root), NOT to the
+      # compose-file directory. Earlier `context: ..` resolved to
+      # /home/kilian/dev (one up from project-dir) and broke the build.
+      context: .
       dockerfile: dev/Containerfile
       target: dev-mcp
     image: vmaf-dev-mcp:local
@@ -67,7 +70,7 @@ services:
     volumes:
       # Repo source tree — read-only at runtime (built into image)
       - type: bind
-        source: ..
+        source: .
         target: /workspace
         read_only: true
       # UDS socket directory — shared with smoke-probe-cron
@@ -76,7 +79,7 @@ services:
         target: /sockets
       # Probe results — read-write (dev-mcp writes logs here too)
       - type: bind
-        source: ../.workingdir/dev-mcp-probes
+        source: ./.workingdir/dev-mcp-probes
         target: /probes
         read_only: false
 
@@ -120,14 +123,14 @@ services:
 
     volumes:
       - type: bind
-        source: ..
+        source: .
         target: /workspace
         read_only: true
       - type: volume
         source: vmaf-sockets
         target: /sockets
       - type: bind
-        source: ../.workingdir/dev-mcp-probes
+        source: ./.workingdir/dev-mcp-probes
         target: /probes
         read_only: false
 
