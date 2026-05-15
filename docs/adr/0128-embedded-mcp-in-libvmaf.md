@@ -1,6 +1,9 @@
 # ADR-0128: Embedded MCP server in libvmaf — SSE + UDS + stdio transports, build-flag-gated
 
-- **Status**: Proposed
+- **Status**: Accepted
+- **Status update 2026-05-15**: implemented;
+  `libvmaf/include/libvmaf/libvmaf_mcp.h` and `libvmaf/src/mcp/`
+  present on master; `vmaf_mcp_start()` symbol in tree.
 - **Date**: 2026-04-20
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: mcp, agents, api, build, docs
