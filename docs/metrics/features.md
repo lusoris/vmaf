@@ -867,10 +867,13 @@ not the old smoke-only placeholder.
 Runs the MobileSal RGB saliency network on each distorted frame and
 emits a per-frame saliency mean. Companion ADR
 [`docs/adr/0218-mobilesal-saliency-extractor.md`](../adr/0218-mobilesal-saliency-extractor.md)
-records the extractor design + the synthetic-placeholder ONNX shipped
-in this PR (real upstream Yun-Liu MobileSal weights are tracked as a
-T6-2a-followup row). T6-2b will add the encoder-side `tools/vmaf-roi`
-that consumes the saliency map for per-CTU QP offsets.
+records the extractor design + the historical synthetic-placeholder
+ONNX. Production use should select the fork-trained
+`model/tiny/saliency_student_v1.onnx` checkpoint; the placeholder
+remains in `model/tiny/registry.json` with `smoke: true` for legacy
+and pipeline smoke coverage. The encoder-side `tools/vmaf-roi` sidecar
+is shipped and consumes the same saliency-map contract for per-CTU QP
+offsets.
 
 #### Invocation
 
@@ -885,8 +888,11 @@ across the H×W output map).
 **Backends** — scalar only on the libvmaf side; ORT-dispatched to the
 selected execution provider.
 
-**Limitations** — placeholder ONNX is smoke-only; real-weight follow-up
-tracked in T6-2a-followup. Depends on the
+**Limitations** — the default historical `mobilesal.onnx` placeholder is
+smoke-only; use `saliency_student_v1.onnx` for content-dependent
+saliency. The C extractor still accepts 8-bit YUV only; high-bit-depth
+input support is available on the encoder-side `vmaf-roi` tool, not on
+the scoring-side `mobilesal` feature yet. Depends on the
 [tiny-AI runtime](../ai/overview.md).
 
 ### `transnet_v2` — TransNet V2 shot-boundary detector (tiny-AI, NR / single-input)
