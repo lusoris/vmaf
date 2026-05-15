@@ -42,16 +42,20 @@ ai/
   `docs/ai/` in the same PR. See
   [ADR-0042](../docs/adr/0042-tinyai-docs-required-per-pr.md).
 - **Bisect-cache fixture is content-stable** — `ai/testdata/bisect/`
-  is the deterministic placeholder for the nightly
-  `bisect-model-quality` workflow. Regenerate via
+  is the deterministic default for the nightly `bisect-model-quality`
+  workflow. Regenerate the committed synthetic cache via
   `python ai/scripts/build_bisect_cache.py` with seeds
-  `FEATURE_SEED=20260418` / `MODEL_SEED=20260419`. CI runs the same
-  script with `--check`. As of ADR-0262 the parquet leg of the check
-  uses logical `pyarrow.Table.equals` content comparison (schema + row
-  count + values), tolerating writer-version-string drift in the
-  `created_by` parquet header — but ONNX still compares byte-for-byte
-  via `filecmp.cmp(shallow=False)`, which means ONNX-side determinism
-  must stay intact. **Do not** remove the
+  `FEATURE_SEED=20260418` / `MODEL_SEED=20260419`. The same script can
+  materialise a real DMOS/MOS-aligned parquet via
+  `--source-features` + optional `--target-column`; that path must
+  preserve the canonical-six feature order and still normalise the
+  output target column to `mos`. CI runs the script with `--check`. As
+  of ADR-0262 the parquet leg of the check uses logical
+  `pyarrow.Table.equals` content comparison (schema + row count +
+  values), tolerating writer-version-string drift in the `created_by`
+  parquet header — but ONNX still compares byte-for-byte via
+  `filecmp.cmp(shallow=False)`, which means ONNX-side determinism must
+  stay intact. **Do not** remove the
   `model.producer_name = "vmaf-train.bisect-cache"`,
   `model.producer_version = "1"`, or `model.ir_version = 9` pins in
   `_save_linear_fr`: those three lines are what stabilises ONNX bytes

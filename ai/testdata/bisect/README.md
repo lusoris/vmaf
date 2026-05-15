@@ -1,6 +1,6 @@
 # Bisect-model-quality fixture cache
 
-Deterministic placeholder cache used by [`.github/workflows/nightly-bisect.yml`](../../../.github/workflows/nightly-bisect.yml).
+Deterministic cache used by [`.github/workflows/nightly-bisect.yml`](../../../.github/workflows/nightly-bisect.yml).
 Regenerable from [`ai/scripts/build_bisect_cache.py`](../../scripts/build_bisect_cache.py).
 
 ## Layout
@@ -43,15 +43,30 @@ alert" — is covered by
 [`ai/tests/test_bisect_model_quality.py::test_bisect_localises_first_bad`](../../tests/test_bisect_model_quality.py),
 which builds a `bad_from=5` timeline at runtime.
 
-## Why this is a placeholder, not a real golden cache
+## Synthetic default and real-feature mode
 
-A real cache would draw features from a frozen YUV subset of NFLX-public
-/ LIVE / KonIQ with attached DMOS labels, run through `libvmaf`. That
-requires (a) the source datasets in tree or fetched from a stable
-mirror, (b) DMOS labels for each clip, (c) a frozen feature-extractor
-build. None of those exist yet for the fork. See
-[Research-0001](../../../docs/research/0001-bisect-model-quality-cache.md)
-for the design space and the swap path.
+The committed cache remains synthetic by default so every checkout can
+regenerate it without private or manually-provisioned datasets. When a
+DMOS/MOS-aligned feature table exists locally, the same generator can
+materialise the bisect layout from that real table:
+
+```bash
+python ai/scripts/build_bisect_cache.py \
+  --source-features runs/dmos_features.parquet \
+  --target-column dmos
+```
+
+The source parquet must contain `adm2`, `vif_scale0`, `vif_scale1`,
+`vif_scale2`, `vif_scale3`, and `motion2`, plus a target column. If
+`--target-column` is omitted, the generator tries `mos`, `dmos`,
+`target`, then `score`. The output parquet always normalises the target
+column to `mos` because that is the `bisect-model-quality` CLI contract.
+
+Real-feature mode also fits the tiny linear ONNX timeline from the
+provided target, then applies deterministic tiny perturbations so the
+nightly verdict remains "no regression in range". This is the
+Research-0001 swap path without requiring the real dataset bytes in the
+repository.
 
 ## Regeneration
 
