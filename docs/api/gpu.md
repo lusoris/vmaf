@@ -553,6 +553,43 @@ back to a host-backed picture if the caller skipped
   integration is wired by `ffmpeg-patches/0011-libvmaf-wire-hip-backend-selector.patch`
   (`--enable-libvmaf-hip` + `hip_device=N`, ADR-0380).
 
+## HIP
+
+`libvmaf_hip.h` exposes the AMD ROCm/HIP lifecycle surface and picture
+preallocation API. It follows the CUDA header shape closely:
+
+- `vmaf_hip_state_new` creates a backend state for a selected HIP device.
+- `vmaf_hip_state_free` releases the state and any backend-owned resources.
+- `vmaf_hip_preallocate_pictures` prepares GPU-resident pictures for feature
+  extractors that can consume HIP memory directly.
+
+The HIP backend is compile-time gated behind `-Denable_hip=true` and the HIP
+compiler option used by this fork's build matrix. Runtime support depends on a
+ROCm-capable AMD GPU and a matching driver stack. The public API is stable, but
+the feature set is still narrower than CUDA/SYCL/Vulkan: PSNR, CIEDE, float
+PSNR, float ANSNR, float moment, SSIM, MS-SSIM, PSNR-HVS, CAMBI, and
+SSIMULACRA 2 are wired; ADM, VIF, and integer motion remain the known
+follow-up kernels.
+
+## Metal
+
+`libvmaf_metal.h` exposes the Apple Metal lifecycle and IOSurface import
+surface. It is available only on macOS builds with `-Denable_metal=auto` or
+`-Denable_metal=enabled`; unsupported hosts return `-ENODEV` instead of
+silently falling back to CPU.
+
+The public entry points mirror the other GPU backends:
+
+- `vmaf_metal_state_new` creates a Metal device/queue state.
+- `vmaf_metal_state_free` releases the state.
+- `vmaf_metal_import_iosurface` imports IOSurface-backed frames for zero-copy
+  paths used by FFmpeg and AVFoundation-style producers.
+
+Metal currently targets Apple Silicon and ships runtime dispatch for the
+landed Metal extractor set documented in the backend guide. Intel-Mac paths
+remain MoltenVK/Vulkan-oriented unless a future ADR adds a dedicated Metal
+runtime contract for those devices.
+
 ## Related
 
 - [index.md](index.md) — core API (everything on this page sits on top of it)

@@ -1214,7 +1214,7 @@ The saliency pipeline supports five encoder ROI mechanisms:
 See [ADR-0293](../adr/0293-vmaf-tune-saliency-aware.md) (x264 baseline) and
 [ADR-0370](../adr/0370-saliency-roi-x265-svtav1-vvenc.md) (x265 / SVT-AV1 / VVenC).
 The libaom-av1 row uses the shared `-qpfile` bridge documented in
-[`vmaf-tune-ffmpeg.md`](vmaf-tune-ffmpeg.md#libaom-av1--full-roi-bridge).
+[`vmaf-tune-ffmpeg.md`](vmaf-tune-ffmpeg.md#libaom-av1-full-roi-bridge).
 
 Per-adapter helpers in `vmaftune.saliency`:
 
