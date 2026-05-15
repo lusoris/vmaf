@@ -1,6 +1,12 @@
 # ADR-0412: Fork-local release-artefact mirror scaffold for `u2netp.pth` (Apache-2.0)
 
-- **Status**: Proposed
+- **Status**: Accepted
+- **Status update 2026-05-15**: scaffold implemented;
+  `LICENSES/Apache-2.0-u2netp.txt` and
+  `docs/ai/models/u2netp_mirror_card.md` present on master;
+  attribution + licence compliance recipe landed. Binary upload
+  (`model/u2netp_mirror.onnx`) is a user-triggered release step
+  per the scaffold design.
 - **Date**: 2026-05-08
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: ai, dnn, u2netp, saliency, license, apache-2.0, supply-chain, fork-local, docs

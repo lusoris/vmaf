@@ -1,6 +1,10 @@
 # ADR-0339: `av1_videotoolbox` placeholder adapter + upstream watcher
 
-- **Status**: Proposed
+- **Status**: Accepted
+- **Status update 2026-05-15**: implemented;
+  `Av1VideoToolboxAdapter` class in
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/`; placeholder adapter
+  + runtime probe in place.
 - **Date**: 2026-05-09
 - **Deciders**: @Lusoris
 - **Tags**: tooling, ai, ffmpeg, codec, hardware-encoder, apple, fork-local, upstream-blocked
