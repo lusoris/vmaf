@@ -31,3 +31,5 @@ alongside classic VMAF SVM models.
 - [KonViD MOS head v1](models/konvid_mos_head_v1.md) — 5 081-parameter
   MLP that maps canonical-6 features + saliency + shot-metadata to a
   scalar subjective MOS prediction in [1.0, 5.0] (ADR-0336)
+- [Saliency per-block evaluation](saliency-per-mb-eval.md) — block-level
+  IoU for saliency masks at the same granularity ROI encoders consume
