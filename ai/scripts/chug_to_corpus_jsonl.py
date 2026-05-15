@@ -12,7 +12,7 @@ ships MOS on a 0-100 axis; this adapter stores that raw value as
 
 Pipeline shape::
 
-    .corpus/chug/
+    .workingdir2/chug/
       +-- manifest.csv              # downloaded from the CHUG repo
       +-- .download-progress.json
       +-- clips/
