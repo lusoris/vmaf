@@ -401,6 +401,36 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   Upstream Netflix/vmaf has no Metal backend; no rebase conflict
   surface against `upstream/master`. The 0013 patch is fork-local.
 
+### fix/saliency-per-mb-eval-2026-05-15 (Batch 4) — Metal install + header fix (ADR-0437)
+
+- **Touches**: `libvmaf/include/libvmaf/meson.build` (adds `is_metal_enabled`
+  guard + `libvmaf_metal.h` to `platform_specific_headers`),
+  `libvmaf/test/meson.build` (adds `test_metal_install_header` under
+  `host_machine.system() == 'darwin'`),
+  `libvmaf/test/test_metal_install_header.c` (new compile+link smoke test),
+  `docs/api/gpu.md` (Metal + HIP symbol corrections, IOSurface sub-API table),
+  `docs/adr/0437-*.md`, `docs/adr/_index_fragments/0437-*.md`,
+  `changelog.d/fixed/metal-public-header-install-and-import-state.md`,
+  `docs/state.md`.
+- **Invariant**: The `is_metal_enabled` guard mirrors the Vulkan guard
+  (`is_vulkan_enabled`): both treat `enabled` and `auto` as "install the
+  header". Do not change this to install only on `enabled`; `auto` on macOS
+  resolves to a real Metal build and the header must be present for FFmpeg's
+  `check_pkg_config` to succeed (same rationale as ADR-0192 for Vulkan).
+- **No rebase conflict surface**: upstream Netflix/vmaf has no Metal backend;
+  `libvmaf/include/libvmaf/meson.build` diverges from upstream at the first
+  `is_cuda_enabled` line. The only conflict risk is a batch that also edits
+  `platform_specific_headers` — resolve by keeping both additions.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build -Denable_metal=enabled \
+      -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson install -C build --destdir /tmp/vmaf-test-install
+  ls /tmp/vmaf-test-install/usr/local/include/libvmaf/libvmaf_metal.h
+  ```
+
 ### fix/metal-includes-and-ffmpeg-patch — Metal kernel batch T8-1c–k (ADR-0421)
 
 - **Touches**: `libvmaf/src/feature/metal/*.metal` (7 new kernel files),
