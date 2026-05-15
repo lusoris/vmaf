@@ -42,7 +42,6 @@ Usage::
 
 from __future__ import annotations
 
-import abc
 import argparse
 import json
 import os
@@ -137,15 +136,14 @@ def _dynamic_quantise(fp32_path: Path, work_dir: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-class _Runner(abc.ABC):
+class _Runner:
     """Minimal interface: ``infer(x: np.ndarray) -> np.ndarray``."""
 
     def __init__(self, name: str) -> None:
         self.name = name
 
-    @abc.abstractmethod
-    def infer(self, x):
-        """Run inference; accepts an ndarray, returns an ndarray."""
+    def infer(self, x):  # pragma: no cover - abstract
+        raise NotImplementedError
 
 
 class _OrtRunner(_Runner):

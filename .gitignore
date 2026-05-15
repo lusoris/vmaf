@@ -64,7 +64,6 @@ python/vmaf/matlab/**/*.o
 # Working/scratch directories
 .workingdir/
 .workingdir2/
-.corpus/
 
 # vmaf-tune Phase A scratch outputs (ADR-0237)
 corpus.jsonl
@@ -112,6 +111,3 @@ model/tiny/lpips_sq.onnx
 # workflow guard) is tracked, the binary itself is not.
 model/u2netp_mirror.onnx
 model/u2netp_mirror.pth
-
-# Large training/test corpora (gitignored, ~778GB local)
-.corpus/

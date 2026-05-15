@@ -28,15 +28,10 @@
 # through the kernel-template helpers until T7-10b lands real
 # `hipStreamCreate` / `hipMemcpyAsync` bodies.
 #
-# `feature/hip/integer_moment_hip.c` is the fourth kernel-template
+# `feature/hip/float_moment_hip.c` is the fourth kernel-template
 # consumer (ADR-0258) — registers `vmaf_fex_float_moment_hip` and
 # mirrors the CUDA twin (`feature/cuda/integer_moment_cuda.c`).
-# Named `integer_moment_hip.c` to follow the same naming convention
-# as the CUDA twin and the SYCL twin
-# (`feature/sycl/integer_moment_sycl.cpp`): the "integer" prefix
-# reflects integer YUV pixel accumulation even though the emitted
-# metrics are named `float_moment_*`. Same scaffold posture as the
-# third consumer; emits four features
+# Same scaffold posture as the third consumer; emits four features
 # (`float_moment_ref{1st,2nd}`, `float_moment_dis{1st,2nd}`) once
 # the runtime kernel arrives.
 # `feature/hip/float_ansnr_hip.c` is the fifth kernel-template
@@ -83,26 +78,16 @@ hip_sources += files(
     '../feature/hip/motion_hip.c',
     '../feature/hip/integer_psnr_hip.c',
     '../feature/hip/ciede_hip.c',
-    '../feature/hip/integer_moment_hip.c',
+    '../feature/hip/float_moment_hip.c',
     '../feature/hip/float_ansnr_hip.c',
     '../feature/hip/integer_motion_v2_hip.c',
     '../feature/hip/float_motion_hip.c',
     '../feature/hip/float_ssim_hip.c',
-    # Ninth consumer (ADR-0285): integer_ms_ssim_hip mirrors
-    # integer_ms_ssim_cuda.c's call graph (5-level pyramid, decimate +
-    # horiz + vert_lcs kernels, per-scale l/c/s partials); emits
-    # `float_ms_ssim` once the runtime kernel arrives.
-    '../feature/hip/integer_ms_ssim_hip.c',
     # T7-10b first real kernel: float_psnr_hip (ADR-0254). Registered under
     # `#if HAVE_HIP` in feature_extractor.c. With `enable_hipcc=true` the
     # HSACO blob is embedded and the kernel runs on device; without it
     # init() returns -ENOSYS (same scaffold-posture as the other consumers).
     '../feature/hip/float_psnr_hip.c',
-    # psnr_hvs_hip: ninth kernel-template consumer. Port of the CUDA twin
-    # (integer_psnr_hvs_cuda.c). With `enable_hipcc=true` the HSACO blob
-    # is embedded; without it init() returns -ENOSYS. Emits four features:
-    # psnr_hvs_y, psnr_hvs_cb, psnr_hvs_cr, psnr_hvs.
-    '../feature/hip/integer_psnr_hvs_hip.c',
 )
 
 # T7-10b runtime linkage. ROCm ships `hip_runtime_api.h` under

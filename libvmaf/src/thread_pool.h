@@ -20,7 +20,6 @@
 #define __VMAF_THREAD_POOL_H__
 
 #include <pthread.h>
-#include <stddef.h>
 
 typedef struct VmafThreadPool VmafThreadPool;
 

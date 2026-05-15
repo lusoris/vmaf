@@ -1,4 +1,4 @@
-# Research-0057: vmaf_tiny_v5 corpus expansion (5-corpus = 4-corpus + UGC)
+# Research-0057 — vmaf_tiny_v5 corpus expansion (5-corpus = 4-corpus + UGC)
 
 - **Status**: Active
 - **Companion ADR**: [ADR-0287](../adr/0287-vmaf-tiny-v5-corpus-expansion.md)
@@ -122,15 +122,15 @@ pinned in `runs/vmaf_tiny_v5_loso_metrics.json`.
 ```bash
 # Fetch the 30 smallest 4-tuples from the UGC bucket (~1.25 GB)
 python3 ai/scripts/fetch_youtube_ugc_subset.py \
-    --out-dir .corpus/ugc/download \
+    --out-dir .workingdir2/ugc/download \
     --n-stems 30 \
-    --manifest .corpus/ugc/manifest.json
+    --manifest .workingdir2/ugc/manifest.json
 
 # Decode + extract features (90 pairs, 27 000 rows, ~40 s wall on
 # an 8-core CPU)
 python3 ai/scripts/extract_ugc_features.py \
-    --manifest .corpus/ugc/manifest.json \
-    --yuv-dir .corpus/ugc/yuv \
+    --manifest .workingdir2/ugc/manifest.json \
+    --yuv-dir .workingdir2/ugc/yuv \
     --vmaf-bin build-cpu/tools/vmaf \
     --out-parquet runs/full_features_ugc.parquet \
     --max-height 360 \

@@ -88,7 +88,7 @@ It normalises each shard to a common 0–100 axis, deduplicates by
 
 ```bash
 python ai/scripts/aggregate_corpora.py \
-    --inputs .corpus/konvid-150k/konvid_150k.jsonl \
+    --inputs .workingdir2/konvid-150k/konvid_150k.jsonl \
              .workingdir2/lsvq/lsvq.jsonl \
              .workingdir2/waterloo-ivc-4k/waterloo_ivc_4k.jsonl \
              .workingdir2/youtube-ugc/youtube_ugc.jsonl \
@@ -182,7 +182,7 @@ python ai/scripts/konvid_1k_to_corpus_jsonl.py --max-rows 5
 # Drop manifest.csv first:  https://database.mmsp-kn.de/konvid-150k-vqa-database.html
 
 python ai/scripts/konvid_150k_to_corpus_jsonl.py
-#    → .corpus/konvid-150k/konvid_150k.jsonl
+#    → .workingdir2/konvid-150k/konvid_150k.jsonl
 #    Resumable — safe to Ctrl-C and re-run.
 
 # Smoke (50 clips):
@@ -225,13 +225,13 @@ table.
 ### CHUG UGC-HDR (5 992 clips, S3-hosted)
 
 ```bash
-mkdir -p .corpus/chug
+mkdir -p .workingdir2/chug
 curl -L https://raw.githubusercontent.com/shreshthsaini/CHUG/master/chug.csv \
-  -o .corpus/chug/manifest.csv
+  -o .workingdir2/chug/manifest.csv
 
 PYTHONPATH=ai/src python ai/scripts/chug_to_corpus_jsonl.py          # 500-row subset
 PYTHONPATH=ai/src python ai/scripts/chug_to_corpus_jsonl.py --full   # whole corpus
-#    → .corpus/chug/chug.jsonl
+#    → .workingdir2/chug/chug.jsonl
 ```
 
 CHUG is UGC-HDR and reports MOS on a **0–100 continuous scale**. The
@@ -271,7 +271,7 @@ python ai/scripts/train_konvid_mos_head.py --smoke
 # Production (real KonViD JSONL drops on disk):
 python ai/scripts/train_konvid_mos_head.py \
     --konvid-1k   .workingdir2/konvid-1k/konvid_1k.jsonl \
-    --konvid-150k .corpus/konvid-150k/konvid_150k.jsonl
+    --konvid-150k .workingdir2/konvid-150k/konvid_150k.jsonl
 #    → model/konvid_mos_head_v1.onnx
 #    → model/konvid_mos_head_v1.json  (manifest sidecar)
 ```

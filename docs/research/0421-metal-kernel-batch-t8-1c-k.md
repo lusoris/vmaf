@@ -1,4 +1,4 @@
-# Research-0421: Metal kernel batch T8-1c through T8-1k — reduction strategy and numerical stability
+# Metal kernel batch T8-1c through T8-1k — reduction strategy and numerical stability
 
 > ADR-0421 is the authoritative decision record. This digest summarises
 > the empirical findings and numerical analysis that informed the kernel
