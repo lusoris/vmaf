@@ -25,6 +25,20 @@ vmaf --tiny-model /missing.onnx 2>&1   # should print a clear error,
                                        # not "option not found"
 ```
 
+Optional deployment hardening:
+
+| Environment | Default | Notes |
+| --- | --- | --- |
+| `VMAF_TINY_MODEL_DIR` | unset | Directory jail for `--tiny-model` / libvmaf tiny-model loads. When set, every ONNX path is resolved with symlinks followed and must live below this directory before the loader stats or maps the file. Missing, non-directory, sibling-prefix, and symlink-escape paths fail closed with `-EACCES`. |
+
+Example:
+
+```bash
+export VMAF_TINY_MODEL_DIR=/opt/vmaf-models
+vmaf -r ref.yuv -d dis.yuv -w 1920 -h 1080 -p 420 -b 8 \
+     --tiny-model /opt/vmaf-models/vmaf_tiny_v2.onnx
+```
+
 ## Surface 1 — the `vmaf` CLI
 
 ```bash
@@ -81,6 +95,13 @@ New flags:
 | `--tiny-fp16` | off | Request fp16 I/O when the EP supports it. |
 | `--tiny-model-verify` | off | Require Sigstore-bundle verification (`cosign verify-blob`) before model load. Refuses to load on missing bundle, missing `cosign`, or non-zero exit. See [model-registry.md](model-registry.md) and [security.md](security.md). |
 | `--no-reference` | off | Skip reference loading; only valid with an NR tiny model. |
+
+`--tiny-model` accepts an absolute or relative path. For production,
+set `VMAF_TINY_MODEL_DIR` to the trusted model directory and pass paths
+inside that directory; a model outside the jail fails before ONNX
+Runtime opens a session. The jail is independent of
+`--tiny-model-verify`: use the jail to restrict *where* models may load
+from, and verification to pin *which* signed model bytes may load.
 
 Output JSON gains a `tiny_model` block alongside `pooled_metrics`:
 
