@@ -262,17 +262,18 @@ sha256 pins, known limitations).
 ### Sigstore bundle verification (fork-added)
 
 ```text
---tiny-model-verify <path>     # verify Sigstore bundle for a tiny-AI ONNX model
+--tiny-model-verify            # enable Sigstore bundle verification for the loaded tiny-AI model
 ```
 
-`--tiny-model-verify` invokes `cosign verify-blob` against the Sigstore
-bundle attached to a tiny-AI ONNX model **before** the model is loaded
-into ORT. The flag's argument is the path to the `.sigstore` bundle
-(typically `<model>.onnx.sigstore`); the model file itself is the one
-passed via `--tiny-model`. Verification is performed in-process by
-shelling out to the `cosign` binary on the host's `PATH`; on success
-the loader proceeds normally, on failure the process exits non-zero
-with a diagnostic to stderr.
+`--tiny-model-verify` is a **boolean flag** (no argument). It enables
+`cosign verify-blob` verification of the Sigstore bundle attached to
+the tiny-AI ONNX model **before** the model is loaded into ORT. Both
+the model path and its bundle path are inferred from `--tiny-model`:
+the bundle is expected at `<model-path>.sigstore` alongside the model
+file. Verification is performed in-process by shelling out to the
+`cosign` binary on the host's `PATH`; on success the loader proceeds
+normally, on failure the process exits non-zero with a diagnostic to
+stderr.
 
 When to use it: production inference pipelines that need supply-chain
 verification of model integrity — e.g. a release runner that pulls a
