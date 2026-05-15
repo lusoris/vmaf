@@ -122,9 +122,10 @@ ADR-0234) catches drift but only after a full GPU run.
   the underlying CPU code path. Do **not** unify the two mirror
   shapes on rebase.
 
-- **`cambi_vulkan.c` is hybrid host/GPU**
+- **`cambi_vulkan.c` is hybrid host/GPU, v2 parity gate at `places=4`**
   ([ADR-0205](../../../../docs/adr/0205-cambi-gpu-feasibility.md) +
-  [ADR-0210](../../../../docs/adr/0210-cambi-vulkan-integration.md)).
+  [ADR-0210](../../../../docs/adr/0210-cambi-vulkan-integration.md) +
+  [ADR-0456](../../../../docs/adr/0456-cambi-vulkan-v2-parity.md)).
   The Vulkan kernel offloads only the embarrassingly-parallel phases
   (preprocessing scaffold + derivative + 7×7 SAT spatial mask + 2×
   decimate + 3-tap mode filter); the precision-sensitive
@@ -134,7 +135,22 @@ ADR-0234) catches drift but only after a full GPU run.
   intentionally the same C as CPU `cambi.c::calculate_c_values`.
   Strategy III (fully-on-GPU c-values) is documented in
   [research digest 0020](../../../../docs/research/0020-cambi-gpu-strategies.md)
-  but **deferred** — do not attempt it inside v1.
+  but **deferred** — do not attempt it inside v2.
+
+  **Parity invariant (ADR-0456)**: Vulkan kernels for CAMBI must keep
+  parity with the CPU reference at `places=4`; the cross-backend gate
+  runs in `Build — Linux GPU (Vulkan) parity`. Key invariants that
+  **must not drift** on rebase:
+  - `cambi_vk_adjust_window` uses integer `((ws*(w+h))/375) >> 4`, NOT
+    a float sqrt ratio. Any upstream change to `adjust_window_size` in
+    `cambi.c` must be mirrored here.
+  - `cambi_vk_init_tvi` bisects to find the **last** sample where
+    `tvi_condition=true` (delta_L > threshold * L_mean). Reversing the
+    search direction (as v1 did) silently inflates all scores.
+  - `c_values_histograms` is allocated AFTER `cambi_vk_init_tvi`
+    completes, using `v_band_size = tvi_for_diff[num_diffs-1]+1-v_band_base`.
+    Moving this allocation before TVI init reintroduces the stale-size
+    bug from v1.
 
 - **`ssimulacra2_vulkan.c` calls into the SIMD host-path TUs**
   (ADR-0252). The pyramid-layout XYB conversion + 2x2 downsample

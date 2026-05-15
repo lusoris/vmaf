@@ -35043,97 +35043,23 @@ python -m pytest ai/tests/test_extract_k150k_no_ssimulacra2.py -v
 
 ### 0482 — `vmaf_pre` FFmpeg filter device-string parity (ADR-0482)
 
-**What changed**: `ffmpeg-patches/0002-add-vmaf_pre-filter.patch` — the
-`parse_device()` helper inside `vf_vmaf_pre.c` was extended from 5 to 12
-device-string entries, matching the full `VmafDnnDevice` enum in
-`libvmaf/include/libvmaf/dnn.h`. The option description string was also
-updated.
+No rebase impact: new test file only (`libvmaf/test/dnn/test_vmaf_use_tiny_model.c`
+and `libvmaf/test/dnn/meson.build` registration). No production code changed.
 
-**Rebase impact**: none. No libvmaf C API was changed; only the patch file
-itself was modified. The patch applies cleanly after `0001` as before.
+### 0135 — CAMBI Vulkan v2 parity fixes (ADR-0456)
 
-**Invariant to preserve on rebase**: whenever a new `VMAF_DNN_DEVICE_*`
-value is added to `dnn.h`, the `parse_device()` function in patch `0002`
-must be updated in the same PR (CLAUDE.md §12 r14). No auto-detection
-fallback exists; unknown strings return `AVERROR(EINVAL)`.
-
-**Smoke-test after rebase**:
-
-```bash
-meson setup build -Denable_cuda=false -Denable_sycl=false
-ninja -C build
-meson test -C build --suite=fast
-```
-
----
-
-## perf/adm-p-norm-fast-path-vif-arm64-malloc-2026-05-16 (ADR-0463)
-
-**What changed**: Added `adm_cm_s_p3`, `adm_csf_den_scale_s_p3`, and
-`adm_sum_cube_s_p3` fast-path variants in `adm_tools.c`; dispatch added in
-`adm.c:compute_adm`. Removed per-call `aligned_malloc` from the scalar
-fallback paths of `vif_filter1d_s`, `vif_filter1d_sq_s`, and
-`vif_filter1d_xy_s` in `vif_tools.c` — the caller-supplied `tmpbuf` is
-used instead.
-
-**Rebase impact**: low. All modified files (`adm_tools.c`, `adm_tools.h`,
-`adm.c`, `vif_tools.c`) are shared with upstream Netflix/vmaf. The ADM
-changes add new symbols (no existing signatures altered). The VIF changes
-only remove local malloc/free; the function signatures and caller-supplied
-`tmpbuf` contract are unchanged.
-
-**Invariant to preserve on rebase**: When upstream Netflix/vmaf modifies
-`adm_cm_s`, `adm_csf_den_scale_s`, or `adm_sum_cube_s`, the corresponding
-`_p3` variants in the fork must receive the same logic change (minus the
-`powf` path). When upstream modifies `vif_filter1d_*` scalar fallbacks,
-ensure they do not reintroduce `aligned_malloc` in the fallback body.
-See `libvmaf/src/feature/AGENTS.md` performance-invariant section.
-
-### fix/dispatch-strategy-registry-audit-2026-05-15 — dispatch registry deduplication + HIP/Metal fixes
-
-**Touches**: `libvmaf/src/feature/feature_extractor.c` (SYCL/Vulkan
-sections of `feature_extractor_list[]`), `libvmaf/src/hip/dispatch_strategy.c`,
-`libvmaf/src/metal/dispatch_strategy.c`.
-
-**Rebase impact**: low for the SYCL/Vulkan deduplication (purely
-cosmetic — first-match semantics mean behaviour is unchanged). Medium
-for HIP and Metal dispatch-supports: if an upstream sync adds new
-`feature_extractor_list[]` entries for HIP or Metal extractors, they
-must also be added to `g_hip_features[]` / `g_metal_features[]` in the
-same commit.
-
-**Invariant to preserve on rebase**: every `vmaf_fex_*_hip` extractor
-registered in `feature_extractor_list[]` must appear in `g_hip_features[]`
-in `libvmaf/src/hip/dispatch_strategy.c`.  Every `vmaf_fex_*_metal`
-extractor must appear (by extractor `.name` and all `provided_features[]`
-keys) in `g_metal_features[]` in `libvmaf/src/metal/dispatch_strategy.c`.
-The build does not enforce this — run `scripts/ci/check-dispatch-registry.sh`
-after any kernel addition.
-
-**Smoke-test after rebase**:
-
-```bash
-meson setup build -Denable_cuda=false -Denable_sycl=false
-ninja -C build
-meson test -C build
-scripts/ci/check-dispatch-registry.sh   # must exit 0
-```
-
-## `perf/cache-rfe-hw-flags` — cache rfe_hw_flags bitmask (F2-B)
-
-**File changed:** `libvmaf/src/libvmaf.c` — `VmafContext` struct + `vmaf_init` + `vmaf_use_feature` + `vmaf_read_pictures`.
-
-No rebase impact: the change is entirely internal to `libvmaf.c`; no public
-header touched, no FFmpeg-patch surface changed.
-
-**Invariant:** `rfe_hw_flags_dirty` must be set to `true` in `vmaf_init` (after
-the `memset` zeroes it to `false`). If a future refactor moves the `memset` or
-adds a second init path, the dirty flag must be set at every init site.
-
-**Smoke-test after rebase:**
-
-```bash
-meson setup build -Denable_cuda=true -Denable_sycl=false
-ninja -C build src/liblibvmaf.a.p/libvmaf_src_libvmaf.c.o
-# Expected: compiles without error or warning
-```
+- **ADR**: [ADR-0456](adr/0456-cambi-vulkan-v2-parity.md)
+- **Files changed**:
+  - `libvmaf/src/feature/vulkan/cambi_vulkan.c` — six parity bug fixes
+  - `libvmaf/src/feature/vulkan/AGENTS.md` — updated invariant note
+- **Rebase impact**: low. No public API or shader changes. If `cambi.c::adjust_window_size`
+  or `get_tvi_for_diff` changes upstream, `cambi_vk_adjust_window` and
+  `cambi_vk_init_tvi` in `cambi_vulkan.c` must be updated in lockstep.
+  The comment block at the top of each function cites the corresponding
+  CPU line number to make the linkage explicit.
+- **Invariant to preserve**: `cambi_vk_init_tvi` must be called **before**
+  the `c_values_histograms` malloc (which moved inside `cambi_vk_init_tvi`
+  in this PR). Rebases that restructure `cambi_vk_init` call order must
+  preserve this dependency.
+- **Re-test**: `meson test -C build --suite=fast -k cambi`; full
+  cross-backend parity gate: `Build — Linux GPU (Vulkan) parity`.
