@@ -18,29 +18,15 @@ deeper in [../feature/metal/](../feature/metal/).
 metal/
   common.{mm,h}          # Metal context + command-queue management (T8-1b / ADR-0420)
   picture_metal.{mm,h}   # VmafPicture on a Metal device — MTLBuffer lifecycle (T8-1b)
-  dispatch_strategy.{c,h} # Feature-name → kernel routing — stub
+  dispatch_strategy.{c,h} # Feature-name → landed-kernel support predicate
   kernel_template.{mm,h} # per-feature kernel scaffolding + runtime (T8-1b / ADR-0420)
   meson.build           # subdir() include from libvmaf/src/meson.build
 ```
 
 ## Backend status
 
-**Scaffold + first consumer (motion_v2_metal)** — landed in T8-1
-(ADR-0361):
-
-- `dispatch_strategy.c` — feature-name → kernel routing stub.
-- Public header `libvmaf_metal.h` — every entry point returns
-  `-ENOSYS` until the matching consumer is wired.
-- `feature/metal/integer_motion_v2_metal.c` — registers
-  `vmaf_fex_integer_motion_v2_metal` (extractor name
-  `motion_v2_metal`, `VMAF_FEATURE_EXTRACTOR_TEMPORAL` flag set).
-  `init()` returns `-ENOSYS` until T8-1c lands the first kernel.
-- CI lane `Build — macOS Metal (T8-1 scaffold)` in
-  `.github/workflows/libvmaf-build-matrix.yml` compiles with
-  `-Denable_metal=enabled` on `macos-latest` and runs the smoke
-  test.
-
-**Runtime landed** — T8-1b ([ADR-0420](../../../docs/adr/0420-metal-backend-runtime-t8-1b.md)):
+**Runtime landed** — T8-1b
+([ADR-0420](../../../docs/adr/0420-metal-backend-runtime-t8-1b.md)):
 
 - `common.mm` — `vmaf_metal_context_new` / `_destroy` /
   `vmaf_metal_available` / `vmaf_metal_list_devices` /
@@ -70,12 +56,21 @@ metal/
   point returns `0`; on every other host returns `-ENODEV`;
   input-validation paths still fire unconditionally.
 
-**Pending** — T8-1c lands the first real kernel
-(`motion_v2_metal.metal` shader + metallib loader) and wires the
-runtime submit/collect chain into the extractor. Remaining kernel
-ports (VIF, ADM, SSIM, ...) follow as their own PRs gated by the
-`places=4` cross-backend-diff lane (per
-[ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md)).
+**Batch-1 kernels landed** — T8-1c through T8-1j
+([ADR-0421](../../../docs/adr/0421-metal-first-kernel-motion-v2.md)):
+
+- `motion_v2_metal`, `float_psnr_metal`, `float_moment_metal`,
+  `float_ansnr_metal`, `integer_psnr_metal`, `float_motion_metal`,
+  `integer_motion_metal`, and `float_ssim_metal` are Obj-C++ host
+  dispatch files backed by `.metal` shaders and the embedded
+  `default.metallib`.
+- `dispatch_strategy.c` is no longer inert. It answers support for
+  both extractor names and provided feature keys for those landed
+  kernels, and returns 0 for NULL contexts, NULL names, or unknown
+  features.
+- Remaining kernel ports (VIF, ADM, CIEDE, CAMBI, SSIMULACRA2, ...)
+  follow as their own PRs gated by the `places=4` cross-backend-diff
+  lane (per [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md)).
 
 ## Ground rules
 

@@ -33971,6 +33971,29 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_benchmark.py -q
 ```
 
+## 2026-05-14 — Metal Dispatch Support Table
+
+**Files touched**: `libvmaf/src/metal/dispatch_strategy.c`,
+`libvmaf/src/metal/dispatch_strategy.h`, `libvmaf/test/test_metal_smoke.c`,
+`libvmaf/src/metal/AGENTS.md`, `docs/backends/metal/index.md`.
+
+**Rebase impact**: low. The dispatch predicate now reflects the Metal
+kernels already compiled into the backend; it does not change kernel math,
+picture layout, metallib embedding, or public `libvmaf_metal.h` symbols.
+
+**Invariant to preserve on rebase**: every newly-landed Metal extractor must
+append both its extractor name and its provided feature keys to
+`g_metal_features`. Unknown features, NULL contexts, and NULL names must keep
+returning 0.
+
+**Smoke-test after rebase**:
+
+```bash
+meson setup build-metal -Denable_metal=enabled
+ninja -C build-metal test_metal_smoke
+meson test -C build-metal test_metal_smoke
+```
+
 ## 2026-05-14 — Tiny-AI Bisect Cache Real-Feature Bridge
 
 **Files touched**: `ai/scripts/build_bisect_cache.py`,
