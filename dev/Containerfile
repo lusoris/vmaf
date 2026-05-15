@@ -1,0 +1,286 @@
+# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
+# Copyright 2026 Lusoris and Claude (Anthropic)
+#
+# dev/Containerfile — VMAF fork dev-MCP container
+#
+# Multi-stage build:
+#   Stage 1 (build-deps)  — base tools: meson, ninja, nasm, gcc-13, clang-19,
+#                           python3.12, pkg-config, git, curl, ca-certificates
+#   Stage 2 (gpu-sdks)    — GPU SDK layer on top of Stage 1:
+#                           CUDA 12.6, Intel oneAPI 2025.3, Vulkan + lavapipe,
+#                           ROCm 6.x (HIP toolchain; build-only on NVIDIA host)
+#   Stage 3 (libvmaf)     — source build of libvmaf with all backends enabled
+#   Stage 4 (python-env)  — install vmaf-mcp + vmaf-train + vmaf-tune
+#
+# RUNTIME PREREQUISITES (host):
+#   - NVIDIA Container Toolkit for CUDA kernel execution
+#     https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+#   - (Optional) ROCm runtime for HIP kernel execution — build-regression
+#     catching works without it; ENOSYS is returned for HIP feature kernels.
+#   - (Optional) Intel oneAPI runtime for SYCL kernel execution
+#
+# See docs/development/dev-mcp.md for full usage.
+
+# ---------------------------------------------------------------------------
+# Stage 1 — build-deps
+# ---------------------------------------------------------------------------
+FROM ubuntu:24.04 AS build-deps
+
+LABEL org.opencontainers.image.title="vmaf-dev-mcp-build-deps"
+LABEL org.opencontainers.image.description="Base build tools for VMAF fork dev-MCP container"
+LABEL org.opencontainers.image.source="https://github.com/lusoris/vmaf"
+LABEL org.opencontainers.image.licenses="BSD-3-Clause-Plus-Patent"
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Toolchains
+    gcc-13 \
+    g++-13 \
+    clang-19 \
+    clang++-19 \
+    # Build system
+    meson \
+    ninja-build \
+    nasm \
+    pkg-config \
+    cmake \
+    # Python
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
+    python3-pip \
+    # Source control + fetch
+    git \
+    curl \
+    ca-certificates \
+    gnupg \
+    # Runtime libs needed by libvmaf and ONNX Runtime
+    libgomp1 \
+    libc6-dev \
+    # Vulkan + lavapipe (CPU ICD for containers without GPU passthrough)
+    libvulkan-dev \
+    vulkan-tools \
+    mesa-vulkan-drivers \
+    libglvnd-dev \
+    # Misc
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Ensure gcc-13 / clang-19 are the default compilers
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100 \
+    && update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100 \
+    && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
+
+# Create a non-root build user (CERT C ENV32 — do not run builds as root)
+RUN useradd --create-home --shell /bin/bash vmaf
+
+# ---------------------------------------------------------------------------
+# Stage 2 — gpu-sdks
+# ---------------------------------------------------------------------------
+FROM build-deps AS gpu-sdks
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Use pipefail so piped curl/gpg commands fail fast on any segment failure
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# ---------- CUDA (latest, follows host driver up to 13.x) -------------------
+# NVIDIA apt repo for Ubuntu 24.04. Use the unversioned `cuda-toolkit`
+# meta-package so the container tracks the latest stable in the repo
+# (currently 13.0+; host RTX 4090 + driver 595.71 supports CUDA 13.2).
+# Note: The NVIDIA Container Toolkit must be installed on the *host*
+# for GPU passthrough. See docs/development/dev-mcp.md §Prerequisites.
+RUN curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb \
+        -o /tmp/cuda-keyring.deb \
+    && dpkg -i /tmp/cuda-keyring.deb \
+    && rm /tmp/cuda-keyring.deb
+
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cuda-toolkit \
+    cuda-compiler \
+    libcuda1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# CUDA_HOME is the symlink the meta-package maintains pointing at the
+# latest installed major.minor (/usr/local/cuda → /usr/local/cuda-NN.M).
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+
+# ---------- Intel oneAPI 2025.3 (icpx / Level Zero) ------------------------
+# Intel apt repo
+RUN curl -fsSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+        | gpg --dearmor \
+        | tee /usr/share/keyrings/intel-sw-products.gpg > /dev/null \
+    && printf 'deb [signed-by=/usr/share/keyrings/intel-sw-products.gpg] https://apt.repos.intel.com/oneapi all main\n' \
+        > /etc/apt/sources.list.d/intel-oneapi.list
+
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    intel-basekit-2025.3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# oneAPI env — source /opt/intel/oneapi/setvars.sh in interactive shells;
+# for CI/build steps we set the critical vars explicitly.
+ENV ONEAPI_ROOT=/opt/intel/oneapi
+ENV DPCPP_ROOT=${ONEAPI_ROOT}/compiler/latest
+ENV PATH=${DPCPP_ROOT}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${DPCPP_ROOT}/lib:${LD_LIBRARY_PATH}
+ENV PKG_CONFIG_PATH=${ONEAPI_ROOT}/tbb/latest/lib/pkgconfig:${PKG_CONFIG_PATH}
+
+# ---------- ROCm 6.x (HIP toolchain — build-only on NVIDIA host) -----------
+# AMD apt repo
+# NOTE: On an NVIDIA-only host HIP device kernels compile and embed but cannot
+# be dispatched at runtime (the HIP runtime returns an error). The container
+# is still useful for build-regression catching and static analysis.
+# See docs/development/dev-mcp.md §Known Limitations.
+RUN curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key \
+        | gpg --dearmor \
+        | tee /usr/share/keyrings/rocm-archive-keyring.gpg > /dev/null \
+    && printf 'deb [arch=amd64 signed-by=/usr/share/keyrings/rocm-archive-keyring.gpg] https://repo.radeon.com/rocm/apt/6.4 noble main\n' \
+        > /etc/apt/sources.list.d/rocm.list \
+    && printf 'Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600\n' \
+        > /etc/apt/preferences.d/rocm-pin-600
+
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    rocm-hip-sdk \
+    hipcc \
+    rocm-cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV ROCM_PATH=/opt/rocm
+ENV PATH=${ROCM_PATH}/bin:${ROCM_PATH}/llvm/bin:${PATH}
+ENV LD_LIBRARY_PATH=${ROCM_PATH}/lib:${LD_LIBRARY_PATH}
+
+# ---------- Vulkan ICD selection for lavapipe ------------------------------
+# Set the lavapipe ICD as the default software Vulkan renderer.
+# This allows Vulkan feature extractors to run in containers without a
+# physical GPU (CPU fallback; slower but functional for correctness checks).
+ENV VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+
+# ---------------------------------------------------------------------------
+# Stage 3 — libvmaf source build
+# ---------------------------------------------------------------------------
+FROM gpu-sdks AS libvmaf-build
+
+WORKDIR /build/vmaf
+
+# Copy the full source tree (read-only mount is for runtime; build needs it)
+COPY --chown=vmaf:vmaf . /build/vmaf/
+
+USER vmaf
+
+# Configure with all backends enabled.
+# -Denable_metal=auto  → auto-disabled on Linux (no Metal SDK present).
+# -Denable_mcp_sse=auto → auto-disabled until POSIX socket impl is complete.
+RUN meson setup build \
+        -Denable_cuda=true \
+        -Denable_sycl=true \
+        -Denable_vulkan=enabled \
+        -Denable_hip=true \
+        -Denable_hipcc=true \
+        -Denable_metal=auto \
+        -Denable_dnn=enabled \
+        -Denable_mcp=true \
+        -Denable_mcp_stdio=true \
+        -Denable_mcp_uds=true \
+        -Denable_mcp_sse=auto \
+        --buildtype=release \
+        --prefix=/usr/local \
+        -Dc_args="-march=native" \
+    && ninja -C build \
+    && ninja -C build install
+
+# ---------------------------------------------------------------------------
+# Stage 3.5 — FFmpeg n8.1.1 with our libvmaf integration patches
+# ---------------------------------------------------------------------------
+# Builds the same FFmpeg version the fork's `ffmpeg-patches/series.txt` is
+# pinned against. Applies every patch in series order, then configures with
+# every libvmaf-* hook our patches add (sycl / vulkan / cuda / hip / metal-
+# build-only on Linux). Result: `ffmpeg -filters` lists `libvmaf`,
+# `libvmaf_sycl`, `libvmaf_vulkan`, `vmaf_pre`, `libvmaf_tune` so the dev
+# MCP probe can shell out to a real FFmpeg toolchain end-to-end.
+USER root
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libx264-dev libx265-dev libsvtav1-dev libaom-dev libvpx-dev libdav1d-dev \
+    libfdk-aac-dev libmp3lame-dev libopus-dev libvorbis-dev \
+    libass-dev libfreetype-dev libfontconfig-dev libfribidi-dev \
+    libva-dev libva-drm-dev libvdpau-dev \
+    && rm -rf /var/lib/apt/lists/*
+USER vmaf
+
+ARG FFMPEG_TAG=n8.1.1
+RUN git clone --depth=1 --branch ${FFMPEG_TAG} https://git.ffmpeg.org/ffmpeg.git /build/ffmpeg
+WORKDIR /build/ffmpeg
+
+# Apply every patch from ffmpeg-patches/series.txt in order
+RUN while IFS= read -r patch_name; do \
+        case "${patch_name}" in \
+            ""|"#"*) continue ;; \
+        esac ; \
+        echo "applying ffmpeg-patches/${patch_name}" ; \
+        git am --3way "/build/vmaf/ffmpeg-patches/${patch_name}" \
+            || (echo "FATAL: ffmpeg-patches/${patch_name} did not apply" && exit 1) ; \
+    done < /build/vmaf/ffmpeg-patches/series.txt
+
+RUN PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib/x86_64-linux-gnu/pkgconfig \
+    ./configure \
+        --prefix=/usr/local \
+        --enable-gpl --enable-version3 --enable-nonfree \
+        --enable-libvmaf \
+        --enable-libvmaf-cuda \
+        --enable-libvmaf-sycl \
+        --enable-libvmaf-vulkan \
+        --enable-libvmaf-hip \
+        --enable-libx264 --enable-libx265 --enable-libsvtav1 \
+        --enable-libaom --enable-libvpx --enable-libdav1d \
+        --enable-libfdk-aac --enable-libmp3lame --enable-libopus --enable-libvorbis \
+        --enable-libass --enable-libfreetype --enable-libfontconfig --enable-libfribidi \
+        --enable-vaapi --enable-vdpau \
+        --extra-cflags="-I${CUDA_HOME}/include" \
+        --extra-ldflags="-L${CUDA_HOME}/lib64" \
+    && make -j"$(nproc)" \
+    && USER=root make install \
+    && /usr/local/bin/ffmpeg -version | head -3
+
+WORKDIR /build/vmaf
+
+# ---------------------------------------------------------------------------
+# Stage 4 — Python environment
+# ---------------------------------------------------------------------------
+FROM libvmaf-build AS dev-mcp
+
+# Install in-tree Python packages (editable for dev convenience)
+# vmaf-mcp: embedded MCP JSON-RPC server
+# vmaf-train: tiny-AI training harness (ai/)
+# vmaf-tune: encode automation / VMAF-tune CLI
+RUN python3 -m venv /opt/vmaf-venv \
+    && /opt/vmaf-venv/bin/pip install --upgrade pip \
+    && /opt/vmaf-venv/bin/pip install -e /build/vmaf/mcp-server/vmaf-mcp \
+    && /opt/vmaf-venv/bin/pip install -e /build/vmaf/ai \
+    && /opt/vmaf-venv/bin/pip install -e /build/vmaf/tools/vmaf-tune
+
+ENV PATH=/opt/vmaf-venv/bin:${PATH}
+ENV PYTHONPATH=/build/vmaf/python:${PYTHONPATH}
+
+# Runtime environment
+ENV VMAF_MODEL_PATH=/build/vmaf/model
+ENV VMAF_TESTDATA_PATH=/build/vmaf/testdata
+# MCP UDS socket path (must match dev-mcp-entrypoint.sh and docker-compose.yml)
+ENV VMAF_MCP_UDS_PATH=/tmp/vmaf-mcp.sock
+
+# Expose the SSE port (if SSE transport is enabled at build time)
+EXPOSE 8765
+
+# Health-check: verify libvmaf is installed and returns version
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD vmaf --version || exit 1
+
+ENTRYPOINT ["/build/vmaf/dev/scripts/dev-mcp-entrypoint.sh"]
+CMD []
