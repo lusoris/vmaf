@@ -34882,6 +34882,37 @@ ninja -C build test/test_cli_parse
 
 ---
 
+## 2026-05-15 — Tiny-AI ONNX Blob Storage Migration (ADR-0457)
+
+**Files removed from working tree** (still in git history):
+
+- `model/tiny/transnet_v2.onnx` (30.8 MB)
+- `model/tiny/fastdvdnet_pre.onnx` (10.0 MB)
+- `model/tiny/lpips_sq.onnx` (3.3 MB)
+
+**Replaced with**: `tiny-blobs-v1` GitHub Release attachments
+(`https://github.com/lusoris/vmaf/releases/download/tiny-blobs-v1/<file>`)
+fetched on demand by `scripts/ai/fetch-tiny-blobs.sh`.
+
+**Rebase impact**: minimal. Upstream Netflix/vmaf does not ship these
+ONNX files (they are fork-local tiny-AI artefacts). A rebase will not
+re-introduce them.
+
+**Invariant to preserve on rebase**: any new ONNX file added to
+`model/tiny/` that is ≥ 1 MB must follow the same pattern (upload to
+the next `tiny-blobs-vN` release, set `release_url` in `registry.json`,
+add a `.gitignore` entry, do NOT `git add` the file). Files below 1 MB
+stay inline.
+
+**Smoke-test after rebase**:
+
+```bash
+scripts/ai/fetch-tiny-blobs.sh --check  # expect: verified=3 failures=0
+scripts/ai/fetch-tiny-blobs.sh          # expect: idempotent no-op
+```
+
+---
+
 ## `fix/motion-fps-weight-all-gpu-backends` — motion_fps_weight parity across all GPU twins
 
 **Branch**: `fix/saliency-per-mb-eval-2026-05-15` (squash PR #863)

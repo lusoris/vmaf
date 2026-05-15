@@ -231,6 +231,7 @@ nav:
       - Bisect model quality: ai/bisect-model-quality.md
       - MOS corpora: ai/mos-corpora.md
       - Model registry: ai/model-registry.md
+      - Tiny-AI blob storage: ai/tiny-blob-storage.md
       - Quantization: ai/quantization.md
       - Quant epsilon: ai/quant-eps.md
       - Predictor: ai/predictor.md

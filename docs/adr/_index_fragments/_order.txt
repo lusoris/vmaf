@@ -362,4 +362,6 @@
 0459-vmaftune-panel-aware-recommendations
 0451-local-dev-mcp-container
 0446-extractor-hdr-and-hfr-feature-options
+0452-cambi-calculate-c-values-avx512-neon
+0457-onnx-blobs-to-github-releases
 0467-ssimulacra2-avx512-neon-ulp-audit
