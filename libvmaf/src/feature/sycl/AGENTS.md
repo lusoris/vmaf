@@ -163,3 +163,21 @@ DPC++ toolchain with `icpx` on PATH.
   feature kernels are unconditionally fp64-free (T7-17).
 - [ADR-0243](../../../../docs/adr/0243-enable-lcs-gpu.md) — MS-SSIM
   `enable_lcs` GPU contract.
+
+## Per-feature option-table sync invariant
+
+**Adding a feature knob to any one backend (SYCL / CUDA / HIP / Metal /
+Vulkan) requires adding it to all backends in the same PR** -- no deferred
+follow-ups. The canonical source of truth for the option signature (name,
+alias, type, min, max, default, flags) is the CPU feature extractor in
+`libvmaf/src/feature/` (e.g. `integer_motion.c`). The GPU twins copy the
+option entry verbatim and apply the weight in the equivalent host-side
+`flush()` or post-processing callback.
+
+Rationale: the CHUG / K150K extractor whitelist in
+`ai/scripts/extract_k150k_features.py` passes `_feature_arg` dicts to
+`vmaf_use_features_with_opts`; if the receiving backend's options table
+is missing the knob the option silently falls through to the default,
+producing silently-wrong scores without any error. This is the root cause
+of the `motion_fps_weight` gap in `integer_motion_v2_sycl.cpp` closed by
+PR #851-follow-up (2026-05-16).

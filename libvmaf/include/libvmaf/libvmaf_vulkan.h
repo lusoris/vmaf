@@ -248,8 +248,7 @@ VMAF_EXPORT int vmaf_vulkan_list_devices(void);
  * @param index              Frame index (matches the index
  *                           passed to vmaf_vulkan_read_imported_pictures).
  *
- * @return 0 on success, -ENOSYS until T7-29 part 2 lands,
- *         -EINVAL on bad args.
+ * @return 0 on success, -EINVAL on bad args.
  */
 VMAF_EXPORT int vmaf_vulkan_import_image(VmafVulkanState *state, uintptr_t vk_image,
                                          uint32_t vk_format, uint32_t vk_layout,
@@ -262,7 +261,7 @@ VMAF_EXPORT int vmaf_vulkan_import_image(VmafVulkanState *state, uintptr_t vk_im
  * has finished. Used by FFmpeg-side filters before reusing
  * imported images in the next frame.
  *
- * @return 0 on success, -ENOSYS until T7-29 part 2 lands.
+ * @return 0 on success, -EINVAL on bad state.
  */
 VMAF_EXPORT int vmaf_vulkan_wait_compute(VmafVulkanState *state);
 
@@ -271,7 +270,7 @@ VMAF_EXPORT int vmaf_vulkan_wait_compute(VmafVulkanState *state);
  * distorted images at `index`. Mirrors vmaf_read_pictures_sycl
  * but for Vulkan-imported frames.
  *
- * @return 0 on success, -ENOSYS until T7-29 part 2 lands.
+ * @return 0 on success, -EINVAL on bad state.
  */
 VMAF_EXPORT int vmaf_vulkan_read_imported_pictures(VmafContext *ctx, unsigned index);
 

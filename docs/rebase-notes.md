@@ -7,6 +7,21 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
+## fix/sycl-motion-fps-weight-vulkan-import-status-2026-05-16
+
+**Sub-task B -- `integer_motion_v2_sycl.cpp`**: adds `motion_fps_weight`
+to `MotionV2StateSycl` struct and `options_motion_v2_sycl[]`. If
+upstream Netflix ever adds `motion_fps_weight` to `integer_motion_v2.c`
+(the CPU reference), both the SYCL and CUDA `motion_v2` twins should
+pick it up in the same PR per the invariant added to
+`libvmaf/src/feature/sycl/AGENTS.md`.
+
+**Sub-task A -- `libvmaf_vulkan.h`**: removes stale
+`-ENOSYS until T7-29 part 2 lands` from the `@return` lines of
+`vmaf_vulkan_import_image`, `vmaf_vulkan_wait_compute`, and
+`vmaf_vulkan_read_imported_pictures`. No upstream rebase conflict
+expected -- the public Vulkan header is fork-local.
+
 No rebase impact: `fix/dev-mcp-stage3-and-bundled-fixes-2026-05-16` touches
 only `dev/Containerfile`, `dev/AGENTS.md`, `docs/research/0135-*`, and
 `changelog.d/fixed/dev-mcp-container-stage-3.md`. These are all fork-local
