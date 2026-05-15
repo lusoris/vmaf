@@ -82,12 +82,18 @@ upstream sync that touches `libvmaf/src/feature/`.
 
 ## PR-body deliverables validator (`validate-pr-body.sh`)
 
-`scripts/ci/validate-pr-body.sh` and `scripts/git-hooks/pre-push`
-are local mirrors of the `.github/workflows/rule-enforcement.yml`
-deep-dive-checklist gate (ADR-0108). They re-use
-`scripts/ci/deliverables-check.sh` verbatim as the parser; the
-validator only injects the diff via a `PATH`-shim that intercepts
-`git diff --name-only`.
+`scripts/ci/validate-pr-body.sh`, `scripts/git-hooks/pre-push`, and
+`scripts/git-hooks/pre-push-pr-body-lint.sh` are local mirrors of the
+`.github/workflows/rule-enforcement.yml` deep-dive-checklist gate
+(ADR-0108). They re-use `scripts/ci/deliverables-check.sh` verbatim as
+the parser; the validator only injects the diff via a `PATH`-shim that
+intercepts `git diff --name-only`.
+
+`pre-push-pr-body-lint.sh` is the standalone entry point referenced by
+the `.pre-commit-config.yaml` `validate-pr-body` hook (`stages:
+[pre-push]`). The omnibus `pre-push` hook delegates to the same
+validator logic. Both skip gracefully when `gh` is absent or no open PR
+exists for the current branch.
 
 **Invariant — single parser source of truth**: do not fork or
 re-implement the deliverables-check parsing logic in any other
