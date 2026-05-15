@@ -430,12 +430,3 @@ flag pattern (`--no_sycl` for "CUDA"). Numbers from runs older than
 2026-04-28 in `docs/benchmarks.md` were CPU-on-CPU comparisons. See
 [ADR-0064 in rebase-notes](../docs/rebase-notes.md) and PR #169 for
 the corrected methodology.
-
-- **Build-option combination validation** (fork-local, fixes 1b/1c/1d of audit-build-matrix-symbols-2026-05-16):
-  `libvmaf/src/meson.build` validates dependent-option combinations and errors or warns when incompatible flags are set:
-  — `enable_mcp_sse=enabled/true` requires `enable_mcp=true` (error if violated);
-  — `enable_mcp_uds=true` requires `enable_mcp=true` (error if violated);
-  — `enable_mcp_stdio=true` requires `enable_mcp=true` (error if violated);
-  — `enable_avx512=true` with `enable_asm=false` issues a warning (no-op, not an error);
-  — `enable_hipcc=true` with `enable_hip=false` issues a warning (no-op, not an error).
-  The checks run at configuration time (before `subdir()` calls) to catch misconfigurations early. The principle: every option that depends on another must `error()` on the bad combo, never silently no-op. See [`src/meson.build` lines 100–111, 74–76, 142–144](src/meson.build).
