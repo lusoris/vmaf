@@ -387,8 +387,11 @@ for the option-space digest.
   `run_auto` must call `hdr_codec_args(codec, info)` per cell when
   `meta.is_hdr` is true. A generic tuple such as
   `("-color_primaries", "bt2020", "-color_trc", "smpte2084")`
-  is insufficient because x265, SVT-AV1, NVENC HEVC, and VVenC use
-  different ffmpeg flag families. Tests in
+  is insufficient because x265, SVT-AV1, HEVC hardware encoders,
+  AV1 hardware encoders, and VVenC use different ffmpeg flag
+  families. Hardware HEVC rows force `p010le` + `main10`; hardware
+  AV1 rows force `p010le`; codec-private SEI flags stay limited to
+  families with stable FFmpeg knobs. Tests in
   `tests/test_auto_short_circuits.py` lock this per-codec shape.
 - **`select_hdr_vmaf_model` falls back silently.** When
   `model/vmaf_hdr_*.json` is absent (current state — fork hasn't

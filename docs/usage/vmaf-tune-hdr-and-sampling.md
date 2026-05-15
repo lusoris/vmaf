@@ -119,6 +119,17 @@ A six-cell HDR corpus across two NVENC encoders, scored on CUDA,
 with a 10 s centre-clip — a typical pre-flight smoke run before
 the full 60 s sweep.
 
+HDR flag dispatch is centralised in `vmaftune.hdr.hdr_codec_args()`.
+The current table covers the HDR-capable `vmaf-tune` adapters:
+`libx265`, `libsvtav1`, `libaom-av1`, `hevc_nvenc`, `av1_nvenc`,
+`hevc_qsv`, `av1_qsv`, `hevc_amf`, `av1_amf`, `hevc_videotoolbox`,
+and `libvvenc` plus container-level color tags for `libx264`.
+HEVC hardware rows force `p010le` + `main10`; AV1 hardware rows force
+`p010le`; software AV1 and VVenC rows carry global `-color_*` tags.
+The HDR VMAF model is still a separate model-slot issue: until a
+licensed `model/vmaf_hdr_*.json` exists, scoring falls back to the SDR
+model with the documented warning.
+
 ## See also
 
 - [`vmaf-tune.md`](vmaf-tune.md) — the base tool, corpus + recommend

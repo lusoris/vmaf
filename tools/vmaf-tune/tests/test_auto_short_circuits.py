@@ -629,6 +629,49 @@ def test_run_auto_hdr_cells_use_codec_specific_dispatch() -> None:
     assert len({tuple(args) for args in by_codec.values()}) == 3
 
 
+def test_run_auto_hdr_hardware_cells_are_not_left_unflagged() -> None:
+    meta = SourceMeta(
+        height=2160,
+        width=3840,
+        is_hdr=True,
+        content_class="live_action_hdr",
+        duration_s=7200.0,
+        shot_variance=0.30,
+        sample_clip_seconds=0.0,
+    )
+    codecs = (
+        "av1_nvenc",
+        "hevc_qsv",
+        "av1_qsv",
+        "hevc_amf",
+        "av1_amf",
+        "hevc_videotoolbox",
+    )
+    plan = run_auto(
+        src=Path("/dev/null"),
+        target_vmaf=93.0,
+        max_budget_kbps=20000.0,
+        allow_codecs=codecs,
+        smoke=True,
+        meta_override=meta,
+    )
+    by_codec = {}
+    for cell in plan.cells:
+        by_codec.setdefault(cell["codec"], cell["hdr_args"])
+
+    for codec in codecs:
+        assert "-color_primaries" in by_codec[codec], codec
+        assert by_codec[codec][by_codec[codec].index("-color_trc") + 1] == "smpte2084"
+
+    for codec in ("av1_nvenc", "hevc_qsv", "av1_qsv", "hevc_amf", "av1_amf"):
+        assert "-pix_fmt" in by_codec[codec], codec
+        assert by_codec[codec][by_codec[codec].index("-pix_fmt") + 1] == "p010le"
+
+    for codec in ("hevc_qsv", "hevc_amf", "hevc_videotoolbox"):
+        assert "-profile:v" in by_codec[codec], codec
+        assert by_codec[codec][by_codec[codec].index("-profile:v") + 1] == "main10"
+
+
 def test_run_auto_does_not_dispatch_fast_subcommand() -> None:
     # Coordination with PR #467 — the Phase F driver must NOT invoke
     # the `fast` subcommand from inside its tree. We assert this by

@@ -2,6 +2,7 @@
 
 <!-- markdownlint-disable MD013 -->
 _Updated: 2026-05-15 (`test_cli_parse` and `test_predict` sanitizer deselects retired — current master passes both tests under ASan+LSan, UBSan, and TSan, so the sanitizer matrix now runs them again.)_
+_Updated: 2026-05-15 (`vmaf-tune` HDR dispatch coverage widened — HDR cells for AV1 NVENC, HEVC/AV1 QSV, HEVC/AV1 AMF, HEVC VideoToolbox, and libaom-av1 now receive central `hdr_codec_args()` color signaling instead of empty HDR args; HDR model weights remain gated on CHUG / upstream model availability.)_
 _Updated: 2026-05-14 (tiny-AI training discovery synthesis added — committed sidecars/cards now produce a reproducible discovery report; CHUG UGC-HDR ingestion and reference-aligned feature materialisation are wired as local-only `.workingdir2/chug/` pipeline steps for HDR unlock work.)_
 _Updated: 2026-05-14 (`vmaf-tune ladder --with-uncertainty` scaffold gap closed — corpus rows with `vmaf_interval` now flow through the CLI, and point-only rows use the active wide-interval threshold as a conservative fallback before the ADR-0279 prune/insert rung recipe runs.)_
 _Updated: 2026-05-14 (`vmaf-tune recommend-saliency` libaom-av1 ROI gap closed — the dispatcher now writes the shared 16×16 qpfile and passes it via the patched FFmpeg `-qpfile` bridge instead of falling back to a plain encode.)_

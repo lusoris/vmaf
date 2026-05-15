@@ -252,6 +252,41 @@ def test_hdr_args_nvenc_hevc_uses_p010_main10():
     assert args[args.index("-profile:v") + 1] == "main10"
 
 
+@pytest.mark.parametrize(
+    "encoder",
+    ("hevc_qsv", "hevc_amf", "hevc_videotoolbox"),
+)
+def test_hdr_args_hevc_hardware_family_forces_main10(encoder: str):
+    args = hdr_codec_args(encoder, _pq_info())
+    assert "-pix_fmt" in args
+    assert args[args.index("-pix_fmt") + 1] == "p010le"
+    assert "-profile:v" in args
+    assert args[args.index("-profile:v") + 1] == "main10"
+    assert "-color_trc" in args
+    assert args[args.index("-color_trc") + 1] == "smpte2084"
+
+
+@pytest.mark.parametrize(
+    "encoder",
+    ("av1_nvenc", "av1_qsv", "av1_amf"),
+)
+def test_hdr_args_av1_hardware_family_forces_p010_without_hevc_profile(encoder: str):
+    args = hdr_codec_args(encoder, _pq_info())
+    assert "-pix_fmt" in args
+    assert args[args.index("-pix_fmt") + 1] == "p010le"
+    assert "-profile:v" not in args
+    assert "-color_primaries" in args
+    assert args[args.index("-color_trc") + 1] == "smpte2084"
+
+
+def test_hdr_args_libaom_av1_emits_global_color_tags_only():
+    args = hdr_codec_args("libaom-av1", _pq_info(transfer="hlg"))
+    assert "-color_primaries" in args
+    assert args[args.index("-color_trc") + 1] == "arib-std-b67"
+    assert "-pix_fmt" not in args
+    assert "-svtav1-params" not in args
+
+
 def test_hdr_args_unknown_encoder_returns_empty():
     args = hdr_codec_args("libthisdoesnotexist", _pq_info())
     assert args == ()

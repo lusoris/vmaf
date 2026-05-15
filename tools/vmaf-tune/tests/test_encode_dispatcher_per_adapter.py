@@ -56,6 +56,19 @@ _PER_ADAPTER_FIXTURES: tuple[tuple[str, str, int, tuple[tuple[str, str], ...]], 
     ),
     # libsvtav1 — preset is an integer string (medium → 7).
     ("libsvtav1", "medium", 35, (("-c:v", "libsvtav1"), ("-preset", "7"), ("-crf", "35"))),
+    # libvpx-vp9 — good-deadline CRF mode with VP9's cpu-used knob.
+    (
+        "libvpx-vp9",
+        "medium",
+        35,
+        (
+            ("-c:v", "libvpx-vp9"),
+            ("-deadline", "good"),
+            ("-cpu-used", "3"),
+            ("-crf", "35"),
+            ("-b:v", "0"),
+        ),
+    ),
     # libvvenc — uses -qp, not -crf; preset compresses to native vocab.
     ("libvvenc", "medium", 32, (("-c:v", "libvvenc"), ("-preset", "medium"), ("-qp", "32"))),
     # NVENC family — uses -cq and pN preset names.
