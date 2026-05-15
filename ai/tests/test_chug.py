@@ -174,6 +174,134 @@ def test_chug_feature_pairing_uses_matching_reference(tmp_path: Path) -> None:
     assert pairs[0].ref_path == clips_dir / "ref.mp4"
     assert pairs[0].width == 1920
     assert pairs[0].height == 1080
+    assert pairs[0].split in {"train", "val", "test"}
+    assert pairs[0].split_key == "content-a.mp4"
+
+
+def test_chug_content_split_keeps_ladder_rows_together(tmp_path: Path) -> None:
+    clips_dir = tmp_path / "clips"
+    rows = [
+        _chug_row(
+            src="a_low.mp4",
+            content="content-a.mp4",
+            is_ref=False,
+            width=640,
+            height=360,
+            sha="a" * 64,
+        ),
+        _chug_row(
+            src="a_ref.mp4",
+            content="content-a.mp4",
+            is_ref=True,
+            width=1920,
+            height=1080,
+            sha="b" * 64,
+        ),
+        _chug_row(
+            src="b_low.mp4",
+            content="content-b.mp4",
+            is_ref=False,
+            width=640,
+            height=360,
+            sha="c" * 64,
+        ),
+        _chug_row(
+            src="b_ref.mp4",
+            content="content-b.mp4",
+            is_ref=True,
+            width=1920,
+            height=1080,
+            sha="d" * 64,
+        ),
+    ]
+
+    split_map = CHUG_FEATURES.build_content_split_map(rows, seed="stable")
+    pairs = CHUG_FEATURES.build_feature_pairs(rows, clips_dir=clips_dir, split_map=split_map)
+
+    assert {pair.split_key for pair in pairs} == {"content-a.mp4", "content-b.mp4"}
+    for pair in pairs:
+        assert pair.split == split_map[pair.split_key]
+
+
+class _FakeAuditRunner:
+    def __call__(self, cmd, **_kwargs):
+        src = Path(cmd[-1]).name
+        if src == "bad.mp4":
+            stream = {
+                "width": 640,
+                "height": 360,
+                "pix_fmt": "yuv420p10le",
+                "codec_name": "hevc",
+                "color_transfer": "smpte2084",
+                "color_primaries": "bt709",
+                "color_space": "bt2020nc",
+                "color_range": "tv",
+            }
+        else:
+            stream = {
+                "width": 1920,
+                "height": 1080,
+                "pix_fmt": "yuv420p10le",
+                "codec_name": "hevc",
+                "color_transfer": "smpte2084",
+                "color_primaries": "bt2020",
+                "color_space": "bt2020nc",
+                "color_range": "tv",
+            }
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=json.dumps({"streams": [stream]}),
+            stderr="",
+        )
+
+
+def test_chug_hdr_audit_flags_malformed_hdr_metadata(tmp_path: Path) -> None:
+    clips_dir = tmp_path / "clips"
+    clips_dir.mkdir()
+    (clips_dir / "ok.mp4").write_bytes(b"ok")
+    (clips_dir / "bad.mp4").write_bytes(b"bad")
+    output = tmp_path / "audit.json"
+    rows = [
+        _chug_row(
+            src="ok.mp4",
+            content="content-a.mp4",
+            is_ref=True,
+            width=1920,
+            height=1080,
+            sha="e" * 64,
+        ),
+        _chug_row(
+            src="bad.mp4",
+            content="content-b.mp4",
+            is_ref=True,
+            width=1920,
+            height=1080,
+            sha="f" * 64,
+        ),
+    ]
+
+    payload = CHUG_FEATURES.audit_chug_hdr_metadata(
+        rows,
+        clips_dir=clips_dir,
+        output=output,
+        runner=_FakeAuditRunner(),
+    )
+
+    assert output.is_file()
+    assert payload["probed"] == 2
+    assert payload["transfer_counts"] == {"pq": 2}
+    assert payload["pix_fmt_counts"] == {"yuv420p10le": 2}
+    assert payload["malformed_hdr_rows"] == [
+        {
+            "src": "bad.mp4",
+            "chug_content_name": "content-b.mp4",
+            "split": CHUG_FEATURES.content_split_for("content-b.mp4"),
+            "color_transfer": "smpte2084",
+            "color_primaries": "bt709",
+            "pix_fmt": "yuv420p10le",
+        }
+    ]
 
 
 class _FakeFeatureRunner:
@@ -238,6 +366,9 @@ def test_chug_feature_materialiser_writes_mean_features(tmp_path: Path) -> None:
     assert row["feature_ref_src"] == "ref.mp4"
     assert row["feature_width"] == 1920
     assert row["feature_height"] == 1080
+    assert row["split"] in {"train", "val", "test"}
+    assert row["chug_split_key"] == "content-a.mp4"
+    assert row["chug_split_policy"] == "content-name-blake2s-80-10-10"
     assert row["n_feature_frames"] == 2
     assert row["adm2"] == 2.0
     assert row["adm2_mean"] == 2.0

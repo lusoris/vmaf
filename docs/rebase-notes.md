@@ -32,6 +32,26 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/chug-hdr-audit-splits-2026-05-15 — CHUG HDR audit and content-safe splits
+
+- **Touches**: `ai/scripts/chug_extract_features.py`,
+  `ai/scripts/train_konvid_mos_head.py`,
+  `ai/scripts/extract_k150k_features.py`, `ai/tests/test_chug.py`,
+  `ai/tests/test_train_konvid_mos_head.py`,
+  `ai/tests/test_extract_k150k_features.py`, `ai/AGENTS.md`,
+  `docs/ai/chug-ingestion.md`, and `docs/ai/datasets/k150k.md`.
+- **Invariant**: CHUG train/validation/test partitions are keyed by
+  `chug_content_name`, not by individual bitrate-ladder rows. The
+  materialiser writes `split`, `chug_split_key`, and
+  `chug_split_policy` into every feature row. Preserve the
+  `--audit-output` ffprobe HDR metadata audit as a pre-training guard.
+  `train_konvid_mos_head.py` consumes explicit splits when available
+  instead of silently re-shuffling CHUG rows. The FR-from-NR parquet
+  extractor preserves CHUG side metadata when `--metadata-jsonl` is
+  supplied.
+- **Re-test**:
+  `PYTHONPATH=ai/src .venv/bin/python -m pytest ai/tests/test_chug.py ai/tests/test_train_konvid_mos_head.py ai/tests/test_extract_k150k_features.py -q`
+
 ### fix/tiny-ai-rgb-high-bitdepth-2026-05-15 — LPIPS / DISTS high-bit-depth input
 
 - **Touches**: `libvmaf/src/dnn/tiny_extractor_template.h`,

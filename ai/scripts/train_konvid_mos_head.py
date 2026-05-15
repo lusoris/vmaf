@@ -35,11 +35,14 @@ Reproducer (smoke — no real corpus on disk; deterministic seed)::
 
     python ai/scripts/train_konvid_mos_head.py --smoke
 
-Production (real KonViD JSONL drops)::
+Production (real KonViD JSONL drops or CHUG/K150K feature parquet)::
 
     python ai/scripts/train_konvid_mos_head.py \
         --konvid-1k .workingdir2/konvid-1k/konvid_1k.jsonl \
         --konvid-150k .workingdir2/konvid-150k/konvid_150k.jsonl
+
+    python ai/scripts/train_konvid_mos_head.py \
+        --feature-parquet .workingdir2/chug/training/full_features_chug.parquet
 
 Production-flip gate (mirrors ADR-0303 / fr_regressor_v2_ensemble):
 
@@ -63,6 +66,7 @@ import math
 import sys
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -126,6 +130,16 @@ GATE_SPREAD_MAX: float = 0.005
 SYNTHETIC_GATE_PLCC: float = 0.75
 
 
+@dataclass(frozen=True)
+class CorpusArrays:
+    """Projected MOS-corpus arrays plus optional split labels."""
+
+    features: np.ndarray
+    encoder: np.ndarray
+    mos: np.ndarray
+    splits: np.ndarray
+
+
 # ---------------------------------------------------------------------
 # Helpers — seeding, sha256, corpus loading.
 # ---------------------------------------------------------------------
@@ -172,24 +186,36 @@ def _row_to_features(row: dict[str, Any]) -> tuple[np.ndarray, float] | None:
     follow-up PRs.
     """
     mos = row.get("mos")
-    if mos is None:
-        return None
     try:
         mos_f = float(mos)
     except (TypeError, ValueError):
-        return None
-    if not (MOS_MIN <= mos_f <= MOS_MAX):
+        mos_f = math.nan
+    if not math.isfinite(mos_f):
+        raw_mos = row.get("mos_raw_0_100")
+        try:
+            mos_f = MOS_MIN + (MOS_MAX - MOS_MIN) * (float(raw_mos) / 100.0)
+        except (TypeError, ValueError):
+            mos_f = math.nan
+    if not (math.isfinite(mos_f) and MOS_MIN <= mos_f <= MOS_MAX):
         # KonViD's published MOS values live in [1, 5]; out-of-range
         # rows indicate a schema mismatch and are dropped rather than
         # silently clamped.
         return None
     feats = np.zeros(N_FEATURES, dtype=np.float32)
     for idx, name in enumerate(FEATURE_COLUMNS):
-        if name in row:
+        value = row.get(name)
+        try:
+            value_f = float(value)
+        except (TypeError, ValueError):
+            value_f = math.nan
+        if not math.isfinite(value_f):
+            value = row.get(f"{name}_mean")
             try:
-                feats[idx] = float(row[name])
+                value_f = float(value)
             except (TypeError, ValueError):
-                feats[idx] = 0.0
+                value_f = math.nan
+        if math.isfinite(value_f):
+            feats[idx] = value_f
     return feats, mos_f
 
 
@@ -211,31 +237,83 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     return out
 
 
-def _load_corpus(paths: Sequence[Path]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Load + project one or more JSONL corpus paths.
+def _load_parquet(path: Path) -> list[dict[str, Any]]:
+    """Load a FULL_FEATURES parquet corpus drop into a list of dicts."""
+    try:
+        import pandas as pd  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise RuntimeError("pandas is required for --feature-parquet corpus loading") from exc
+    frame = pd.read_parquet(path)
+    return frame.to_dict(orient="records")
 
-    Returns ``(features, encoder_onehot, mos)``. The encoder one-hot
-    is always ``[1.0]`` because ENCODER_VOCAB v4 has a single slot.
+
+def _load_corpus_rows(path: Path) -> list[dict[str, Any]]:
+    if path.suffix.lower() in {".parquet", ".pq"}:
+        return _load_parquet(path)
+    return _load_jsonl(path)
+
+
+def _normalise_split(raw: Any) -> str:
+    split = str(raw or "").strip().lower()
+    return split if split in {"train", "val", "test"} else ""
+
+
+def _load_corpus_arrays(
+    paths: Sequence[Path],
+    parquet_paths: Sequence[Path] = (),
+) -> CorpusArrays:
+    """Load + project one or more JSONL or parquet corpus paths.
+
+    Returns features, encoder one-hot, MOS, and optional split labels.
+    The encoder one-hot is always ``[1.0]`` because ENCODER_VOCAB v4 has
+    a single slot.
     """
     rows: list[dict[str, Any]] = []
-    for p in paths:
+    for p in (*paths, *parquet_paths):
         if p is not None and p.is_file():
-            rows.extend(_load_jsonl(p))
+            rows.extend(_load_corpus_rows(p))
     pairs: list[tuple[np.ndarray, float]] = []
+    splits: list[str] = []
     for row in rows:
         proj = _row_to_features(row)
         if proj is not None:
             pairs.append(proj)
+            splits.append(_normalise_split(row.get("split")))
     if not pairs:
-        return (
-            np.empty((0, N_FEATURES), dtype=np.float32),
-            np.empty((0, N_ENCODERS), dtype=np.float32),
-            np.empty((0,), dtype=np.float32),
+        return CorpusArrays(
+            features=np.empty((0, N_FEATURES), dtype=np.float32),
+            encoder=np.empty((0, N_ENCODERS), dtype=np.float32),
+            mos=np.empty((0,), dtype=np.float32),
+            splits=np.empty((0,), dtype="<U5"),
         )
     feats = np.stack([p[0] for p in pairs]).astype(np.float32)
     mos = np.asarray([p[1] for p in pairs], dtype=np.float32)
     encoder = np.ones((feats.shape[0], N_ENCODERS), dtype=np.float32)
-    return feats, encoder, mos
+    return CorpusArrays(
+        features=feats,
+        encoder=encoder,
+        mos=mos,
+        splits=np.asarray(splits, dtype="<U5"),
+    )
+
+
+def _load_corpus(paths: Sequence[Path]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Load + project one or more JSONL or parquet corpus paths."""
+    arrays = _load_corpus_arrays(paths)
+    return arrays.features, arrays.encoder, arrays.mos
+
+
+def _heldout_split_indices(splits: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+    """Return train/eval indices when corpus rows carry explicit splits."""
+    if splits.size == 0:
+        return None
+    train = np.flatnonzero(splits == "train")
+    val = np.flatnonzero(splits == "val")
+    test = np.flatnonzero(splits == "test")
+    eval_idx = val if len(val) > 0 else test
+    if len(train) == 0 or len(eval_idx) == 0:
+        return None
+    return train, eval_idx
 
 
 # ---------------------------------------------------------------------
@@ -502,7 +580,7 @@ def _export_onnx(model, onnx_path: Path) -> str:  # type: ignore[no-untyped-def]
 # ---------------------------------------------------------------------
 
 
-def _evaluate_gate(folds: list[dict[str, float]], *, synthetic: bool) -> dict[str, Any]:
+def _evaluate_gate(folds: list[dict[str, Any]], *, synthetic: bool) -> dict[str, Any]:
     """Apply the production-flip gate to per-fold metrics. No threshold lowering."""
     plcc_vals = [f["plcc"] for f in folds if not math.isnan(f["plcc"])]
     srocc_vals = [f["srocc"] for f in folds if not math.isnan(f["srocc"])]
@@ -557,7 +635,7 @@ def _build_manifest(
     *,
     onnx_path: Path,
     sha256: str,
-    folds: list[dict[str, float]],
+    folds: list[dict[str, Any]],
     gate: dict[str, Any],
     feature_mean: list[float],
     feature_std: list[float],
@@ -614,6 +692,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Path to the KonViD-150k JSONL corpus drop (Phase 2, PR #447).",
     )
     ap.add_argument(
+        "--feature-parquet",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "FULL_FEATURES parquet corpus table from extract_k150k_features.py; "
+            "may be repeated for CHUG/K150K shards."
+        ),
+    )
+    ap.add_argument(
         "--smoke",
         action="store_true",
         help="Synthesize a deterministic-seeded corpus instead of loading "
@@ -653,6 +741,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.smoke:
         n_rows = 600
         features, encoder, mos = _synthesize_corpus(n_rows=n_rows, seed=args.seed)
+        splits = np.empty((features.shape[0],), dtype="<U5")
         epochs = args.smoke_epochs
         synthetic = True
         print(
@@ -662,15 +751,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     else:
         paths = [p for p in (args.konvid_1k, args.konvid_150k) if p is not None]
-        features, encoder, mos = _load_corpus(paths)
+        feature_parquets = [p for p in args.feature_parquet if p is not None]
+        arrays = _load_corpus_arrays(paths, parquet_paths=feature_parquets)
+        features, encoder, mos, splits = (
+            arrays.features,
+            arrays.encoder,
+            arrays.mos,
+            arrays.splits,
+        )
         if features.shape[0] == 0:
             print(
                 "[konvid-mos] no real corpus rows found at "
-                f"{[str(p) for p in paths]}; falling back to synthetic. "
+                f"{[str(p) for p in (*paths, *feature_parquets)]}; "
+                "falling back to synthetic. "
                 "Pass --smoke to silence this message.",
                 file=sys.stderr,
             )
             features, encoder, mos = _synthesize_corpus(n_rows=600, seed=args.seed)
+            splits = np.empty((features.shape[0],), dtype="<U5")
             synthetic = True
         else:
             synthetic = False
@@ -697,8 +795,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     feature_std = features.std(axis=0).astype(np.float32).tolist()
 
     t0 = time.time()
-    folds_report: list[dict[str, float]] = []
-    fold_indices = _kfold_indices(features.shape[0], args.k_folds, args.seed)
+    folds_report: list[dict[str, Any]] = []
+    split_indices = None if synthetic else _heldout_split_indices(splits)
+    if split_indices is None:
+        fold_indices = _kfold_indices(features.shape[0], args.k_folds, args.seed)
+        validation_policy = f"{args.k_folds}-fold-random"
+    else:
+        train_idx, val_idx = split_indices
+        fold_indices = [(train_idx, val_idx)]
+        validation_policy = "explicit-corpus-split"
+        print(
+            f"[konvid-mos] explicit split validation: "
+            f"n_train={len(train_idx)} n_val={len(val_idx)}",
+            flush=True,
+        )
     for fold_idx, (train_idx, val_idx) in enumerate(fold_indices):
         _val_pred, metrics = _train_one_fold(
             features_train=features[train_idx],
@@ -714,6 +824,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             seed=args.seed + fold_idx,
         )
         metrics["fold"] = fold_idx
+        metrics["validation_policy"] = validation_policy
         folds_report.append(metrics)
         print(
             f"[konvid-mos] fold {fold_idx}: "
@@ -738,10 +849,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.no_export:
         print("[konvid-mos] --no-export: skipping ONNX + manifest write", flush=True)
         return 0
+    if split_indices is None:
+        ship_features = features
+        ship_encoder = encoder
+        ship_mos = mos
+    else:
+        ship_idx = split_indices[0]
+        ship_features = features[ship_idx]
+        ship_encoder = encoder[ship_idx]
+        ship_mos = mos[ship_idx]
     ship_model = _train_full(
-        features=features,
-        encoder=encoder,
-        mos=mos,
+        features=ship_features,
+        encoder=ship_encoder,
+        mos=ship_mos,
         epochs=epochs,
         batch_size=args.batch_size,
         lr=args.lr,
@@ -759,7 +879,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         feature_std=feature_std,
         n_params=n_params,
         smoke=synthetic,
-        n_rows=int(features.shape[0]),
+        n_rows=int(ship_features.shape[0]),
         epochs=epochs,
         seed=args.seed,
     )
@@ -792,9 +912,12 @@ __all__ = [
     "N_ENCODERS",
     "N_FEATURES",
     "SYNTHETIC_GATE_PLCC",
+    "CorpusArrays",
     "_evaluate_gate",
+    "_heldout_split_indices",
     "_kfold_indices",
     "_load_corpus",
+    "_load_corpus_arrays",
     "_row_to_features",
     "_synthesize_corpus",
     "main",

@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import os
 import subprocess
@@ -70,11 +71,13 @@ import tempfile
 import time
 import warnings
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CHUG_SPLIT_SEED = "chug-hdr-v1"
 
 # ---------------------------------------------------------------------------
 # Feature / extractor configuration (column-order-locked per ai/AGENTS.md)
@@ -421,6 +424,61 @@ def _aggregate_frames(frames: list[dict]) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
+def _content_split_for(content_name: str, *, seed: str = DEFAULT_CHUG_SPLIT_SEED) -> str:
+    key = f"{seed}\0{content_name}".encode("utf-8")
+    digest = hashlib.blake2s(key, digest_size=8).digest()
+    value = int.from_bytes(digest, "big") / float(1 << 64)
+    if value < 0.80:
+        return "train"
+    if value < 0.90:
+        return "val"
+    return "test"
+
+
+def _load_jsonl_metadata(path: Path | None, *, split_seed: str) -> dict[str, dict[str, Any]]:
+    """Load optional CHUG/K150K JSONL side metadata keyed by clip basename."""
+    if path is None or not path.is_file():
+        return {}
+    keep = (
+        "mos_raw_0_100",
+        "chug_video_id",
+        "chug_ref",
+        "chug_name",
+        "chug_bitladder",
+        "chug_resolution",
+        "chug_bitrate_label",
+        "chug_orientation",
+        "chug_framerate_manifest",
+        "chug_content_name",
+        "chug_height_manifest",
+        "chug_width_manifest",
+    )
+    out: dict[str, dict[str, Any]] = {}
+    with path.open("r", encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            src = Path(str(row.get("src") or row.get("filename") or "")).name
+            if not src:
+                continue
+            meta = {key: row[key] for key in keep if key in row}
+            split = str(row.get("split") or "").strip().lower()
+            content = str(row.get("chug_content_name") or "").strip()
+            if split not in {"train", "val", "test"} and content:
+                split = _content_split_for(content, seed=split_seed)
+            if split in {"train", "val", "test"}:
+                meta["split"] = split
+                meta["chug_split_key"] = content or src
+                meta["chug_split_policy"] = "content-name-blake2s-80-10-10"
+            out[src] = meta
+    return out
+
+
 def _load_done_set(done_path: Path) -> set[str]:
     """Load the set of already-processed clip names from the checkpoint file."""
     if not done_path.is_file():
@@ -539,6 +597,20 @@ def main() -> int:
         help="CSV with columns video_name, video_score (MOS labels).",
     )
     ap.add_argument(
+        "--metadata-jsonl",
+        type=Path,
+        default=None,
+        help=(
+            "Optional corpus JSONL sidecar. For CHUG, this preserves content, "
+            "ladder, raw MOS, and deterministic split metadata in the parquet."
+        ),
+    )
+    ap.add_argument(
+        "--split-seed",
+        default=DEFAULT_CHUG_SPLIT_SEED,
+        help="Seed for CHUG content-level split metadata when --metadata-jsonl has no split.",
+    )
+    ap.add_argument(
         "--vmaf-bin",
         type=Path,
         default=REPO_ROOT / "libvmaf" / "build-cpu" / "tools" / "vmaf",
@@ -643,6 +715,16 @@ def main() -> int:
     scores_df = pd.read_csv(args.scores)
     scores_df = scores_df.rename(columns={"video_score": "mos"})
     mos_map: dict[str, float] = dict(zip(scores_df["video_name"], scores_df["mos"], strict=True))
+    score_meta: dict[str, dict[str, Any]] = {}
+    for row in scores_df.to_dict(orient="records"):
+        name = str(row.get("video_name") or "")
+        if not name:
+            continue
+        meta: dict[str, Any] = {}
+        if "mos_raw_0_100" in row:
+            meta["mos_raw_0_100"] = row["mos_raw_0_100"]
+        score_meta[name] = meta
+    jsonl_meta = _load_jsonl_metadata(args.metadata_jsonl, split_seed=args.split_seed)
 
     # ------------------------------------------------------------------
     # Enumerate clips and apply checkpoint
@@ -705,6 +787,8 @@ def main() -> int:
             completed += 1
             try:
                 row = fut.result()
+                row.update(score_meta.get(clip_name, {}))
+                row.update(jsonl_meta.get(clip_name, {}))
                 rows.append(row)
                 _append_done(done_path, clip_name)
                 ok += 1

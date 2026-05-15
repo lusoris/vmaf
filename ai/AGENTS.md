@@ -570,6 +570,16 @@ threshold). When extending these scripts:
   decodes both sides as 10-bit 4:2:0, and scales the distorted side to
   reference geometry before libvmaf extraction. Changing that alignment
   policy changes the training distribution and requires a new ADR.
+- CHUG train/validation/test splits are content-level, not row-level.
+  `ai/scripts/chug_extract_features.py` hashes `chug_content_name` with
+  seed `chug-hdr-v1` into deterministic 80/10/10 partitions and writes
+  the chosen `split` plus `chug_split_key` into every feature row. Do
+  not split bitrate-ladder rows independently; that leaks the same
+  source content across validation.
+- The local HDR metadata audit (`--audit-output`) is a pre-training
+  gate for CHUG experiments. Preserve its ffprobe transfer / primaries /
+  pix-fmt counters and malformed-PQ/HLG-without-BT.2020 row list when
+  touching the materialiser.
 
 ## K150K-A corpus extraction (ADR-0362, ADR-0382)
 
