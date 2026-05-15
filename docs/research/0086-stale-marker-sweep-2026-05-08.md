@@ -1,4 +1,4 @@
-# Research-0086: Stale-marker sweep, 2026-05-08
+# Research-0086 — Stale-marker sweep, 2026-05-08
 
 **Status**: Accepted (audit + landed trivial fix).
 **Author**: Claude Code (sweep agent), 2026-05-08.

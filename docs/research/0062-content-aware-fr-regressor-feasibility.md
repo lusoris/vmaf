@@ -1,4 +1,4 @@
-# Research-0062: Content-aware fr_regressor_v2 feasibility
+# Research-0062 — Content-aware fr_regressor_v2 feasibility
 
 ## Question
 

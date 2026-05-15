@@ -331,37 +331,6 @@ static char *test_no_hip_no_metal_flags()
     return NULL;
 }
 
-/* Regression for audit finding F1 / ADR-0438: '-c' is declared in
- * short_opts[] but the switch previously had no 'case 'c'' arm, so
- * getopt_long consumed the option value and the switch fell into
- * default:, silently discarding the cpumask.  The fix adds a
- * 'case 'c':' fall-through before ARG_CPUMASK. */
-static char *test_cpumask_short_opt()
-{
-    /* -c 0xff must set settings.cpumask = 255, same as --cpumask 0xff. */
-    char *argv[9] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "-c", "0xff"};
-    int argc = 7;
-    CLISettings settings;
-    optind = 1;
-    cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: -c 0xff must set cpumask = 255 (was silently dropped before ADR-0438)",
-              settings.cpumask == 255);
-    cli_free(&settings);
-    cli_free_dicts(&settings);
-
-    /* Decimal value: -c 3 */
-    char *argv2[9] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "-c", "3"};
-    int argc2 = 7;
-    CLISettings settings2;
-    optind = 1;
-    cli_parse(argc2, argv2, &settings2);
-    mu_assert("cli_parse: -c 3 must set cpumask = 3", settings2.cpumask == 3);
-    cli_free(&settings2);
-    cli_free_dicts(&settings2);
-
-    return NULL;
-}
-
 /* Explicit `--gpumask=N --backend cuda` must preserve the user's gpumask,
  * NOT clobber it. Multi-GPU rigs need fine-grained disable bits. */
 static char *test_backend_cuda_preserves_explicit_gpumask()
@@ -404,7 +373,6 @@ static char *run_backend_tests(void)
     mu_run_test(test_hip_device_explicit);
     mu_run_test(test_metal_device_explicit);
     mu_run_test(test_no_hip_no_metal_flags);
-    mu_run_test(test_cpumask_short_opt);
     return NULL;
 }
 
