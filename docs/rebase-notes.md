@@ -32,6 +32,24 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/tiny-ai-rgb-high-bitdepth-2026-05-15 — LPIPS / DISTS high-bit-depth input
+
+- **Touches**: `libvmaf/src/dnn/tiny_extractor_template.h`,
+  `libvmaf/src/feature/feature_lpips.c`,
+  `libvmaf/src/feature/feature_dists.c`, `libvmaf/test/test_dists.c`,
+  `libvmaf/src/dnn/AGENTS.md`, `libvmaf/src/feature/AGENTS.md`,
+  `docs/ai/extractor-template.md`, `docs/ai/models/lpips_sq.md`,
+  `docs/ai/models/dists_sq.md`, `docs/metrics/dists.md`, and
+  `docs/metrics/features.md`.
+- **Invariant**: LPIPS and DISTS-Sq accept planar 8/10/12/16-bit YUV
+  while keeping the ONNX tensor ABI unchanged: ImageNet-normalised
+  RGB8, NCHW `[1,3,H,W]`, named inputs `ref` / `dist`, scalar output
+  `score`. High-bit-depth samples are little-endian 16-bit containers
+  rounded into the 8-bit domain before the shared BT.709 limited-range
+  RGB conversion.
+- **Re-test**:
+  `meson test -C libvmaf/build-tiny-rgb-hbd test_dists test_lpips --print-errorlogs`
+
 ### fix/mcp-runtime-doc-status-2026-05-15 — embedded MCP runtime docs
 
 - **Touches**: `docs/api/mcp.md`, `docs/development/build-flags.md`,

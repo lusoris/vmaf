@@ -24,7 +24,8 @@ documented inline in
 |---|---|
 | `vmaf_tiny_ai_resolve_model_path(name, option, env_var)` | Feature-option-then-env-var lookup. Returns NULL with a single user-facing log line when neither is set. |
 | `vmaf_tiny_ai_open_session(name, path, &out)` | `vmaf_dnn_session_open` wrapper with the standard `<name>: vmaf_dnn_session_open(<path>) failed: <rc>` log line on error. |
-| `vmaf_tiny_ai_yuv8_to_rgb8_planes(pic, dst_r, dst_g, dst_b)` | BT.709 limited-range YUV → RGB with nearest-neighbour chroma upsample. Bit-exact with the per-extractor copies it replaces. |
+| `vmaf_tiny_ai_yuv8_to_rgb8_planes(pic, dst_r, dst_g, dst_b)` | BT.709 limited-range 8-bit YUV → RGB with nearest-neighbour chroma upsample. Bit-exact with the per-extractor copies it replaces. |
+| `vmaf_tiny_ai_yuv_to_rgb8_planes(pic, dst_r, dst_g, dst_b)` | 8/10/12/16-bit planar YUV → RGB8 wrapper for ImageNet-family models that keep an RGB8 tensor ABI. |
 | `VMAF_TINY_AI_MODEL_PATH_OPTION(state_t, help)` | Emits the standard `model_path` row of a per-extractor `VmafOption[]` table. |
 
 The `init` / `extract` / `close` lifecycle stays per-extractor — model
@@ -136,7 +137,7 @@ static int my_extract(VmafFeatureExtractor *fex, VmafPicture *ref, VmafPicture *
     (void)ref90;
     (void)dist90;
     MyExtractorState *s = fex->priv;
-    int rc = vmaf_tiny_ai_yuv8_to_rgb8_planes(dist, s->rgb8[0], s->rgb8[1], s->rgb8[2]);
+    int rc = vmaf_tiny_ai_yuv_to_rgb8_planes(dist, s->rgb8[0], s->rgb8[1], s->rgb8[2]);
     if (rc < 0)
         return rc;
     rc = vmaf_tensor_from_rgb_imagenet(s->rgb8[0], s->w, s->rgb8[1], s->w, s->rgb8[2], s->w,

@@ -730,9 +730,10 @@ similar.
 values in roughly `[0, 1]` for natural content but is not bounded by
 construction.
 
-**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 bpc only. 4:0:0 is
-rejected (chroma is required for the RGB conversion). 10 / 12 / 16
-bpc inputs return `-ENOTSUP` at init.
+**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
+4:0:0 is rejected (chroma is required for the RGB conversion).
+High-bit-depth inputs are rounded into the same 8-bit RGB tensor contract
+used by the shipped LPIPS checkpoint.
 
 #### Options
 
@@ -744,7 +745,7 @@ bpc inputs return `-ENOTSUP` at init.
 is dispatched to whichever ORT execution provider is selected via
 `--tiny-device`; see [`docs/ai/inference.md`](../ai/inference.md)).
 
-**Limitations** — 8-bit only; depends on the
+**Limitations** — depends on the
 [tiny-AI runtime](../ai/overview.md). The extractor errors out at
 init if no model path is provided (neither the option nor the
 environment variable); the registry under
@@ -775,8 +776,10 @@ similar.
 **Output range** — placeholder-defined non-negative distance. It is not
 calibrated to published DISTS values.
 
-**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 bpc only. 4:0:0 is
-rejected because chroma is required for RGB conversion.
+**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
+4:0:0 is rejected because chroma is required for RGB conversion.
+High-bit-depth inputs are rounded into the same RGB8 tensor contract as
+LPIPS before ONNX inference.
 
 #### Options
 

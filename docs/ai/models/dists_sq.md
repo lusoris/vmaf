@@ -33,6 +33,9 @@ Output:
 | `score` | float32 | scalar | Mean squared distance between `ref` and `dist` tensors |
 
 The extractor publishes the scalar as the per-frame `dists_sq` feature.
+The host side accepts planar YUV 4:2:0 / 4:2:2 / 4:4:4 at 8, 10, 12, or
+16 bpc and normalises high-bit-depth samples into the same RGB8 tensor
+contract before ImageNet normalisation.
 
 ## Intended Use
 
