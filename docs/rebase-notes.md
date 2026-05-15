@@ -34506,3 +34506,25 @@ rejected.
 ```bash
 meson test -C libvmaf/build-roi-hbd test_vmaf_roi_high_bitdepth --print-errorlogs
 ```
+
+## 2026-05-15 — `vmaf-perShot` 4:2:2 / 4:4:4 Input
+
+**Files touched**: `libvmaf/tools/vmaf_per_shot.c`,
+`libvmaf/tools/test/test_vmaf_per_shot.sh`,
+`libvmaf/tools/AGENTS.md`, `docs/usage/vmaf-perShot.md`,
+`docs/research/0124-vmaf-pershot-422-444-2026-05-15.md`.
+
+**Rebase impact**: low. This extends one existing CLI option and does
+not change the CSV / JSON plan schema, libvmaf public APIs, or FFmpeg
+patch stack.
+
+**Invariant to preserve on rebase**: `vmaf-perShot` remains luma-only
+for detection and CRF prediction, but `--pixel_format 420|422|444`
+must count the selected planar chroma layout when skipping to the next
+frame. `--bitdepth` remains limited to `8|10|12|16`.
+
+**Smoke-test after rebase**:
+
+```bash
+meson test -C libvmaf/build-pershot-pixfmt test_vmaf_per_shot --print-errorlogs
+```

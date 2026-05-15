@@ -49,8 +49,8 @@ vmaf-perShot \
 | `-r / --reference`  | PATH     | Planar YUV input.                              |
 | `-w / --width`      | N        | Frame width in pixels.                         |
 | `-h / --height`     | N        | Frame height in pixels.                        |
-| `-p / --pixel_format` | `420`  | YUV420P only in v1.                            |
-| `-b / --bitdepth`   | `8 \| 10 \| 12` | Planar YUV bit depth.                   |
+| `-p / --pixel_format` | `420 \| 422 \| 444` | Planar YUV chroma subsampling.   |
+| `-b / --bitdepth`   | `8 \| 10 \| 12 \| 16` | Planar YUV bit depth.             |
 | `-o / --output`     | PATH     | Plan destination (CSV or JSON).                |
 
 ## Optional flags
@@ -148,10 +148,17 @@ ffmpeg -i ref.y4m -c:v libx265 \
 vmaf --reference ref.y4m --distorted out.mp4 --output verify.json
 ```
 
+## Input Formats
+
+`vmaf-perShot` reads planar YUV directly with no demuxer. The shot
+detector and CRF prior use only the luma plane, but the scanner still
+counts and skips chroma bytes according to `--pixel_format` so frame
+iteration stays aligned for 4:2:0, 4:2:2, and 4:4:4 inputs. High-bit-
+depth inputs use little-endian 16-bit sample containers for 10/12/16-bit
+content, matching the fork's raw-YUV CLI convention.
+
 ## Limitations (v1)
 
-- YUV420P only. 422 / 444 land in v2; the luma-only signal pipeline
-  doesn't need chroma but the option parser opts-in deliberately.
 - Frame-difference detector misses dissolves / cross-fades — those
   segments will collapse into a single longer shot. T6-3a / TransNet
   V2 fixes this once integrated.

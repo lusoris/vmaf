@@ -64,11 +64,57 @@ if ! grep -q '"shots"' "${PLAN_JSON}"; then
   exit 1
 fi
 
-# 4. Invalid args fail with non-zero.
+# 4. Generated 4:2:2 and 4:4:4 fixtures exercise chroma skip sizing.
+python3 - "${WORK}" <<'PY'
+from pathlib import Path
+import sys
+
+work = Path(sys.argv[1])
+w = 16
+h = 16
+luma = w * h
+
+def write_fixture(path: Path, chroma_samples: int) -> None:
+    frame0 = bytes([32]) * luma + bytes([128]) * chroma_samples
+    frame1 = bytes([224]) * luma + bytes([64]) * chroma_samples
+    path.write_bytes(frame0 + frame1)
+
+write_fixture(work / "two_frames_422.yuv", luma)
+write_fixture(work / "two_frames_444.yuv", luma * 2)
+PY
+
+for PF in 422 444; do
+  "${BIN}" \
+    --reference "${WORK}/two_frames_${PF}.yuv" \
+    --width 16 --height 16 \
+    --pixel_format "${PF}" --bitdepth 8 \
+    --output "${WORK}/plan_${PF}.csv"
+  if ! head -n 1 "${WORK}/plan_${PF}.csv" | grep -q "shot_id,start_frame"; then
+    echo "test_vmaf_per_shot: ${PF} plan missing CSV header" >&2
+    cat "${WORK}/plan_${PF}.csv" >&2
+    exit 1
+  fi
+done
+
+# 5. Invalid args fail with non-zero.
 if "${BIN}" --reference /tmp/nope --width 0 --height 0 \
   --pixel_format 420 --bitdepth 8 \
   --output /tmp/out 2>/dev/null; then
   echo "test_vmaf_per_shot: expected failure on invalid width" >&2
+  exit 1
+fi
+
+if "${BIN}" --reference "${WORK}/two_frames_422.yuv" --width 16 --height 16 \
+  --pixel_format 411 --bitdepth 8 \
+  --output /tmp/out 2>/dev/null; then
+  echo "test_vmaf_per_shot: expected failure on unsupported pixel_format" >&2
+  exit 1
+fi
+
+if "${BIN}" --reference "${WORK}/two_frames_422.yuv" --width 16 --height 16 \
+  --pixel_format 422 --bitdepth 9 \
+  --output /tmp/out 2>/dev/null; then
+  echo "test_vmaf_per_shot: expected failure on unsupported bitdepth" >&2
   exit 1
 fi
 

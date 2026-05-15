@@ -40,4 +40,3 @@ before the existing saliency model path.
 The regression test builds a two-frame `yuv420p10le` fixture, verifies that
 frame 1 can be read, verifies that frame 2 short-reads with high-bit-depth
 frame accounting, and rejects unsupported `--bitdepth 9`.
-

@@ -49,7 +49,7 @@ if ! grep -q "# frame=1 ctu=8 cols=1 rows=1" "${OUT}"; then
   exit 1
 fi
 
-ROWS=$(grep -v '^#' "${OUT}" | wc -l)
+ROWS=$(grep -cv '^#' "${OUT}")
 if [ "${ROWS}" -ne 1 ]; then
   echo "test_vmaf_roi_high_bitdepth: expected one CTU row, got ${ROWS}" >&2
   cat "${OUT}" >&2

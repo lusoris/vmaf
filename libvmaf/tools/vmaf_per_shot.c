@@ -92,8 +92,8 @@ struct vmaf_per_shot_settings {
     unsigned width;
     unsigned height;
     unsigned bitdepth;
-    /* 420 / 422 / 444 — YUV420P only is supported in v1 (luma-only
-     * pipeline is enough for the heuristic; chroma is ignored). */
+    /* 420 / 422 / 444 — luma-only pipeline; chroma is ignored but
+     * counted while advancing across frames. */
     unsigned chroma_subsampling;
     double target_vmaf;
     int crf_min;
@@ -123,14 +123,14 @@ static const struct option per_shot_long_opts[] = {
 static void per_shot_print_usage(FILE *stream)
 {
     (void)fprintf(stream, "Usage: vmaf-perShot --reference REF.yuv --width W --height H "
-                          "--pixel_format 420 --bitdepth 8 --output PLAN [options]\n"
+                          "--pixel_format 420|422|444 --bitdepth 8 --output PLAN [options]\n"
                           "\n"
                           "Required:\n"
                           "  -r, --reference PATH       reference YUV file\n"
                           "  -w, --width    N           frame width in pixels\n"
                           "  -h, --height   N           frame height in pixels\n"
-                          "  -p, --pixel_format 420     YUV420P only in v1\n"
-                          "  -b, --bitdepth 8|10|12     planar YUV bit depth\n"
+                          "  -p, --pixel_format 420|422|444  planar YUV subsampling\n"
+                          "  -b, --bitdepth 8|10|12|16  planar YUV bit depth\n"
                           "  -o, --output   PATH        per-shot plan output\n"
                           "\n"
                           "Optional:\n"
@@ -199,8 +199,14 @@ static int per_shot_parse_pixfmt(const char *s, unsigned *out)
         *out = 420U;
         return 0;
     }
-    /* 422 / 444 not yet wired in v1 — luma-only heuristic would still
-     * work but we want explicit opt-in. */
+    if (strcmp(s, "422") == 0) {
+        *out = 422U;
+        return 0;
+    }
+    if (strcmp(s, "444") == 0) {
+        *out = 444U;
+        return 0;
+    }
     return -EINVAL;
 }
 
@@ -244,6 +250,8 @@ static int per_shot_apply_opt(int c, const char *optarg_, struct vmaf_per_shot_s
         return per_shot_parse_pixfmt(optarg_, &s->chroma_subsampling);
     case 'b':
         if (per_shot_parse_uint(optarg_, 8U, 16U, &uv) != 0)
+            return -EINVAL;
+        if (uv != 8U && uv != 10U && uv != 12U && uv != 16U)
             return -EINVAL;
         s->bitdepth = (unsigned)uv;
         return 0;
@@ -331,10 +339,16 @@ static int per_shot_parse_args(int argc, char **argv, struct vmaf_per_shot_setti
  * scene_complexity = sample variance, motion_energy = mean absolute
  * delta vs. previous luma plane. Both are bit-depth-normalised so
  * downstream blending is depth-invariant. */
+static double per_shot_sample_scale(unsigned bitdepth)
+{
+    const unsigned max_sample = (bitdepth >= 16U) ? 65535U : ((1U << bitdepth) - 1U);
+    return 1.0 / (double)max_sample;
+}
+
 static void per_shot_compute_frame_signals(const uint8_t *cur, const uint8_t *prev, size_t pixels,
                                            unsigned bitdepth, double *complexity, double *motion)
 {
-    const double scale = (bitdepth > 8U) ? (1.0 / 65535.0) : (1.0 / 255.0);
+    const double scale = per_shot_sample_scale(bitdepth);
     double sum = 0.0;
     double sumsq = 0.0;
     double abs_diff = 0.0;
@@ -468,13 +482,28 @@ static int per_shot_record_frame(struct vmaf_per_shot_record *shots, uint32_t *s
     return 0;
 }
 
-/* YUV420P frame-size helper — luma is W*H, chroma is 2 * (W/2) * (H/2)
- * = WH/2. Bit depth doubles the per-sample byte count. */
-static size_t per_shot_yuv420p_frame_bytes(unsigned w, unsigned h, unsigned bitdepth)
+static size_t per_shot_chroma_samples(unsigned w, unsigned h, unsigned chroma_subsampling)
 {
     const size_t luma = (size_t)w * (size_t)h;
-    const size_t chroma = ((size_t)((w + 1U) / 2U)) * ((size_t)((h + 1U) / 2U)) * 2U;
-    const size_t pix = luma + chroma;
+    if (chroma_subsampling == 420U) {
+        return ((size_t)((w + 1U) / 2U)) * ((size_t)((h + 1U) / 2U)) * 2U;
+    }
+    if (chroma_subsampling == 422U) {
+        return ((size_t)((w + 1U) / 2U)) * (size_t)h * 2U;
+    }
+    if (chroma_subsampling == 444U)
+        return luma * 2U;
+    return 0U;
+}
+
+/* Planar YUV frame-size helper. The scan only reads luma, but frame
+ * iteration must still skip both chroma planes with the selected
+ * subsampling. Bit depth doubles the per-sample byte count above 8. */
+static size_t per_shot_yuv_frame_bytes(unsigned w, unsigned h, unsigned chroma_subsampling,
+                                       unsigned bitdepth)
+{
+    const size_t luma = (size_t)w * (size_t)h;
+    const size_t pix = luma + per_shot_chroma_samples(w, h, chroma_subsampling);
     return (bitdepth > 8U) ? (pix * 2U) : pix;
 }
 
@@ -708,7 +737,8 @@ static int per_shot_scan(const struct vmaf_per_shot_settings *s, struct vmaf_per
     const size_t bytes_per_sample = (s->bitdepth > 8U) ? 2U : 1U;
     ctx.luma_bytes = ctx.pixels * bytes_per_sample;
     ctx.chroma_bytes =
-        per_shot_yuv420p_frame_bytes(s->width, s->height, s->bitdepth) - ctx.luma_bytes;
+        per_shot_yuv_frame_bytes(s->width, s->height, s->chroma_subsampling, s->bitdepth) -
+        ctx.luma_bytes;
     ctx.cur = malloc(ctx.luma_bytes);
     ctx.prev = malloc(ctx.luma_bytes);
     ctx.frame_idx = 0U;

@@ -119,6 +119,10 @@ tools/
     `mean_complexity`, `mean_motion`, `predicted_crf`)
     are stable across v1; v2's trained MLP must reuse
     them to avoid downstream encoder churn.
+  - **Input invariant**: `--pixel_format 420|422|444` only changes
+    planar chroma-byte skipping. The per-shot detector and predictor
+    remain luma-only, and high-bit-depth inputs use little-endian
+    16-bit sample containers for `--bitdepth 10|12|16`.
 - [ADR-0104](../../docs/adr/0104-picture-pool-always-on.md) — picture
   pool is always compiled in and sized for the live-picture set; this
   is what makes the `--frame_skip_*` unref invariant load-bearing.
