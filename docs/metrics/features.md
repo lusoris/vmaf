@@ -55,13 +55,12 @@ limitations in the same PR as the code.
 [models/overview.md](../models/overview.md)); non-core extractors are
 standalone.
 
-¹ All three GPU extractors (`psnr_cuda`, `psnr_sycl`, `psnr_vulkan`) honour
-`enable_chroma` (default `true`) and emit `psnr_cb` / `psnr_cr` alongside
-`psnr_y` when the option is set. When `enable_chroma=false`, only `psnr_y`
-is emitted — matching the CPU extractor's luma-only path. YUV400 sources
-always produce luma-only output regardless of the option. GPU chroma parity
-was added for CUDA + SYCL by ADR-0453; the Vulkan twin gained chroma
-support earlier via ADR-0216.
+¹ The `psnr_cuda` and `psnr_sycl` GPU extractors emit luma-only
+(`psnr_y`). `psnr_vulkan` adds `psnr_cb` / `psnr_cr` chroma metrics
+when `enable_chroma=true` (default) — see T3-15(b) work-in-progress
+PR #204 / [`backends/vulkan/overview.md`](../backends/vulkan/overview.md).
+The CPU `psnr` extractor emits the full luma + chroma set on every
+build. CUDA / SYCL chroma support is a focused follow-up.
 
 ² SSIM (fixed-point) ships a Vulkan kernel via T7-24 (ADR-pending);
 the CPU integer path is scalar-only by design. The `float_ssim` /
@@ -442,11 +441,11 @@ identical (MSE=0): 60 dB for 8 bpc, 72 dB for 10 bpc, 84 dB for 12 bpc,
 | `reduced_hbd_peak` | bool   | `false` | Scale HBD peak to match 8-bit content                                              |
 | `min_sse`          | double | `0.0`   | Clamp the minimum MSE (and so the PSNR ceiling) — useful for identical-frame tests |
 
-**Backends** — AVX2, AVX-512, NEON, CUDA, SYCL, Vulkan. All three GPU
-extractors honour `enable_chroma` (default `true`) and emit `psnr_cb` /
-`psnr_cr` identically to the CPU path when enabled. Pass
-`enable_chroma=false` for luma-only operation on any backend. `float_psnr`
-adds CUDA / SYCL / Vulkan twins on the float pipeline.
+**Backends** — AVX2, AVX-512, NEON, CUDA, SYCL, Vulkan. The
+`psnr_cuda` and `psnr_sycl` GPU extractors emit luma-only
+(`psnr_y`); `psnr_vulkan` is gaining `psnr_cb` / `psnr_cr` chroma
+support via T3-15(b) (PR #204, in flight). `float_psnr` adds
+CUDA / SYCL / Vulkan twins on the float pipeline.
 
 **Limitations** — Temporal flag set only because of `apsnr` accumulation;
 per-frame PSNR itself is stateless.
@@ -531,13 +530,6 @@ score (T7-35 / [ADR-0243](../adr/0243-enable-lcs-gpu.md)). The SYCL
 twin does not expose `enable_lcs` at the option level; follow-up
 work tracked under T7-35.
 
-The `scale` option is supported on the CPU, HIP, Vulkan, and Metal
-backends. All GPU backends (HIP, Vulkan, Metal) enforce `scale=1` only in
-v1: the auto-detect path returns `-EINVAL` at init when the resolved scale
-exceeds 1 (for example, a 1920x1080 input auto-resolves to `scale=4`). Pin
-`--feature float_ssim_metal:scale=1` (or the backend-specific prefix) to
-suppress the error when processing large inputs on GPU.
-
 **MS-SSIM decimate (fork-local)** — the 9-tap 9/7 biorthogonal wavelet
 LPF that produces scales 1–4 runs through `ms_ssim_decimate` in
 [`libvmaf/src/feature/ms_ssim_decimate.c`](../../libvmaf/src/feature/ms_ssim_decimate.c).
@@ -563,17 +555,13 @@ shipped model still consumes; kept for back-compat with external callers.
 
 **Invocation** — `--feature float_ansnr`.
 
-**Output metrics** — `float_ansnr`, `float_anpsnr` (luma); optionally `float_ansnr_cb`, `float_ansnr_cr`, `float_anpsnr_cb`, `float_anpsnr_cr` when `enable_chroma=true`.
+**Output metrics** — `float_ansnr`, `float_anpsnr`.
 
 **Output range** — dB, saturated at `6 × bpc + 12` (same as PSNR).
 
 **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
 
-**Options**
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `enable_chroma` | bool | `false` | Compute ANSNR/ANPSNR for Cb and Cr planes, emitting `float_ansnr_cb`, `float_ansnr_cr`, `float_anpsnr_cb`, `float_anpsnr_cr`. Forced to `false` for YUV 4:0:0 input. |
+**Options** — none.
 
 **Backends** — scalar (CPU) plus CUDA, SYCL, Vulkan
 ([ADR-0194](../adr/0194-float-ansnr-gpu.md)). All three GPU

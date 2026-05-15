@@ -74,17 +74,6 @@ ADR-0372 (batch-1, this PR).
    `#ifdef HAVE_HIPCC`; `compute_sad=0` on first frame; motion2 tail
    in `flush()`. Device kernel: `float_motion/float_motion_score.hip`.
 
-## Dispatch-registry invariant
-
-**Every `vmaf_fex_*_hip` extractor registered in `feature_extractor_list[]`
-must also appear in `g_hip_features[]` inside `dispatch_strategy.c`.**
-The build does not enforce this — the compiler cannot see across the two
-TUs.  Check on every kernel addition: add the extractor's `.name` string
-to `g_hip_features[]` in the same PR as the kernel registration.
-
-The discrepancy was found during the 2026-05-15 dispatch-registry audit
-(see `docs/research/0135-dispatch-strategy-registry-audit-2026-05-15.md`).
-
 ## Ground rules
 
 - **Parent rules** apply in full (see [../../AGENTS.md](../../AGENTS.md)).
@@ -247,14 +236,6 @@ do not replace — the scaffold invariants already documented above.
   must stay aligned with the CUDA twin. **On rebase**: any drift
   in the CUDA twin's buffer-slot count or the `motion_force_zero`
   posture requires a paired update here.
-
-- **`motion_fps_weight` cross-backend parity** — see the canonical
-  invariant note in
-  [`../feature/cuda/AGENTS.md`](../feature/cuda/AGENTS.md).
-  `integer_motion_v2_hip.c` and `float_motion_hip.c` both carry
-  the `motion_fps_weight` option and apply it identically to the
-  CUDA / SYCL / Vulkan / Metal twins. Any future change to the weight
-  application math must span all motion-family GPU twins in the same PR.
 
 - **`float_ssim_hip.c` mirrors `integer_ssim_cuda.c`
   call-graph-for-call-graph** (fork-local, ADR-0274). The state
