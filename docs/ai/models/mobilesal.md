@@ -1,46 +1,26 @@
 # MobileSal saliency (no-reference scoring-side extractor)
 
-`vmaf_tiny_mobilesal_placeholder_v0` — a no-reference saliency feature
-extractor that runs a tiny ONNX saliency model over the distorted frame
-and emits the **mean of its per-pixel saliency map** as a scalar feature
-named `saliency_mean`. It is the scoring-side surface for
+`vmaf_tiny_mobilesal_placeholder_v0` — the historical smoke checkpoint
+for the no-reference saliency feature extractor. The extractor runs a
+tiny ONNX saliency model over the distorted frame and emits the **mean
+of its per-pixel saliency map** as a scalar feature named
+`saliency_mean`. It is the scoring-side surface for
 [Wave 1 §2.3 of the tiny-AI roadmap](../roadmap.md), the first half of
-backlog item T6-2 (T6-2a). Encoder-side ROI tooling
-(`tools/vmaf-roi`, per-CTU QP-offset sidecars) is the deliberate T6-2b
-follow-up.
+backlog item T6-2 (T6-2a). Encoder-side ROI tooling (`tools/vmaf-roi`,
+per-CTU QP-offset sidecars) is shipped as T6-2b.
 
-> The shipped checkpoint is a **smoke-only synthetic placeholder** that
-> matches the upstream MobileSal I/O contract bit-for-bit, but emits
-> ~constant saliency. The original plan to swap in real upstream
-> weights from
-> [yuhuan-wu/MobileSal](https://github.com/yuhuan-wu/MobileSal) is
-> **deferred indefinitely** (see
-> [ADR-0257](../../adr/0257-mobilesal-real-weights-deferred.md) +
-> [Research-0053](../../research/0053-mobilesal-real-weights-blocker.md)):
-> upstream is licensed CC BY-NC-SA 4.0 (incompatible with the fork's
-> BSD-3-Clause-Plus-Patent), distributes weights through Google Drive
-> viewer URLs (no GitHub release, no raw-download URL the export
-> script can pin), and is an RGB-D model (the C contract is RGB-only).
-> The recommended replacement path is to swap the underlying model
-> family to U-2-Net's `u2netp` variant under Apache-2.0; that work
-> is tracked as backlog row T6-2a-replace-with-u2netp. Until then,
-> use the placeholder to wire pipelines up end-to-end and treat
-> `saliency_mean` as a content-independent constant.
-> ~constant saliency. Two real-weights swap attempts have been
-> deferred — first MobileSal itself
-> ([ADR-0257](../../adr/0257-mobilesal-real-weights-deferred.md):
-> upstream is CC BY-NC-SA 4.0, Google-Drive-walled, RGB-D), then the
-> recommended U-2-Net `u2netp` replacement
-> ([ADR-0265](../../adr/0265-u2netp-saliency-replacement-blocked.md):
-> Apache-2.0 license is fine, but `u2netp.pth` is also Google-Drive-
-> walled and U-2-Net's bilinear `F.upsample` lowers to the ONNX
-> `Resize` op which is not on the fork's allowlist). Use the
-> placeholder to wire pipelines up end-to-end and treat
-> `saliency_mean` as a content-independent constant. Unblock paths
-> are tracked in ADR-0265 §"Neutral / follow-ups"
-> (`T6-2a-widen-allowlist-resize`,
-> `T6-2a-mirror-u2netp-via-release`,
-> `T6-2a-train-saliency-student`).
+> **Status — legacy smoke checkpoint.** The placeholder matches the
+> MobileSal I/O contract, but emits ~constant saliency. Production
+> saliency now uses the fork-trained
+> [`saliency_student_v1`](saliency_student_v1.md) weights, which keep the
+> same `input` / `saliency_map` tensor names and run through the same
+> `feature_mobilesal.c` extractor. The original upstream MobileSal swap
+> remains deferred by
+> [ADR-0257](../../adr/0257-mobilesal-real-weights-deferred.md) because
+> upstream weights are CC BY-NC-SA 4.0, Google-Drive-walled, and RGB-D.
+> U-2-Net `u2netp` was also surveyed in
+> [ADR-0265](../../adr/0265-u2netp-saliency-replacement-blocked.md);
+> the fork-trained student is the license-clean production path.
 
 Upstream paper: Wu, Liu, Cheng, Lu, Cheng, *"MobileSal: Extremely
 Efficient RGB-D Salient Object Detection"*, IEEE TPAMI 2021.
@@ -83,11 +63,16 @@ model in T6-2b and exports the map in encoder-native format.
 | License (upstream MobileSal weights) | CC BY-NC-SA 4.0 — **incompatible with the fork**; per `yuhuan-wu/MobileSal/README.md` §License. ADR-0218's MIT claim was inaccurate; corrected here and in ADR-0257. |
 | Exporter (placeholder) | `scripts/gen_mobilesal_placeholder_onnx.py` |
 | Registry entry | `mobilesal_placeholder_v0` in `model/tiny/registry.json` (smoke=true) |
-| Status | Placeholder — real weights tracked as T6-2a-followup |
+| Status | Legacy smoke placeholder — superseded for production by `saliency_student_v1` |
 
 The placeholder ONNX is deterministic (no `doc_string`, fixed
 `producer_version`, deterministic protobuf serialisation) so the
 sha256 stays stable across re-runs of the export script.
+
+For content-dependent saliency, point the extractor at
+`model/tiny/saliency_student_v1.onnx` (or the staged v2 ablation after
+its ROI validation lands). The placeholder is retained to keep the
+historical ABI / I/O-contract smoke path available.
 
 ## Input / output contract
 
@@ -116,7 +101,7 @@ vmaf \
     --distorted dist.yuv \
     --width 1920 --height 1080 --pixel_format 420 --bitdepth 8 \
     --feature mobilesal \
-    --feature_params mobilesal:model_path=model/tiny/mobilesal.onnx \
+    --feature_params mobilesal:model_path=model/tiny/saliency_student_v1.onnx \
     --output score.json
 ```
 
@@ -131,14 +116,14 @@ vmaf --reference ref.yuv --distorted dist.yuv \
     --feature lpips \
     --feature_params lpips:model_path=model/tiny/lpips_sq.onnx \
     --feature mobilesal \
-    --feature_params mobilesal:model_path=model/tiny/mobilesal.onnx \
+    --feature_params mobilesal:model_path=model/tiny/saliency_student_v1.onnx \
     --output combined.json
 ```
 
 Equivalently, set the model path via env var:
 
 ```bash
-VMAF_MOBILESAL_MODEL_PATH=model/tiny/mobilesal.onnx \
+VMAF_MOBILESAL_MODEL_PATH=model/tiny/saliency_student_v1.onnx \
     vmaf --reference ref.yuv --distorted dist.yuv \
         --width 1920 --height 1080 --pixel_format 420 --bitdepth 8 \
         --feature mobilesal --output score.json
@@ -150,7 +135,7 @@ VMAF_MOBILESAL_MODEL_PATH=model/tiny/mobilesal.onnx \
 #include <libvmaf/libvmaf.h>
 
 VmafFeatureDictionary *opts = NULL;
-vmaf_feature_dictionary_set(&opts, "model_path", "model/tiny/mobilesal.onnx");
+vmaf_feature_dictionary_set(&opts, "model_path", "model/tiny/saliency_student_v1.onnx");
 int err = vmaf_use_feature(ctx, "mobilesal", opts);
 /* ... vmaf_score_pooled(ctx, ..., "saliency_mean", ...) for the per-frame mean */
 ```
@@ -169,16 +154,16 @@ Equivalent to setting `VMAF_MOBILESAL_MODEL_PATH` before
 - **Colour space**: BT.709 limited-range Y'CbCr → RGB at the C side,
   matching `feature_lpips.c`. BT.2020 / full-range is approximate
   (deliberate trade-off — see `feature_mobilesal.c` comment).
-- **Resolution**: bounded by the synthetic placeholder's dynamic shape
-  (no minimum); the real upstream MobileSal recommends ≥ 224×224.
+- **Resolution**: bounded by the selected ONNX graph's dynamic shape.
+  The placeholder has no useful quality floor; the fork-trained student
+  was trained on 256×256 crops.
 - **CPU vs GPU path**: served via `vmaf_dnn_session_run()` which picks
   CPU EP by default; CUDA EP is used automatically when libvmaf is
-  built with `-Denable_cuda=true` and the graph is supported. The
-  placeholder is single-Conv-plus-Sigmoid so any EP works.
+  built with `-Denable_cuda=true` and the graph is supported.
 - **Score interpretation**: with the placeholder, `saliency_mean` is
   ~0.5 regardless of input — the placeholder exists to lock down the
-  pipeline, not to score quality. Once the real weights land, the
-  score becomes content-dependent.
+  pipeline, not to score quality. With `saliency_student_v1`, the score
+  is content-dependent.
 
 ## How the placeholder is regenerated
 
@@ -198,6 +183,11 @@ output. CI verifies the sha256 against `registry.json` before
 - [`lpips_sq.md`](lpips_sq.md) — sister full-reference DNN extractor;
   shares the YUV → ImageNet-RGB plumbing.
 - [`../roadmap.md`](../roadmap.md) §2.3 — Wave 1 MobileSal scope.
+- [`saliency_student_v1.md`](saliency_student_v1.md) — production
+  fork-trained saliency weights for this extractor.
+- [`saliency_student_v2.md`](saliency_student_v2.md) — staged higher-IoU
+  resize-decoder ablation, pending ROI A/B validation before a
+  production flip.
 - [ADR-0218](../../adr/0218-mobilesal-saliency-extractor.md) — design
   notes (smoke-only placeholder, scoring-vs-encoder split, scalar-vs-map
   output).
@@ -212,5 +202,7 @@ output. CI verifies the sha256 against `registry.json` before
   mismatch.
 - [Research-0054](../../research/0055-u2netp-saliency-replacement-survey.md)
   — companion survey for ADR-0265.
+- [ADR-0286](../../adr/0286-saliency-student-fork-trained-on-duts.md)
+  — fork-trained production saliency-student path.
 - [ADR-0042](../../adr/0042-tinyai-docs-required-per-pr.md) — tiny-AI
   doc-substance rule this page satisfies.

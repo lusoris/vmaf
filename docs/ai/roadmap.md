@@ -101,23 +101,27 @@ two-input DNN session and emits `dists_sq` per frame.
 **Integration.** Two outputs from one model:
 
 - A new `mobilesal` (scoring-side, T6-2a) feature extractor inside
-  libvmaf — emits a scalar `saliency_mean` per frame today; the
-  saliency-weighted FR variant lands with T6-2b. Shipped — see
-  [`models/mobilesal.md`](models/mobilesal.md) and
+  libvmaf — emits a scalar `saliency_mean` per frame today. Shipped
+  with the historical smoke checkpoint first; production use now points
+  at the fork-trained [`saliency_student_v1`](models/saliency_student_v1.md)
+  weights while `mobilesal_placeholder_v0` remains a registry smoke /
+  legacy artefact. See [`models/mobilesal.md`](models/mobilesal.md) and
   [ADR-0218](../adr/0218-mobilesal-saliency-extractor.md).
 - A new CLI `tools/vmaf-roi` (encoder-side, T6-2b) that writes an
   encoder-native sidecar (format matches whatever encoder we're
   feeding). Shipped — ASCII grid for x265 (`--qpfile-style`) and
-  raw `int8_t` binary for SVT-AV1 (`--roi-map-file`); 8-bit only,
-  one-frame-per-invocation. See
+  raw `int8_t` binary for SVT-AV1 (`--roi-map-file`); accepts 8/10/12/16-bit
+  planar YUV input and remains one-frame-per-invocation. See
   [`docs/usage/vmaf-roi.md`](../usage/vmaf-roi.md). Wave-2
-  follow-ups: multi-frame batch mode, `--blend edge-density`,
-  10/12-bit when `mobilesal`'s bit-depth contract lands.
+  follow-ups: multi-frame batch mode and `--blend edge-density`.
 
-**ONNX notes.** MobileSal is MobileNet-V3-based, simple to export. The
-T6-2a PR ships a *synthetic placeholder* `model/tiny/mobilesal.onnx`
-(330 bytes, smoke-only) that matches the upstream I/O contract; real
-upstream MIT-licensed weights are tracked as T6-2a-followup.
+**ONNX notes.** The upstream MobileSal swap is no longer the production
+path: ADR-0257 records the CC BY-NC-SA / Google-Drive / RGB-D blockers.
+The shipped production path is the fork-trained DUTS saliency student,
+which keeps the same `input` / `saliency_map` tensor contract as the
+placeholder and can be selected with
+`model/tiny/saliency_student_v1.onnx`. `saliency_student_v2` is staged
+as a higher-IoU ablation pending ROI A/B validation.
 
 ### 2.4 Per-shot CRF predictor + TransNet V2 shot boundaries
 
