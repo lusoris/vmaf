@@ -144,13 +144,13 @@ slots:
   modulo the small one-hot column shift.
 - The
   [ADR-0235](../../adr/0235-codec-aware-fr-regressor.md) multi-codec
-  lift floor (≥ +0.005 PLCC over v1) is **not yet measurable** — the
-  NVENC-only corpus does not exercise other codecs, so v3's lift over
-  v1 reduces to v1 vs v1 on NVENC. This is documented honestly here
-  rather than gated on, because the alternative (deferring the v3
-  retrain until a multi-codec corpus exists) leaves vocab v3 in the
-  scaffold-only limbo it has been in since PR #401. The lift floor
-  is enforced when a future Phase A corpus drop covers ≥3 codec
+  lift floor (≥ +0.005 PLCC over v1) is **not yet measured** — the
+  current NVENC-only corpus does not exercise other codecs, so v3's
+  lift over v1 reduces to v1 vs v1 on NVENC. v3 ships as the
+  production graph regardless because it is forward-compatible with
+  the broader 16-slot ENCODER_VOCAB v3 schema and re-using v2 would
+  block multi-codec follow-up corpora; the lift floor will be enforced
+  retroactively when a future Phase A corpus drop covers ≥3 codec
   families.
 
 This caveat is the dominant reason the live `ENCODER_VOCAB_VERSION`
