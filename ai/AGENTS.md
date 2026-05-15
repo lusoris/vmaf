@@ -544,6 +544,33 @@ threshold). When extending these scripts:
   score rows do not add a `split` column to output; missing score-drop
   metadata is represented as `mos_std_dev = 0.0` and `n_ratings = 0`.
 
+## CHUG HDR MOS-corpus ingestion (ADR-0426)
+
+**Script:** `ai/scripts/chug_to_corpus_jsonl.py`
+
+### Rebase-sensitive invariants
+
+- CHUG data is local-only under `.workingdir2/chug/`. Do not commit the
+  public `chug.csv`, downloaded MP4s, emitted JSONL, trained local
+  CHUG heads, or derived features. The README/license mismatch is
+  handled by treating the dataset as non-commercial/share-alike until
+  clarified.
+- CHUG's public `mos_j` column is on a 0-100 axis. The adapter preserves
+  it as `mos_raw_0_100` and maps trainer-facing `mos` onto `[1, 5]`
+  via `1 + 4 * mos_raw_0_100 / 100` so the existing MOS-head trainer
+  does not drop every row as out-of-range. Do not remove the raw field
+  or silently change the scale.
+- The adapter preserves CHUG HDR / ladder metadata (`chug_bitladder`,
+  `chug_resolution`, `chug_bitrate_label`, orientation, manifest
+  geometry, and source content name) as optional JSONL fields. Existing
+  MOS-head training ignores those columns today; future HDR models may
+  consume them explicitly.
+- The CHUG feature materialiser is governed by ADR-0427. It pairs each
+  distorted row with the matching `chug_content_name` reference row,
+  decodes both sides as 10-bit 4:2:0, and scales the distorted side to
+  reference geometry before libvmaf extraction. Changing that alignment
+  policy changes the training distribution and requires a new ADR.
+
 ## K150K-A corpus extraction (ADR-0362, ADR-0382)
 
 **Script:** `ai/scripts/extract_k150k_features.py`
