@@ -1,4 +1,4 @@
-# Research-0105: `vmaf-tune tune-per-shot` Bisect Closure
+# Research 0105 — `vmaf-tune tune-per-shot` Bisect Closure
 
 Date: 2026-05-14
 
