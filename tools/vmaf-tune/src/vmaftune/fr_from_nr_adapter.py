@@ -89,7 +89,7 @@ class NrInputRow:
     """Minimal NR-corpus row shape this adapter consumes.
 
     Mirrors the (subset of) keys present in the K150K JSONL on disk
-    at ``.corpus/konvid-150k/konvid_150k.jsonl``. Extra keys are
+    at ``.workingdir2/konvid-150k/konvid_150k.jsonl``. Extra keys are
     ignored; missing required keys raise ``KeyError`` at build time.
     """
 

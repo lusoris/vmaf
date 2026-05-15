@@ -11,43 +11,20 @@ psnr_hvs, ADM, VIF, SSIM) measure "identity" — they return null / floor at the
 trivial value — while content-sensitive metrics (cambi, motion, vmaf teacher) remain
 informative.  The NaN columns are expected and documented in ADR-0362.
 
-``vmaf`` column: computed via the ``vmaf_v0.6.1`` model (SDR-trained).  The model
-is mis-calibrated on PQ HDR clips because it was trained on SDR content; scores from
-HDR inputs should be interpreted as a relative comparison baseline only, not as an
-absolute quality prediction.  Replace with the Netflix HDR model when it ships.  The
-~5–10 % CUDA wall-clock overhead of the model dispatch is acknowledged in
-Research-0135 as an acceptable trade-off for preserving the vmaf relationship across
-bitrate-ladder rungs.  See Research-0135 for the full analysis and the Option A vs
-Option B decision matrix (supersedes PR #898 Option A / Research-0135 draft).
-
 Output: ``runs/full_features_k150k.parquet`` (one row per clip, gitignored).
 
-Schema (46 columns, parquet schema version v2):
+Schema (48 columns):
 
     clip_name, mos,
-    <21 features>_mean, <21 features>_std    (42 feature columns)
+    <22 features>_mean, <22 features>_std    (44 feature columns)
 
 Feature columns follow the FEATURE_NAMES tuple order exactly (column-order-locked;
 see ai/AGENTS.md §K150K-A corpus extraction invariants before reordering).
 
 Restartability: a ``.done`` checkpoint file (one clip name per line, append-only)
-lets interrupted runs resume without re-processing already-extracted clips.
-
-I/O strategy (perf win — Research-0135):
-  Rows are accumulated in memory throughout the run and written to a JSONL staging
-  file (``<out>.rows.jsonl``) on every completion.  The parquet is written **once**
-  at the end.  This eliminates the O(N²) read-concat-write pattern that the
-  per-``--flush-every``-clips flush incurred on long runs.  The ``.done`` checkpoint
-  remains the primary restartability signal; the JSONL staging file handles recovery
-  of in-memory rows after an unclean exit.
-
-ffprobe skip (Win 2 — Research-0135):
-  When ``--metadata-jsonl`` is provided and the sidecar contains
-  ``chug_width_manifest``, ``chug_height_manifest``, and
-  ``chug_framerate_manifest`` for a clip, ffprobe is skipped for that clip.
-  The pixel format is inferred from ``chug_bit_depth`` (10 → ``yuv420p10le``,
-  else ``yuv420p``) or defaults to ``yuv420p``.  ffprobe remains necessary for
-  clips not covered by the sidecar.
+lets interrupted runs resume without re-processing already-extracted clips.  The
+parquet is flushed atomically (via a ``.tmp`` sibling) every ``--flush-every`` clips
+and once more at the end.
 
 Parallelism (ADR-0382): clips are dispatched to a
 ``concurrent.futures.ProcessPoolExecutor`` with ``--threads-cuda`` workers
@@ -60,8 +37,8 @@ isolation ensures no shared mutable state and avoids backend context conflicts.
 Usage::
 
     python ai/scripts/extract_k150k_features.py \\
-        --clips-dir .corpus/konvid-150k/k150ka_extracted \\
-        --scores   .corpus/konvid-150k/k150ka_scores.csv  \\
+        --clips-dir .workingdir2/konvid-150k/k150ka_extracted \\
+        --scores   .workingdir2/konvid-150k/k150ka_scores.csv  \\
         --out      runs/full_features_k150k.parquet
 
 Smoke-test (100 clips, 8 workers)::
@@ -128,44 +105,19 @@ CUDA_EXTRACTOR_NAMES: tuple[str, ...] = (
     "motion_v2_cuda",
     "psnr_cuda",
     "ciede_cuda",
-    "float_ssim_cuda=scale=1",
     "float_ms_ssim_cuda",
     "psnr_hvs_cuda",
-    # cambi_cuda intentionally not promoted: the CUDA extractor
-    # segfaults on every input on the rebuilt 2026-05-15 binary
-    # (Issue #857). cambi stays on the CPU residual pass below
-    # until that's fixed.
-    # float_ssim_cuda needs an explicit scale=1: libvmaf v1 supports
-    # scale=1 only and refuses on auto-detected scale=4 at 1080p
-    # ("libvmaf ERROR ssim_cuda: v1 supports scale=1 only").
+    "ssimulacra2_cuda",
 )
-# ssimulacra2 omitted from K150K/CHUG self-vs-self extraction — produces ~100 constant
-# for identity pairs (ref == distorted), yielding zero training signal while consuming
-# ~30-50% of GPU time per clip. Use CPU ssimulacra2 extractor for FR pairs where it
-# remains informative (ADR-0431).
 
-# 2026-05-15: float_ssim promoted from the CPU residual pass to the
-# CUDA primary pass (it has shipped a CUDA implementation since
-# libvmaf/src/feature/cuda/float_ssim_cuda.c landed). cambi stays
-# on this CPU residual pass — its CUDA twin segfaults (Issue #857).
 CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = (
+    "float_ssim",
     "cambi",
-    # speed_temporal + speed_chroma added 2026-05-15. Lawrence's HDR
-    # recipe (`hdr_custom_features.py`, Slack) called for both signals
-    # in the K150K/CHUG feature set; they are CPU-only extractors
-    # (no CUDA twin yet) so they ride the residual pass.
-    "speed_temporal",
-    "speed_chroma",
 )
 
-# Canonical 25-feature output columns (Research-0026, parquet schema v2 +
-# 2026-05-15 speed-feature addition).
+# Canonical 22-feature output columns (Research-0026).
 # WARNING: column order is locked — do not reorder without incrementing the
-# parquet schema version and updating ai/AGENTS.md. New columns may only be
-# appended at the END of the tuple, never inserted.
-# ssimulacra2 dropped: in self-vs-self (FR-from-NR) mode it returns ~100 for every
-# frame regardless of input (zero training signal); see ADR-0431 and the docstring
-# near CUDA_EXTRACTOR_NAMES above.
+# parquet schema version and updating ai/AGENTS.md.
 FEATURE_NAMES: tuple[str, ...] = (
     "adm2",
     "adm_scale0",
@@ -187,13 +139,8 @@ FEATURE_NAMES: tuple[str, ...] = (
     "cambi",
     "ciede2000",
     "psnr_hvs",
+    "ssimulacra2",
     "vmaf",
-    # 2026-05-15 additions — appended at end to preserve column order.
-    # Source: lawrence's hdr_custom_features.py recipe (Slack).
-    "speed_temporal",
-    "speed_chroma_u",
-    "speed_chroma_v",
-    "speed_chroma_uv",
 )
 
 # Map feature names to their JSON key(s) in libvmaf output.  libvmaf may emit
@@ -223,25 +170,8 @@ _METRIC_ALIASES: dict[str, tuple[str, ...]] = {
     "cambi": ("cambi",),
     "ciede2000": ("ciede2000",),
     "psnr_hvs": ("psnr_hvs",),
+    "ssimulacra2": ("ssimulacra2",),
     "vmaf": ("vmaf",),
-    # 2026-05-15 additions — short aliases registered in
-    # libvmaf/src/feature/alias.c.
-    "speed_temporal": (
-        "speed_temporal",
-        "Speed_temporal_feature_speed_temporal_score",
-    ),
-    "speed_chroma_u": (
-        "speed_chroma_u",
-        "Speed_chroma_feature_speed_chroma_u_score",
-    ),
-    "speed_chroma_v": (
-        "speed_chroma_v",
-        "Speed_chroma_feature_speed_chroma_v_score",
-    ),
-    "speed_chroma_uv": (
-        "speed_chroma_uv",
-        "Speed_chroma_feature_speed_chroma_uv_score",
-    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -249,36 +179,8 @@ _METRIC_ALIASES: dict[str, tuple[str, ...]] = {
 # ---------------------------------------------------------------------------
 
 
-def _geometry_from_sidecar(meta: dict | None) -> tuple[int, int, str, str] | None:
-    """Extract (width, height, pix_fmt, fps) from a CHUG JSONL sidecar row.
-
-    Returns ``None`` if ``meta`` is ``None`` or if any required geometry field
-    is absent, so the caller can fall back to ffprobe.  Required fields:
-    ``chug_width_manifest``, ``chug_height_manifest``,
-    ``chug_framerate_manifest``.  The pixel format is inferred from
-    ``chug_bit_depth`` (10 → ``yuv420p10le``, else ``yuv420p``).
-    """
-    if meta is None:
-        return None
-    w = meta.get("chug_width_manifest")
-    h = meta.get("chug_height_manifest")
-    fps = meta.get("chug_framerate_manifest")
-    if w is None or h is None or fps is None:
-        return None
-    bit_depth = meta.get("chug_bit_depth")
-    pix_fmt = "yuv420p10le" if bit_depth == 10 else "yuv420p"
-    return int(w), int(h), pix_fmt, str(fps)
-
-
-def _probe_geometry(mp4: Path) -> tuple[int, int, str, str, dict[str, str]]:
-    """Return (width, height, pix_fmt, fps, color_meta) for the first video stream.
-
-    The 5th element ``color_meta`` is a dict with keys
-    ``color_primaries`` / ``color_transfer`` / ``color_space`` (each
-    optional, populated when ffprobe surfaces the field).  Callers use
-    this to decide HDR-aware feature options (CAMBI ``eotf=pq``,
-    motion ``motion_fps_weight``).
-    """
+def _probe_geometry(mp4: Path) -> tuple[int, int, str, str]:
+    """Return (width, height, pix_fmt, fps) for the first video stream."""
     proc = subprocess.run(
         [
             "ffprobe",
@@ -287,7 +189,7 @@ def _probe_geometry(mp4: Path) -> tuple[int, int, str, str, dict[str, str]]:
             "-select_streams",
             "v:0",
             "-show_entries",
-            "stream=width,height,pix_fmt,r_frame_rate,color_primaries,color_transfer,color_space",
+            "stream=width,height,pix_fmt,r_frame_rate",
             "-of",
             "json",
             str(mp4),
@@ -300,142 +202,7 @@ def _probe_geometry(mp4: Path) -> tuple[int, int, str, str, dict[str, str]]:
     pix_fmt: str = s.get("pix_fmt", "yuv420p")
     # Normalise to libvmaf-safe pixel formats.
     pix_fmt = "yuv420p10le" if "10" in pix_fmt else "yuv420p"
-    color_meta = {
-        "color_primaries": s.get("color_primaries", "") or "",
-        "color_transfer": s.get("color_transfer", "") or "",
-        "color_space": s.get("color_space", "") or "",
-    }
-    return (
-        int(s["width"]),
-        int(s["height"]),
-        pix_fmt,
-        s.get("r_frame_rate", "25/1"),
-        color_meta,
-    )
-
-
-def _is_hdr_source(pix_fmt: str, color_meta: dict[str, str]) -> bool:
-    """True when the source is HDR (PQ or HLG transfer characteristics).
-
-    A source needs both:
-    1. 10-bit (or higher) pix_fmt — SDR 8-bit can't be HDR.
-    2. PQ (``smpte2084``) or HLG (``arib-std-b67``) transfer characteristics
-       OR BT.2020 primaries (a weaker fallback when transfer is absent).
-
-    Returns ``False`` on missing metadata to fail-safe to SDR defaults
-    rather than mis-applying HDR options to an SDR source.
-    """
-    if "10" not in pix_fmt and "12" not in pix_fmt and "16" not in pix_fmt:
-        return False
-    transfer = color_meta.get("color_transfer", "").lower()
-    if transfer in ("smpte2084", "arib-std-b67", "bt2020-10", "bt2020-12"):
-        return True
-    primaries = color_meta.get("color_primaries", "").lower()
-    return primaries in ("bt2020", "bt2020nc", "bt2020c")
-
-
-def _parse_fps(fps_str: str) -> float:
-    """Parse the ffprobe ``r_frame_rate`` string ``"num/den"`` into a float.
-
-    Returns 0.0 on parse failure so callers can fall back to a default.
-    """
-    if "/" in fps_str:
-        try:
-            num, den = fps_str.split("/", 1)
-            den_f = float(den)
-            return float(num) / den_f if den_f > 0 else 0.0
-        except (ValueError, ZeroDivisionError):
-            return 0.0
-    try:
-        return float(fps_str)
-    except ValueError:
-        return 0.0
-
-
-def _motion_fps_weight(fps: float) -> float:
-    """Compute the libvmaf ``motion_fps_weight`` for a given source fps.
-
-    Motion features measure per-frame absolute differences. At 50/60 fps
-    the per-frame delta on the same physical motion is ~half what it is
-    at 25/30 fps; at 120 fps it's ~quarter. The libvmaf
-    ``motion[_v2]_fps_weight`` knob multiplies the score to compensate.
-
-    The reference fps for motion features is 30 (per Netflix golden
-    fixtures).  Returns 1.0 (no correction) for any fps in [24, 32];
-    otherwise returns ``30 / fps`` clamped to ``[0.25, 4.0]``.
-    """
-    if fps <= 0:
-        return 1.0
-    if 24.0 <= fps <= 32.0:
-        return 1.0
-    weight = 30.0 / fps
-    return max(0.25, min(4.0, weight))
-
-
-# Per-extractor option support. CUDA twins ship a reduced VmafOption
-# table vs their CPU counterparts (verified against
-# libvmaf/src/feature/cuda/{integer_cambi_cuda,integer_ms_ssim_cuda,
-# integer_motion_cuda}.c); options not present here are silently
-# dropped from the --feature arg rather than triggering
-# "problem loading feature extractor" at runtime.
-_FEATURE_OPTION_SUPPORT: dict[str, frozenset[str]] = {
-    "cambi": frozenset({"eotf", "cambi_eotf", "full_ref"}),
-    "cambi_cuda": frozenset({"eotf", "cambi_eotf"}),
-    "float_ms_ssim": frozenset({"enable_db", "clip_db", "enable_lcs"}),
-    "float_ms_ssim_cuda": frozenset({"enable_lcs"}),
-    "motion": frozenset({"motion_fps_weight"}),
-    "motion_cuda": frozenset({"motion_fps_weight"}),
-    "motion_v2": frozenset({"motion_fps_weight"}),
-    "motion_v2_cuda": frozenset({"motion_fps_weight"}),
-}
-
-
-def _feature_arg(extractor: str, is_hdr: bool, motion_fps_weight: float) -> str:
-    """Build the ``--feature`` argument value for one extractor.
-
-    Per libvmaf/tools/cli_parse.c the CLI grammar is
-    ``EXTRACTOR=key1=val1:key2=val2``: ``strsep(&optarg, "=")`` consumes
-    the extractor name first, then ``:`` separates the ``key=value``
-    pairs.  The leading literal ``name=`` token is NOT part of the
-    grammar — it parses as a feature called "name" with bad options
-    and trips ``problem loading feature extractor: name``.
-
-    Returns ``"<extractor>=k1=v1:k2=v2"`` when HDR-aware options apply
-    AND the extractor advertises support for them; returns the bare
-    ``<extractor>`` name otherwise (preserving pre-fix behaviour for
-    SDR sources and silently dropping CUDA-unsupported options).
-
-    HDR-aware options follow lawrence's 2026-05-15 guidance:
-    - CAMBI: ``eotf=pq`` (HDR PQ visibility thresholds, not SDR);
-      ``full_ref=true`` (FR-CAMBI matches the script's ref==dis
-      topology; the CUDA twin doesn't expose this option, so the
-      whitelist drops it for ``cambi_cuda``).
-    - MS_SSIM: ``enable_db=false`` (linear scale per recipe);
-      the CUDA twin doesn't expose this option either.
-    - motion / motion_v2 (both CPU and CUDA): ``motion_fps_weight``
-      when fps != 30.
-    """
-    desired: list[tuple[str, str]] = []
-    base = extractor
-
-    if is_hdr and base in ("cambi", "cambi_cuda"):
-        desired.append(("eotf", "pq"))
-        desired.append(("full_ref", "true"))
-    if is_hdr and base in ("float_ms_ssim", "float_ms_ssim_cuda"):
-        desired.append(("enable_db", "false"))
-    if motion_fps_weight != 1.0 and base in (
-        "motion",
-        "motion_cuda",
-        "motion_v2",
-        "motion_v2_cuda",
-    ):
-        desired.append(("motion_fps_weight", f"{motion_fps_weight:.4f}"))
-
-    supported = _FEATURE_OPTION_SUPPORT.get(base, frozenset())
-    opts = [f"{k}={v}" for k, v in desired if k in supported]
-    if not opts:
-        return base
-    return f"{base}=" + ":".join(opts)
+    return int(s["width"]), int(s["height"]), pix_fmt, s.get("r_frame_rate", "25/1")
 
 
 def _decode_to_yuv(mp4: Path, yuv_path: Path, pix_fmt: str) -> None:
@@ -479,13 +246,11 @@ def _build_vmaf_cmd(
     threads: int,
     extractor_names: tuple[str, ...],
     backend_args: list[str],
-    is_hdr: bool = False,
-    motion_fps_weight_value: float = 1.0,
 ) -> list[str]:
     bitdepth = "10" if "10" in pix_fmt else "8"
     feat_args: list[str] = []
     for ex in extractor_names:
-        feat_args += ["--feature", _feature_arg(ex, is_hdr, motion_fps_weight_value)]
+        feat_args += ["--feature", ex]
 
     return [
         str(vmaf_bin),
@@ -522,8 +287,6 @@ def _run_vmaf_json(
     threads: int,
     extractor_names: tuple[str, ...],
     backend_args: list[str],
-    is_hdr: bool = False,
-    motion_fps_weight_value: float = 1.0,
 ) -> list[dict]:
     """Run vmaf once and return a list of per-frame metric dicts."""
     cmd = _build_vmaf_cmd(
@@ -536,8 +299,6 @@ def _run_vmaf_json(
         threads,
         extractor_names,
         backend_args,
-        is_hdr=is_hdr,
-        motion_fps_weight_value=motion_fps_weight_value,
     )
     subprocess.run(cmd, check=True, capture_output=True)
     with out_json.open() as f:
@@ -566,22 +327,8 @@ def _run_feature_passes(
     out_json: Path,
     threads: int,
     use_cuda: bool,
-    is_hdr: bool = False,
-    motion_fps_weight_value: float = 1.0,
 ) -> list[dict]:
-    """Run vmaf feature extraction, splitting CUDA mode where required.
-
-    The ``vmaf_v0.6.1`` model is dispatched on every invocation so that the
-    ``vmaf`` JSON key is populated in the output.  The model is SDR-trained and
-    is mis-calibrated on PQ HDR clips; its score is kept as a relative
-    comparison baseline only.  See the module docstring and Research-0135 for
-    the rationale (Option B, supersedes PR #898 Option A).
-    """
-    # The --model arg causes libvmaf to run the vmaf_v0.6.1 model dispatch and
-    # emit a per-frame "vmaf" key.  Without this, the JSON contains only the
-    # raw feature values and no composite score.
-    _MODEL_ARGS: list[str] = ["--model", "version=vmaf_v0.6.1"]
-
+    """Run vmaf feature extraction, splitting CUDA mode where required."""
     if not use_cuda:
         return _run_vmaf_json(
             vmaf_bin,
@@ -592,9 +339,7 @@ def _run_feature_passes(
             out_json,
             threads,
             EXTRACTOR_NAMES,
-            ["--no_cuda", "--no_sycl", "--no_vulkan", *_MODEL_ARGS],
-            is_hdr=is_hdr,
-            motion_fps_weight_value=motion_fps_weight_value,
+            ["--no_cuda", "--no_sycl", "--no_vulkan"],
         )
 
     cuda_json = out_json.with_name(out_json.stem + ".cuda.json")
@@ -609,32 +354,20 @@ def _run_feature_passes(
             cuda_json,
             threads,
             CUDA_EXTRACTOR_NAMES,
-            ["--backend", "cuda", *_MODEL_ARGS],
-            is_hdr=is_hdr,
-            motion_fps_weight_value=motion_fps_weight_value,
+            ["--backend", "cuda"],
         )
-        # CPU residual pass — kept structurally for future feature
-        # additions that lack a CUDA implementation. As of 2026-05-15
-        # the residual is empty (CAMBI + float_ssim got promoted to
-        # the CUDA pass); the call short-circuits to an empty frames
-        # list without spawning a subprocess.
-        if CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES:
-            cpu_frames = _run_vmaf_json(
-                cpu_vmaf_bin,
-                yuv_path,
-                width,
-                height,
-                pix_fmt,
-                cpu_json,
-                threads,
-                CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES,
-                ["--no_cuda", "--no_sycl", "--no_vulkan"],
-                is_hdr=is_hdr,
-                motion_fps_weight_value=motion_fps_weight_value,
-            )
-            frames = _merge_frame_metrics(cuda_frames, cpu_frames)
-        else:
-            frames = cuda_frames
+        cpu_frames = _run_vmaf_json(
+            cpu_vmaf_bin,
+            yuv_path,
+            width,
+            height,
+            pix_fmt,
+            cpu_json,
+            threads,
+            CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES,
+            ["--no_cuda", "--no_sycl", "--no_vulkan"],
+        )
+        frames = _merge_frame_metrics(cuda_frames, cpu_frames)
         out_json.write_text(
             json.dumps({"frames": [{"metrics": row} for row in frames]}),
             encoding="utf-8",
@@ -765,57 +498,22 @@ def _append_done(done_path: Path, clip_name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# JSONL staging + at-end parquet write (Win 1, Research-0135)
+# Parquet flush
 # ---------------------------------------------------------------------------
 
 
-def _staging_path(out_path: Path) -> Path:
-    """Return the JSONL staging file path for ``out_path``.
-
-    The staging file accumulates all completed rows during the run so that a
-    crash does not lose rows that are already past the ``.done`` checkpoint.
-    Written in append-only mode; converted to parquet once at the end.
-    """
-    return out_path.with_suffix(".rows.jsonl")
-
-
-def _append_row_to_staging(staging_path: Path, row: dict) -> None:
-    """Append one row to the JSONL staging file (main process only)."""
-    with staging_path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row, allow_nan=True) + "\n")
-
-
-def _load_staging_rows(staging_path: Path) -> list[dict]:
-    """Load all rows from the JSONL staging file, skipping malformed lines."""
-    if not staging_path.is_file():
-        return []
-    rows: list[dict] = []
-    with staging_path.open("r", encoding="utf-8") as fh:
-        for raw in fh:
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                rows.append(json.loads(raw))
-            except json.JSONDecodeError:
-                continue
-    return rows
-
-
-def _write_parquet_from_rows(rows: list[dict], out_path: Path) -> None:
-    """Write ``rows`` to ``out_path`` atomically, deduplicating by clip_name.
-
-    Parquet writes happen exactly once per run.  The per-clip JSONL staging
-    file is the in-run durability mechanism; this function is called only at
-    the end of ``main()`` (Research-0135 Win 1).
-    """
-    if not rows:
-        return
-    df = pd.DataFrame(rows)
-    df = df.drop_duplicates(subset=["clip_name"], keep="last")
+def _flush_parquet(rows: list[dict], out_path: Path) -> None:
+    """Merge ``rows`` with any existing parquet and write atomically."""
+    new_df = pd.DataFrame(rows)
+    if out_path.is_file():
+        existing = pd.read_parquet(out_path)
+        combined = pd.concat([existing, new_df], ignore_index=True)
+        combined = combined.drop_duplicates(subset=["clip_name"], keep="last")
+    else:
+        combined = new_df
     tmp = out_path.with_suffix(".tmp")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(tmp, index=False)
+    combined.to_parquet(tmp, index=False)
     tmp.rename(out_path)
 
 
@@ -833,18 +531,12 @@ def _process_clip(
     vmaf_threads: int,
     use_cuda: bool,
     worker_id: int,
-    sidecar_meta: dict | None = None,
 ) -> dict:
     """Decode one clip, score it, aggregate, and return the row dict.
 
     Runs in a subprocess worker.  Uses a worker-private YUV path so parallel
     workers never clobber each other.  Deletes the YUV unconditionally on exit
     (success or failure) to avoid scratch-dir disk saturation.
-
-    When ``sidecar_meta`` contains the required CHUG geometry fields
-    (``chug_width_manifest``, ``chug_height_manifest``,
-    ``chug_framerate_manifest``), ffprobe is skipped for that clip (Win 2,
-    Research-0135).
 
     Returns a dict with keys: clip_name, mos, width, height, <feat>_mean/std.
     Raises on any failure so the caller can log and skip.
@@ -860,19 +552,7 @@ def _process_clip(
     out_json = scratch_dir / f"{stem}.json"
 
     try:
-        # Always probe for color_meta (needed for HDR detection).
-        # Win 2: override with sidecar geometry when available — ffprobe
-        # geometry is less reliable than the manifest fields for CHUG clips,
-        # and the sidecar skips an extra ffprobe call for the geometry fields.
-        _pw, _ph, _ppf, fps_str, color_meta = _probe_geometry(mp4)
-        geom = _geometry_from_sidecar(sidecar_meta) if sidecar_meta else None
-        if geom is not None:
-            width, height, pix_fmt, fps_str = geom
-        else:
-            width, height, pix_fmt = _pw, _ph, _ppf
-        is_hdr = _is_hdr_source(pix_fmt, color_meta)
-        fps = _parse_fps(fps_str)
-        motion_w = _motion_fps_weight(fps)
+        width, height, pix_fmt, _fps = _probe_geometry(mp4)
         _decode_to_yuv(mp4, yuv_path, pix_fmt)
         frames = _run_feature_passes(
             vmaf_bin,
@@ -884,8 +564,6 @@ def _process_clip(
             out_json,
             vmaf_threads,
             use_cuda,
-            is_hdr=is_hdr,
-            motion_fps_weight_value=motion_w,
         )
         agg = _aggregate_frames(frames)
         return {
@@ -893,9 +571,6 @@ def _process_clip(
             "mos": mos,
             "width": width,
             "height": height,
-            "fps": fps,
-            "is_hdr": is_hdr,
-            "motion_fps_weight": motion_w,
             **agg,
         }
     finally:
@@ -916,13 +591,13 @@ def main() -> int:
     ap.add_argument(
         "--clips-dir",
         type=Path,
-        default=Path(".corpus/konvid-150k/k150ka_extracted"),
+        default=Path(".workingdir2/konvid-150k/k150ka_extracted"),
         help="Directory containing K150K-A .mp4 clips.",
     )
     ap.add_argument(
         "--scores",
         type=Path,
-        default=Path(".corpus/konvid-150k/k150ka_scores.csv"),
+        default=Path(".workingdir2/konvid-150k/k150ka_scores.csv"),
         help="CSV with columns video_name, video_score (MOS labels).",
     )
     ap.add_argument(
@@ -985,20 +660,10 @@ def main() -> int:
         ),
     )
     ap.add_argument(
-        "--progress-every",
-        type=int,
-        default=200,
-        help=(
-            "Print a progress line every N completed clips.  Default 200.  "
-            "Previously named --flush-every; the name changed when the per-flush "
-            "parquet rewrite was replaced with at-end-only writes (Research-0135)."
-        ),
-    )
-    ap.add_argument(
         "--flush-every",
         type=int,
-        default=None,
-        help=argparse.SUPPRESS,  # Legacy alias; --progress-every takes precedence.
+        default=200,
+        help="Flush parquet every N completed clips.  Default 200 (was 1000).",
     )
     ap.add_argument(
         "--limit",
@@ -1022,9 +687,6 @@ def main() -> int:
         help="Scratch directory for temporary YUV files.  Cleaned per-clip.",
     )
     args = ap.parse_args()
-
-    # --flush-every is a legacy alias; --progress-every takes precedence.
-    progress_every: int = args.progress_every
 
     use_cuda = not args.no_cuda
 
@@ -1093,19 +755,10 @@ def main() -> int:
 
     args.scratch_dir.mkdir(parents=True, exist_ok=True)
 
-    # JSONL staging file — accumulates rows during the run for crash durability.
-    # Converted to parquet exactly once at the end (Research-0135 Win 1).
-    staging_path = _staging_path(args.out)
-    # Reload any rows from a previous partial run that are in the done set but
-    # whose staging rows survived.  This covers the edge-case where the process
-    # was killed after writing the staging line but before the final parquet write.
-    recovered_rows = _load_staging_rows(staging_path)
-    recovered_names = {r.get("clip_name") for r in recovered_rows if r.get("clip_name")}
-
     # ------------------------------------------------------------------
     # Parallel extraction via ProcessPoolExecutor
     # ------------------------------------------------------------------
-    rows: list[dict] = list(recovered_rows)
+    rows: list[dict] = []
     ok = 0
     fail = 0
     t0 = time.time()
@@ -1113,15 +766,13 @@ def main() -> int:
 
     # Build submit order: (future, clip_name) pairs.
     # We use as_completed() so results flow back as soon as workers finish,
-    # keeping the checkpoint and staging file up-to-date without waiting for
-    # the whole batch.  Parquet is written once at the end.
+    # keeping the checkpoint and parquet up-to-date without waiting for the
+    # whole batch.
     with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads_cuda) as executor:
         future_to_clip: dict[concurrent.futures.Future, str] = {}
         for idx, mp4 in enumerate(pending):
             clip_name = mp4.name
             mos = mos_map.get(clip_name, float("nan"))
-            # Pass sidecar metadata to the worker for ffprobe skip (Win 2).
-            clip_sidecar = jsonl_meta.get(clip_name)
             fut = executor.submit(
                 _process_clip,
                 str(mp4),
@@ -1132,7 +783,6 @@ def main() -> int:
                 args.threads,
                 use_cuda,
                 idx % args.threads_cuda,
-                clip_sidecar,
             )
             future_to_clip[fut] = clip_name
 
@@ -1143,9 +793,6 @@ def main() -> int:
                 row = fut.result()
                 row.update(score_meta.get(clip_name, {}))
                 row.update(jsonl_meta.get(clip_name, {}))
-                # Append to JSONL staging immediately for crash durability.
-                if clip_name not in recovered_names:
-                    _append_row_to_staging(staging_path, row)
                 rows.append(row)
                 _append_done(done_path, clip_name)
                 ok += 1
@@ -1153,8 +800,8 @@ def main() -> int:
                 print(f"[k150k] FAIL {clip_name}: {exc}", file=sys.stderr, flush=True)
                 fail += 1
 
-            # Periodic progress log (no parquet write — that happens at the end).
-            if completed % progress_every == 0 or completed == len(pending):
+            # Periodic progress + parquet flush
+            if completed % args.flush_every == 0 or completed == len(pending):
                 elapsed = time.time() - t0
                 rate = completed / elapsed if elapsed > 0 else 0.0
                 remaining = (len(pending) - completed) / rate / 3600.0 if rate > 0 else float("nan")
@@ -1163,13 +810,13 @@ def main() -> int:
                     f"{rate:.2f} clip/s eta={remaining:.1f}h",
                     flush=True,
                 )
+                if rows:
+                    _flush_parquet(rows, args.out)
+                    rows = []
 
-    # Write parquet exactly once at the end (Research-0135 Win 1).
-    # Include both newly-processed rows and any rows recovered from the staging file.
+    # Final flush for any remainder
     if rows:
-        _write_parquet_from_rows(rows, args.out)
-        # Clean up the staging file now that the parquet is durable.
-        staging_path.unlink(missing_ok=True)
+        _flush_parquet(rows, args.out)
 
     elapsed = time.time() - t0
     rate = ok / elapsed if elapsed > 0 else 0.0

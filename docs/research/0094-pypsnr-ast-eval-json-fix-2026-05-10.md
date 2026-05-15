@@ -1,4 +1,4 @@
-# Research-0094: T-PYPSNR-AST-EVAL: `str`/`ast.literal_eval` log serialization incompatible with numpy 2.x
+# Research-0094 — T-PYPSNR-AST-EVAL: `str`/`ast.literal_eval` log serialization incompatible with numpy 2.x
 
 **Date**: 2026-05-10
 **Branch**: fix/pypsnr-ast-eval
