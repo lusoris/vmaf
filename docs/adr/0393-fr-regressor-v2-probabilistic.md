@@ -1,6 +1,10 @@
 # ADR-0393: `fr_regressor_v2` probabilistic head — deep-ensemble + conformal scaffold
 
-- **Status**: Proposed
+- **Status**: Accepted
+- **Status update 2026-05-15**: scaffold implemented;
+  `model/tiny/fr_regressor_v2_ensemble_v1.json` (5-seed ensemble) +
+  conformal quantile scaffold present on master. Production training
+  gated on Phase A corpus completion.
 - **Date**: 2026-05-03
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: ai, fr-regressor, probabilistic, ensemble, conformal, fork-local

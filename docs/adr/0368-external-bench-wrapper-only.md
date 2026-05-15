@@ -1,6 +1,9 @@
 # ADR-0368: External-competitor benchmark harness — wrapper-only architecture
 
-- **Status**: Proposed
+- **Status**: Accepted
+- **Status update 2026-05-15**: implemented; `tools/external-bench/`
+  directory present with `run.sh` wrappers and `compare.py`
+  orchestrator; wrapper-only architecture active.
 - **Date**: 2026-05-08
 - **Deciders**: Lusoris, Claude
 - **Tags**: ai, testing, license, tooling, fork-local
