@@ -1,6 +1,6 @@
 # ADR-0403: mkdocs `--strict` validation policy — actionable carve-outs
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-09
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: docs, ci, mkdocs, fork-local
