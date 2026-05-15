@@ -34595,3 +34595,24 @@ ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:abort_on_error=1:print_summary=1 ./l
 UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 ./libvmaf/build-ubsan-cli/test/test_cli_parse
 TSAN_OPTIONS=halt_on_error=1 ./libvmaf/build-tsan-cli/test/test_cli_parse
 ```
+
+## 2026-05-15 — `test_predict` Sanitizer Deselect Retired
+
+**Files touched**: `.github/workflows/tests-and-quality-gates.yml`,
+`docs/state.md`, `changelog.d/fixed/sanitizer-predict.md`.
+
+**Rebase impact**: low. This only narrows the ADR-0347 sanitizer
+deselect regexes after re-verifying `test_predict` on current master;
+prediction logic, model loading, and output scores are unchanged.
+
+**Invariant to preserve on rebase**: keep `test_predict` out of the
+ASan / UBSan / TSan `EXCLUDE` regexes unless a new sanitizer report is
+captured and tracked in `docs/state.md`.
+
+**Smoke-test after rebase**:
+
+```bash
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:abort_on_error=1:print_summary=1 ./libvmaf/build-asan-predict/test/test_predict
+UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 ./libvmaf/build-ubsan-predict/test/test_predict
+TSAN_OPTIONS=halt_on_error=1 ./libvmaf/build-tsan-predict/test/test_predict
+```
