@@ -654,24 +654,13 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
          * assert(long_opts[n].name) for any non-numeric optarg
          * (e.g. `--threads abc`), turning a clean usage() error into a
          * SIGABRT — surfaced by the libFuzzer harness in PR #408
-         * (ADR-0311). See ADR-0316.
-         *
-         * INVARIANT (ADR-0438): every short option declared in short_opts[]
-         * must have a case arm in this switch.  The 'c' arm was absent until
-         * the audit that produced ADR-0438 — getopt_long consumed -c <val>
-         * from the command line but the switch fell into default: and silently
-         * discarded the argument.  The fall-through below mirrors the
-         * ARG_TINY_DEVICE / ARG_DNN_EP alias pattern already in this switch. */
+         * (ADR-0311). See ADR-0316. */
         case ARG_THREADS:
             settings->thread_cnt = parse_unsigned(optarg, ARG_THREADS, argv[0]);
             break;
         case ARG_SUBSAMPLE:
             settings->subsample = parse_unsigned(optarg, ARG_SUBSAMPLE, argv[0]);
             break;
-        case 'c':
-        /* fall through — -c is the short form of --cpumask; both write
-         * settings->cpumask via ARG_CPUMASK so error() reports the long
-         * name on bad input. */
         case ARG_CPUMASK:
             settings->cpumask = parse_unsigned(optarg, ARG_CPUMASK, argv[0]);
             break;

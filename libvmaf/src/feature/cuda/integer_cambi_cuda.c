@@ -102,7 +102,6 @@ typedef struct CambiStateCuda {
     CUfunction func_mask;
     CUfunction func_decimate;
     CUfunction func_filter_mode;
-    CUmodule module;
 
     /* Device buffers (flat uint16 arrays sized for proc_width × proc_height). */
     VmafCudaBuffer *d_image; /* current scale image on device */
@@ -435,7 +434,8 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail_cuda);
     ctx_pushed = 1;
 
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, cambi_score_ptx), fail_cuda);
+    CUmodule module;
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, cambi_score_ptx), fail_cuda);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_mask, module, "cambi_spatial_mask_kernel"),
                     fail_cuda);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_decimate, module, "cambi_decimate_kernel"),
@@ -585,10 +585,7 @@ static int dispatch_mask(CambiStateCuda *s, CudaFunctions *cu_f, CUstream stream
 {
     const unsigned grid_x = (w + CAMBI_CUDA_BLOCK_X - 1u) / CAMBI_CUDA_BLOCK_X;
     const unsigned grid_y = (h + CAMBI_CUDA_BLOCK_Y - 1u) / CAMBI_CUDA_BLOCK_Y;
-    /* Bug fix (Issue #857): cuLaunchKernel params[i] must point to the VALUE
-     * to pass, not to the VmafCudaBuffer struct. Pass &buf->data (address of the
-     * CUdeviceptr field) so the driver reads the device pointer, not buf->size. */
-    void *params[] = {&s->d_image->data, &s->d_mask->data, &w, &h, &stride_words, &mask_index};
+    void *params[] = {(void *)s->d_image, (void *)s->d_mask, &w, &h, &stride_words, &mask_index};
     CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->func_mask, grid_x, grid_y, 1u, CAMBI_CUDA_BLOCK_X,
                                            CAMBI_CUDA_BLOCK_Y, 1u, 0u, stream, params, NULL));
     return 0;
@@ -603,8 +600,8 @@ static int dispatch_decimate(CambiStateCuda *s, CudaFunctions *cu_f, CUstream st
 {
     const unsigned grid_x = (out_w + CAMBI_CUDA_BLOCK_X - 1u) / CAMBI_CUDA_BLOCK_X;
     const unsigned grid_y = (out_h + CAMBI_CUDA_BLOCK_Y - 1u) / CAMBI_CUDA_BLOCK_Y;
-    /* Bug fix (Issue #857): pass device pointer addresses, not struct addresses. */
-    void *params[] = {&src->data, &dst->data, &out_w, &out_h, &src_stride_words, &dst_stride_words};
+    void *params[] = {(void *)src, (void *)dst,       &out_w,
+                      &out_h,      &src_stride_words, &dst_stride_words};
     CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->func_decimate, grid_x, grid_y, 1u, CAMBI_CUDA_BLOCK_X,
                                            CAMBI_CUDA_BLOCK_Y, 1u, 0u, stream, params, NULL));
     return 0;
@@ -619,8 +616,7 @@ static int dispatch_filter_mode(CambiStateCuda *s, CudaFunctions *cu_f, CUstream
 {
     const unsigned grid_x = (w + CAMBI_CUDA_BLOCK_X - 1u) / CAMBI_CUDA_BLOCK_X;
     const unsigned grid_y = (h + CAMBI_CUDA_BLOCK_Y - 1u) / CAMBI_CUDA_BLOCK_Y;
-    /* Bug fix (Issue #857): pass device pointer addresses, not struct addresses. */
-    void *params[] = {&in->data, &out->data, &w, &h, &stride_words, &axis};
+    void *params[] = {(void *)in, (void *)out, &w, &h, &stride_words, &axis};
     CHECK_CUDA_RETURN(cu_f,
                       cuLaunchKernel(s->func_filter_mode, grid_x, grid_y, 1u, CAMBI_CUDA_BLOCK_X,
                                      CAMBI_CUDA_BLOCK_Y, 1u, 0u, stream, params, NULL));
@@ -654,44 +650,16 @@ static int dispatch_filter_mode(CambiStateCuda *s, CudaFunctions *cu_f, CUstream
 static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                            VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index)
 {
+    (void)ref_pic;
     (void)ref_pic_90;
     (void)dist_pic_90;
     CambiStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
     s->index = index;
 
-    /* Step 0: download dist_pic GPU→host so vmaf_cambi_preprocessing (host
-     * code) can read it.  Pictures delivered to a CUDA extractor's submit()
-     * have device pointers in data[]; dereferencing them on the host causes
-     * a segfault (Issue #857).  Other CUDA extractors avoid this because
-     * they keep all preprocessing on the GPU; CAMBI is unique in needing a
-     * host-side decimate-and-10b-upcast before its GPU pipeline. */
-    VmafPicture dist_host;
-    int err = vmaf_picture_alloc(&dist_host, dist_pic->pix_fmt, dist_pic->bpc, dist_pic->w[0],
-                                 dist_pic->h[0]);
-    if (err)
-        return err;
-    err = vmaf_cuda_picture_download_async(dist_pic, &dist_host, 0x1);
-    if (err) {
-        (void)vmaf_picture_unref(&dist_host);
-        return err;
-    }
-    /* Sync the dist_pic private stream: vmaf_cuda_picture_download_async
-     * enqueues the DtoH copy on that stream, so we must drain it before
-     * the host preprocessing reads dist_host.data[0]. */
-    {
-        const CUresult _sync_res =
-            cu_f->cuStreamSynchronize(vmaf_cuda_picture_get_stream(dist_pic));
-        if (CUDA_SUCCESS != _sync_res) {
-            (void)vmaf_picture_unref(&dist_host);
-            return vmaf_cuda_result_to_errno((int)_sync_res);
-        }
-    }
-
     /* Step 1: host preprocessing → pics[0] (10-bit planar, proc_w × proc_h). */
-    err = vmaf_cambi_preprocessing(&dist_host, &s->pics[0], (int)s->proc_width, (int)s->proc_height,
-                                   s->enc_bitdepth);
-    (void)vmaf_picture_unref(&dist_host);
+    int err = vmaf_cambi_preprocessing(dist_pic, &s->pics[0], (int)s->proc_width,
+                                       (int)s->proc_height, s->enc_bitdepth);
     if (err)
         return err;
 
@@ -707,11 +675,10 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     const ptrdiff_t src_stride_bytes = s->pics[0].stride[0];
     for (unsigned row = 0; row < s->proc_height; row++) {
         const uint8_t *src_row = (const uint8_t *)src_data + (size_t)row * (size_t)src_stride_bytes;
-        /* Arithmetic on CUdeviceptr (unsigned long long) directly — avoids
-         * the UB of casting an integer through uint8_t* and back. */
-        const CUdeviceptr dst_dptr =
-            s->d_image->data + (CUdeviceptr)((size_t)row * s->proc_width * sizeof(uint16_t));
-        CHECK_CUDA_RETURN(cu_f, cuMemcpyHtoDAsync(dst_dptr, src_row, row_bytes, stream));
+        uint8_t *dst_row =
+            (uint8_t *)s->d_image->data + (size_t)row * s->proc_width * sizeof(uint16_t);
+        CHECK_CUDA_RETURN(cu_f,
+                          cuMemcpyHtoDAsync((CUdeviceptr)dst_row, src_row, row_bytes, stream));
     }
 
     /* Step 3: spatial mask at full scale. */
@@ -893,15 +860,16 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
         uint16_t *dst1 = (uint16_t *)s->pics[1].data[0];
         for (unsigned row = 0; row < scaled_h; row++) {
             uint8_t *d0_row = (uint8_t *)dst0 + (size_t)row * (size_t)pic_stride_bytes;
-            /* Arithmetic on CUdeviceptr directly — avoids UB of casting integer
-             * through uint8_t* and back (same pattern as the HtoD loop above). */
-            const CUdeviceptr s0_dptr =
-                s->d_image->data + (CUdeviceptr)((size_t)row * scaled_w * sizeof(uint16_t));
-            CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoH(d0_row, s0_dptr, scaled_w * sizeof(uint16_t)));
+            const uint8_t *s0_row =
+                (const uint8_t *)s->d_image->data + (size_t)row * scaled_w * sizeof(uint16_t);
+            /* cuMemcpyDtoH(dst_host, src_device_ptr, bytes) */
+            CHECK_CUDA_RETURN(
+                cu_f, cuMemcpyDtoH(d0_row, (CUdeviceptr)s0_row, scaled_w * sizeof(uint16_t)));
             uint8_t *d1_row = (uint8_t *)dst1 + (size_t)row * (size_t)pic_stride_bytes;
-            const CUdeviceptr s1_dptr =
-                s->d_mask->data + (CUdeviceptr)((size_t)row * scaled_w * sizeof(uint16_t));
-            CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoH(d1_row, s1_dptr, scaled_w * sizeof(uint16_t)));
+            const uint8_t *s1_row =
+                (const uint8_t *)s->d_mask->data + (size_t)row * scaled_w * sizeof(uint16_t);
+            CHECK_CUDA_RETURN(
+                cu_f, cuMemcpyDtoH(d1_row, (CUdeviceptr)s1_row, scaled_w * sizeof(uint16_t)));
         }
 
         /* CPU residual: calculate_c_values + spatial pooling. */
@@ -969,8 +937,6 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     CambiStateCuda *s = fex->priv;
     int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
-    if (s->module)
-        (void)fex->cu_state->f->cuModuleUnload(s->module);
 
     if (s->d_image) {
         const int e = vmaf_cuda_buffer_free(fex->cu_state, s->d_image);

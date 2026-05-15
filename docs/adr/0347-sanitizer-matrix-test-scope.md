@@ -1,10 +1,6 @@
 # ADR-0347: Sanitizer matrix — concrete test-set scope per sanitizer
 
-- **Status**: Accepted
-- **Status update 2026-05-15**: implemented; ASan / UBSan / TSan
-  matrix job active in
-  `.github/workflows/tests-and-quality-gates.yml`; per-sanitizer
-  deselect lists tracked in `docs/state.md`.
+- **Status**: Proposed
 - **Date**: 2026-05-09
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: ci, testing, sanitizer, asan, ubsan, tsan, fork-local

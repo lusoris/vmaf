@@ -1,4 +1,4 @@
-# Research-0067: probabilistic `fr_regressor_v2` — deep-ensemble + conformal
+# Research-0054: probabilistic `fr_regressor_v2` — deep-ensemble + conformal
 
 - **Date**: 2026-05-03
 - **Authors**: Lusoris, Claude (Anthropic)
