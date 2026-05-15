@@ -25,6 +25,7 @@ from vmaftune.encode import EncodeRequest  # noqa: E402
 from vmaftune.saliency import (  # noqa: E402
     QP_OFFSET_MAX,
     QP_OFFSET_MIN,
+    SALIENCY_AGGREGATORS,
     X264_MB_SIDE,
     SaliencyConfig,
     SaliencyUnavailableError,
@@ -94,6 +95,20 @@ class _InspectingOnnxSession:
         tensor = np.asarray(feeds["input"], dtype=np.float32)
         self.tensors.append(tensor)
         return [np.full((1, 1, self._h, self._w), 0.5, dtype=np.float32)]
+
+
+class _SequenceOnnxSession:
+    def __init__(self, h: int, w: int, values: list[float]):
+        self._h = h
+        self._w = w
+        self._values = list(values)
+        self._idx = 0
+
+    def run(self, _outputs, feeds):
+        assert "input" in feeds
+        value = self._values[min(self._idx, len(self._values) - 1)]
+        self._idx += 1
+        return [np.full((1, 1, self._h, self._w), value, dtype=np.float32)]
 
 
 class _FakeCompleted:
@@ -231,6 +246,70 @@ def test_compute_saliency_map_feeds_chroma_aware_rgb(tmp_path):
     assert not np.isclose(channel_means[1], channel_means[2])
 
 
+@pytest.mark.parametrize("aggregator", SALIENCY_AGGREGATORS)
+def test_compute_saliency_map_accepts_temporal_aggregators(tmp_path, aggregator: str):
+    w, h = 32, 16
+    src = _write_yuv420p_planes(tmp_path / "src.yuv", w, h, nframes=3, y=96, u=128, v=128)
+    fake_model = tmp_path / "saliency_student_v1.onnx"
+    fake_model.write_bytes(b"\x00")
+    session = _SequenceOnnxSession(h, w, [0.2, 0.6, 0.8])
+
+    mask = compute_saliency_map(
+        src,
+        w,
+        h,
+        model_path=fake_model,
+        frame_samples=3,
+        temporal_aggregator=aggregator,
+        session_factory=lambda _path: session,
+    )
+
+    assert mask.shape == (h, w)
+    assert mask.min() >= 0.0
+    assert mask.max() <= 1.0
+
+
+def test_compute_saliency_map_ema_weights_recent_frames(tmp_path):
+    w, h = 32, 16
+    src = _write_yuv420p(tmp_path / "src.yuv", w, h, nframes=3)
+    fake_model = tmp_path / "saliency_student_v1.onnx"
+    fake_model.write_bytes(b"\x00")
+    session = _SequenceOnnxSession(h, w, [0.0, 0.5, 1.0])
+
+    mask = compute_saliency_map(
+        src,
+        w,
+        h,
+        model_path=fake_model,
+        frame_samples=3,
+        temporal_aggregator="ema",
+        ema_alpha=0.5,
+        session_factory=lambda _path: session,
+    )
+
+    assert np.isclose(float(mask.mean()), 0.625)
+
+
+def test_compute_saliency_map_max_keeps_peak(tmp_path):
+    w, h = 32, 16
+    src = _write_yuv420p(tmp_path / "src.yuv", w, h, nframes=3)
+    fake_model = tmp_path / "saliency_student_v1.onnx"
+    fake_model.write_bytes(b"\x00")
+    session = _SequenceOnnxSession(h, w, [0.1, 0.9, 0.3])
+
+    mask = compute_saliency_map(
+        src,
+        w,
+        h,
+        model_path=fake_model,
+        frame_samples=3,
+        temporal_aggregator="max",
+        session_factory=lambda _path: session,
+    )
+
+    assert np.isclose(float(mask.mean()), 0.9)
+
+
 def test_compute_saliency_map_missing_model_raises(tmp_path):
     src = _write_yuv420p(tmp_path / "src.yuv", 32, 16, nframes=2)
     with pytest.raises(SaliencyUnavailableError):
@@ -283,6 +362,49 @@ def test_saliency_aware_encode_includes_qpfile_in_command(tmp_path):
     assert cmd[qp_arg_idx].startswith("qpfile=")
 
 
+def test_saliency_aware_encode_passes_temporal_aggregator(tmp_path):
+    w, h = 32, 16
+    src = _write_yuv420p(tmp_path / "src.yuv", w, h, nframes=3)
+    fake_model = tmp_path / "saliency_student_v1.onnx"
+    fake_model.write_bytes(b"\x00")
+
+    captured: dict[str, list[str]] = {}
+
+    def _fake_runner(cmd, **_kwargs):
+        captured["cmd"] = list(cmd)
+        Path(cmd[-1]).write_bytes(b"\x00\x01")
+        return _FakeCompleted(0, stderr="ffmpeg version 6.1.1\nx264 - core 164")
+
+    request = EncodeRequest(
+        source=src,
+        width=w,
+        height=h,
+        pix_fmt="yuv420p",
+        framerate=24.0,
+        encoder="libx264",
+        preset="medium",
+        crf=23,
+        output=tmp_path / "out.mp4",
+    )
+    cfg = SaliencyConfig(
+        foreground_offset=-4,
+        frame_samples=3,
+        persist_qpfile=True,
+        temporal_aggregator="max",
+    )
+    result = saliency_aware_encode(
+        request,
+        duration_frames=3,
+        model_path=fake_model,
+        config=cfg,
+        encode_runner=_fake_runner,
+        session_factory=lambda _path: _SequenceOnnxSession(h, w, [0.1, 0.9, 0.3]),
+    )
+
+    assert result.exit_status == 0
+    assert "-x264-params" in captured["cmd"]
+
+
 def test_saliency_aware_encode_falls_back_when_unavailable(tmp_path):
     """Missing model -> plain encode, no qpfile in command."""
     w, h = 32, 16
@@ -322,5 +444,6 @@ def test_public_api_exposes_canonical_names():
         "saliency_aware_encode",
         "SaliencyConfig",
         "SaliencyUnavailableError",
+        "SALIENCY_AGGREGATORS",
     }
     assert expected.issubset(set(saliency.__all__))
