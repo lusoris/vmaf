@@ -29,8 +29,15 @@ typedef enum VmafDnnDevice {
     VMAF_DNN_DEVICE_AUTO     = 0,
     VMAF_DNN_DEVICE_CPU      = 1,
     VMAF_DNN_DEVICE_CUDA     = 2,
-    VMAF_DNN_DEVICE_OPENVINO = 3,  /* covers SYCL / oneAPI / Intel GPU */
+    VMAF_DNN_DEVICE_OPENVINO = 3,  /* OpenVINO GPU with CPU fallback */
     VMAF_DNN_DEVICE_ROCM     = 4,
+    VMAF_DNN_DEVICE_COREML   = 5,
+    VMAF_DNN_DEVICE_COREML_ANE = 6,
+    VMAF_DNN_DEVICE_COREML_GPU = 7,
+    VMAF_DNN_DEVICE_COREML_CPU = 8,
+    VMAF_DNN_DEVICE_OPENVINO_NPU = 9,
+    VMAF_DNN_DEVICE_OPENVINO_CPU = 10,
+    VMAF_DNN_DEVICE_OPENVINO_GPU = 11,
 } VmafDnnDevice;
 
 typedef struct VmafDnnConfig {
@@ -41,28 +48,30 @@ typedef struct VmafDnnConfig {
 } VmafDnnConfig;
 ```
 
-- `device = AUTO` — today equivalent to `CPU`. The backend
-  ([`ort_backend.c:85-98`](../../libvmaf/src/dnn/ort_backend.c)) only
-  special-cases `VMAF_DNN_DEVICE_CUDA` (guarded by `ORT_API_HAS_CUDA`);
-  every other value — `AUTO`, `CPU`, `OPENVINO`, `ROCM`, unknown — falls
-  through to the default CPU EP. The "CUDA → OpenVINO → ROCm → CPU"
-  preference order is **not** implemented yet; tracked as
-  [issue #30](https://github.com/lusoris/vmaf/issues/30).
-- `device = CUDA` — only functional when ORT itself was built with the CUDA
-  EP (`ORT_API_HAS_CUDA`). If not, the call silently falls back to CPU and
-  succeeds — there is no error.
-- `device = OPENVINO` / `device = ROCM` — **accepted but ignored today**.
-  The enum values exist so client code can stop using them when EPs are
-  added without an API break, but right now they produce a CPU EP session
-  (same issue #30).
-- `fp16_io` — **currently a ghost field**. Declared in the header but not
-  read anywhere in `libvmaf/src/dnn/`. Kept in the config struct so the ABI
-  doesn't break when honored; file a follow-up if you need it wired up.
+- `device = AUTO` — tries CUDA, OpenVINO GPU, ROCm, CoreML, then CPU.
+  OpenVINO NPU is intentionally explicit-only because small graphs can pay a
+  noticeable NPU power-state latency floor.
+- `device = CPU` — forces ORT's CPU execution provider.
+- `device = CUDA` — tries `CUDAExecutionProvider` when the linked ORT build
+  exports it. If CUDA EP append fails, the session falls back to CPU and
+  still opens.
+- `device = OPENVINO` — tries OpenVINO `device_type=GPU`, then
+  `device_type=CPU`.
+- `device = OPENVINO_NPU` / `_CPU` / `_GPU` — pins the OpenVINO EP to a
+  single `device_type` (`NPU`, `CPU`, or `GPU`). Missing EP support or
+  absent silicon still degrades to CPU through the common fallback.
+- `device = ROCM` — tries `ROCMExecutionProvider`, then falls back to CPU.
+- `device = COREML` / `_ANE` / `_GPU` / `_CPU` — tries
+  `CoreMLExecutionProvider`. The base selector lets CoreML choose compute
+  units; the variants set `MLComputeUnits` to `CPUAndNeuralEngine`,
+  `CPUAndGPU`, or `CPUOnly`. Non-Apple ORT builds fall back to CPU.
+- `fp16_io` — enables fp32-to-fp16 staging for model slots declared as
+  `FLOAT16`. OpenVINO also receives the `precision=FP16` EP option.
 - `threads = 0` — lets ORT pick. Set explicitly when pinning affinity or
   benchmarking.
 
 Pass `NULL` for `cfg` in any function that accepts one to use
-`VMAF_DNN_DEVICE_AUTO` with zero device index, zero threads, no fp16.
+`VMAF_DNN_DEVICE_AUTO` with zero device index, zero threads, and no fp16 I/O.
 
 ## Attached mode — `vmaf_use_tiny_model`
 
@@ -289,12 +298,14 @@ Only works when libvmaf was built with `-Denable_dnn=true`.
   shipped in `model/tiny/`; untrusted models with new op types will be
   rejected at `_open`. Extend the allowlist via the registry — see
   [ADR-0039](../adr/0039-onnx-runtime-op-walk-registry.md).
-- `VMAF_DNN_DEVICE_OPENVINO` and `VMAF_DNN_DEVICE_ROCM` are **accepted but
-  ignored** — the backend only wires up CPU (default) and CUDA (when
-  `ORT_API_HAS_CUDA`). Adding the OpenVINO + ROCm EP append calls is
-  tracked as [issue #30](https://github.com/lusoris/vmaf/issues/30).
-- `VmafDnnConfig.fp16_io` is **accepted but ignored** — currently a ghost
-  field. Same tracking issue.
+- EP selection is a preference, not a hard requirement: when a requested
+  provider is missing from the linked ORT build, session open falls back to
+  CPU. Call `vmaf_dnn_session_attached_ep()` and assert on the returned string
+  if your application needs to fail on missing CUDA / OpenVINO / CoreML /
+  ROCm.
+- `VmafDnnConfig.fp16_io` only changes slots whose ONNX element type is
+  `FLOAT16`; float32 model inputs and outputs stay float32. It is therefore
+  harmless but not a speed switch for fp32-only graphs.
 - There is no callback / progress hook; inference is synchronous per call.
 - Sessions are heap-only; no stack-allocated variant.
 
