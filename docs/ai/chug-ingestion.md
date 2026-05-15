@@ -88,6 +88,8 @@ PYTHONPATH=ai/src python ai/scripts/chug_extract_features.py \
   --output .workingdir2/chug/chug_features.jsonl \
   --clips-dir .workingdir2/chug/clips \
   --cache-dir .workingdir2/chug/feature-cache \
+  --split-manifest .workingdir2/chug/chug_splits.json \
+  --audit-output .workingdir2/chug/chug_hdr_audit.json \
   --vmaf-bin build/tools/vmaf \
   --feature-set canonical \
   --full
@@ -101,6 +103,22 @@ contains the canonical bare feature names (`adm2`, `vif_scale0` ...
 `motion2`) as means, plus `<feature>_mean`, `<feature>_p10`,
 `<feature>_p90`, and `<feature>_std` columns for downstream sweeps.
 
+The materialiser assigns train/validation/test splits at
+`chug_content_name` granularity, not at row granularity. Every bitrate
+ladder variant for a source content therefore stays in one split, which
+prevents reference-content leakage across validation. The default policy
+is deterministic `80/10/10` BLAKE2s hashing with seed `chug-hdr-v1`; use
+`--split train`, `--split val`, or `--split test` to materialise one
+partition, and `--split-manifest` to write the local content-to-split
+map.
+
+`--audit-output` writes a local ffprobe HDR metadata audit before
+feature extraction. The audit records row counts, probe failures,
+transfer-characteristic counts (`pq`, `hlg`, `sdr`, `unknown`),
+primaries, pix-fmt distribution, split row counts, and malformed HDR
+rows where PQ/HLG is signalled without BT.2020 primaries. This is the
+first check to run before using a CHUG feature file for HDR experiments.
+
 Train against the feature rows:
 
 ```bash
@@ -111,6 +129,12 @@ python ai/scripts/train_konvid_mos_head.py \
   --out-card .workingdir2/chug/chug_mos_head_card.md \
   --out-manifest .workingdir2/chug/chug_mos_head.json
 ```
+
+When feature rows carry the `split` column emitted by
+`chug_extract_features.py`, `train_konvid_mos_head.py` uses that
+content-level split for validation instead of creating random k-folds.
+The exported local checkpoint is trained on the `train` partition only,
+leaving `val` / `test` rows held out for calibration and reporting.
 
 This is a baseline unlock, not a final HDR model. The CHUG feature rows
 carry full-reference libvmaf features, but future production HDR claims
@@ -126,6 +150,7 @@ labels:
 PYTHONPATH=ai/src python ai/scripts/extract_k150k_features.py \
   --clips-dir .workingdir2/chug/clips \
   --scores .workingdir2/chug/chug_scores.csv \
+  --metadata-jsonl .workingdir2/chug/chug.jsonl \
   --vmaf-bin libvmaf/build-cuda/tools/vmaf \
   --cpu-vmaf-bin build-cpu/tools/vmaf \
   --out .workingdir2/chug/training/full_features_chug.parquet \
@@ -137,3 +162,21 @@ feature names for the stable CUDA twins, then a CPU residual pass for
 `float_ssim` and `cambi`. This avoids the mixed all-feature
 `--backend cuda` CLI path that can fail with duplicate feature-key writes
 while preserving the same parquet columns for training.
+With `--metadata-jsonl`, the parquet also carries CHUG content identity,
+bitrate-ladder fields, raw 0-100 MOS, and the same deterministic
+content-level split metadata used by the JSONL materialiser.
+
+Train directly from that FULL_FEATURES parquet once extraction finishes:
+
+```bash
+python ai/scripts/train_konvid_mos_head.py \
+  --feature-parquet .workingdir2/chug/training/full_features_chug.parquet \
+  --out-onnx .workingdir2/chug/chug_full_features_mos_head.onnx \
+  --out-card .workingdir2/chug/chug_full_features_mos_head_card.md \
+  --out-manifest .workingdir2/chug/chug_full_features_mos_head.json
+```
+
+`train_konvid_mos_head.py` reads both bare trainer columns (`adm2`) and
+FULL_FEATURES aggregate columns (`adm2_mean`). If the parquet was written
+with `--metadata-jsonl`, the trainer also honors the `split` column so the
+CHUG content-level holdout survives the parquet path.

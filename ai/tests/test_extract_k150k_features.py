@@ -113,3 +113,39 @@ def test_cpu_feature_pass_uses_generic_extractors(monkeypatch, tmp_path: Path) -
 
     assert len(calls) == 1
     assert frames == [{"vmaf": 100.0}]
+
+
+def test_jsonl_metadata_preserves_chug_content_split(tmp_path: Path) -> None:
+    meta_jsonl = tmp_path / "chug.jsonl"
+    meta_jsonl.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "src": "clip-a.mp4",
+                        "mos_raw_0_100": 72.5,
+                        "chug_video_id": "clip-a",
+                        "chug_content_name": "source-a.mp4",
+                        "chug_bitladder": "720p_1M_",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "src": "clip-b.mp4",
+                        "chug_content_name": "source-b.mp4",
+                        "split": "test",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    metadata = K150K._load_jsonl_metadata(meta_jsonl, split_seed="stable")
+
+    assert metadata["clip-a.mp4"]["mos_raw_0_100"] == 72.5
+    assert metadata["clip-a.mp4"]["chug_video_id"] == "clip-a"
+    assert metadata["clip-a.mp4"]["chug_split_key"] == "source-a.mp4"
+    assert metadata["clip-a.mp4"]["split"] in {"train", "val", "test"}
+    assert metadata["clip-b.mp4"]["split"] == "test"

@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import math
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +48,8 @@ DEFAULT_OUTPUT = DEFAULT_CHUG_DIR / "chug_features.jsonl"
 DEFAULT_CLIPS_DIR = DEFAULT_CHUG_DIR / "clips"
 DEFAULT_CACHE_DIR = DEFAULT_CHUG_DIR / "feature-cache"
 DEFAULT_FEATURE_SET = "canonical"
+DEFAULT_SPLIT_SEED = "chug-hdr-v1"
+SPLIT_NAMES = ("train", "val", "test")
 FEATURE_SETS: dict[str, tuple[str, ...]] = {
     "canonical": DEFAULT_FEATURES,
     "full": FULL_FEATURES,
@@ -62,6 +66,64 @@ class FeaturePair:
     ref_path: Path
     width: int
     height: int
+    split: str
+    split_key: str
+
+
+def content_split_for(
+    content_name: str,
+    *,
+    seed: str = DEFAULT_SPLIT_SEED,
+    train_ratio: float = 0.80,
+    val_ratio: float = 0.10,
+) -> str:
+    """Return a deterministic content-level train/val/test split."""
+    key = f"{seed}\0{content_name}".encode("utf-8")
+    digest = hashlib.blake2s(key, digest_size=8).digest()
+    value = int.from_bytes(digest, "big") / float(1 << 64)
+    if value < train_ratio:
+        return "train"
+    if value < train_ratio + val_ratio:
+        return "val"
+    return "test"
+
+
+def build_content_split_map(
+    rows: Iterable[dict[str, Any]],
+    *,
+    seed: str = DEFAULT_SPLIT_SEED,
+) -> dict[str, str]:
+    """Return ``{chug_content_name: split}`` without looking at labels."""
+    contents = sorted(
+        {
+            str(row.get("chug_content_name", "")).strip()
+            for row in rows
+            if str(row.get("chug_content_name", "")).strip()
+        }
+    )
+    return {content: content_split_for(content, seed=seed) for content in contents}
+
+
+def write_split_manifest(
+    rows: Iterable[dict[str, Any]],
+    *,
+    output: Path,
+    seed: str = DEFAULT_SPLIT_SEED,
+) -> dict[str, Any]:
+    """Write a local-only split manifest keyed by CHUG content."""
+    rows_list = list(rows)
+    split_map = build_content_split_map(rows_list, seed=seed)
+    counts = Counter(split_map.values())
+    payload = {
+        "policy": "content-name-blake2s-80-10-10",
+        "seed": seed,
+        "n_contents": len(split_map),
+        "counts": {name: int(counts.get(name, 0)) for name in SPLIT_NAMES},
+        "splits": split_map,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -96,10 +158,133 @@ def _row_clip_path(row: dict[str, Any], clips_dir: Path) -> Path:
     return clips_dir / str(row["src"])
 
 
+def _ffprobe_hdr_payload(
+    clip_path: Path,
+    *,
+    ffprobe_bin: str,
+    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+) -> dict[str, Any] | None:
+    cmd = [
+        ffprobe_bin,
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height,pix_fmt,codec_name,color_transfer,color_primaries,"
+        "color_space,color_range:stream_side_data=side_data_type,max_content,max_average",
+        "-of",
+        "json",
+        str(clip_path),
+    ]
+    try:
+        proc = runner(cmd, check=False, capture_output=True, text=True)
+    except (FileNotFoundError, OSError):
+        return None
+    if int(getattr(proc, "returncode", 1)) != 0:
+        return None
+    try:
+        return json.loads(getattr(proc, "stdout", "") or "{}")
+    except json.JSONDecodeError:
+        return None
+
+
+def _classify_transfer(raw: str) -> str:
+    text = raw.strip().lower()
+    if text in {"smpte2084", "smpte-st-2084", "smpte_st_2084"}:
+        return "pq"
+    if text in {"arib-std-b67", "arib_std_b67", "aribstdb67", "hlg"}:
+        return "hlg"
+    if not text:
+        return "unknown"
+    return "sdr"
+
+
+def audit_chug_hdr_metadata(
+    rows: Iterable[dict[str, Any]],
+    *,
+    clips_dir: Path,
+    output: Path,
+    split_seed: str = DEFAULT_SPLIT_SEED,
+    ffprobe_bin: str = "ffprobe",
+    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+) -> dict[str, Any]:
+    """Probe local CHUG clips and write a compact HDR metadata audit."""
+    rows_list = list(rows)
+    split_map = build_content_split_map(rows_list, seed=split_seed)
+    transfer_counts: Counter[str] = Counter()
+    primaries_counts: Counter[str] = Counter()
+    pix_fmt_counts: Counter[str] = Counter()
+    split_row_counts: Counter[str] = Counter()
+    malformed: list[dict[str, Any]] = []
+    missing = 0
+    probe_failed = 0
+    probed = 0
+
+    for row in rows_list:
+        clip_path = _row_clip_path(row, clips_dir)
+        content = str(row.get("chug_content_name", "")).strip()
+        split = split_map.get(content, "unknown")
+        split_row_counts[split] += 1
+        if not clip_path.is_file():
+            missing += 1
+            continue
+        payload = _ffprobe_hdr_payload(clip_path, ffprobe_bin=ffprobe_bin, runner=runner)
+        streams = (payload or {}).get("streams") or []
+        if not streams:
+            probe_failed += 1
+            continue
+        stream = streams[0]
+        probed += 1
+        transfer = _classify_transfer(str(stream.get("color_transfer") or ""))
+        primaries = str(stream.get("color_primaries") or "unknown").lower()
+        pix_fmt = str(stream.get("pix_fmt") or "unknown").lower()
+        transfer_counts[transfer] += 1
+        primaries_counts[primaries] += 1
+        pix_fmt_counts[pix_fmt] += 1
+        if transfer in {"pq", "hlg"} and primaries not in {
+            "bt2020",
+            "bt2020nc",
+            "bt2020-ncl",
+            "bt2020c",
+            "bt2020-cl",
+        }:
+            malformed.append(
+                {
+                    "src": row.get("src", ""),
+                    "chug_content_name": content,
+                    "split": split,
+                    "color_transfer": stream.get("color_transfer", ""),
+                    "color_primaries": stream.get("color_primaries", ""),
+                    "pix_fmt": stream.get("pix_fmt", ""),
+                }
+            )
+
+    payload = {
+        "policy": "chug-hdr-ffprobe-audit-v1",
+        "split_policy": "content-name-blake2s-80-10-10",
+        "split_seed": split_seed,
+        "rows": len(rows_list),
+        "probed": probed,
+        "missing_files": missing,
+        "probe_failed": probe_failed,
+        "transfer_counts": dict(sorted(transfer_counts.items())),
+        "primaries_counts": dict(sorted(primaries_counts.items())),
+        "pix_fmt_counts": dict(sorted(pix_fmt_counts.items())),
+        "split_row_counts": dict(sorted(split_row_counts.items())),
+        "malformed_hdr_rows": malformed,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
 def build_feature_pairs(
     rows: Iterable[dict[str, Any]],
     *,
     clips_dir: Path,
+    split_map: dict[str, str] | None = None,
+    split: str = "all",
     include_reference_identity: bool = False,
 ) -> list[FeaturePair]:
     """Pair CHUG distorted rows with the matching reference row.
@@ -121,6 +306,9 @@ def build_feature_pairs(
         content = str(row.get("chug_content_name", ""))
         if not content:
             continue
+        row_split = (split_map or {}).get(content) or content_split_for(content)
+        if split != "all" and row_split != split:
+            continue
         row_is_ref = is_reference_row(row)
         if row_is_ref and not include_reference_identity:
             continue
@@ -139,6 +327,8 @@ def build_feature_pairs(
                 ref_path=_row_clip_path(ref, clips_dir),
                 width=width,
                 height=height,
+                split=row_split,
+                split_key=content,
             )
         )
     return pairs
@@ -267,6 +457,9 @@ def _build_output_row(
             "feature_ref_src": pair.ref_row.get("src", ""),
             "feature_ref_sha256": pair.ref_row.get("src_sha256", ""),
             "chug_reference_video_id": pair.ref_row.get("chug_video_id", ""),
+            "split": pair.split,
+            "chug_split_key": pair.split_key,
+            "chug_split_policy": "content-name-blake2s-80-10-10",
             "n_feature_frames": int(result.n_frames),
         }
     )
@@ -289,13 +482,20 @@ def run(
     cache_dir: Path,
     feature_set: str = DEFAULT_FEATURE_SET,
     max_rows: int | None = None,
+    split: str = "all",
+    split_seed: str = DEFAULT_SPLIT_SEED,
+    split_manifest: Path | None = None,
+    audit_output: Path | None = None,
     include_reference_identity: bool = False,
     ffmpeg_bin: str = "ffmpeg",
+    ffprobe_bin: str = "ffprobe",
     vmaf_bin: Path = Path("build/tools/vmaf"),
     runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     extractor: Callable[..., FeatureExtractionResult] = extract_features,
 ) -> int:
     """Materialise CHUG feature rows and return the number written."""
+    if split not in ("all", *SPLIT_NAMES):
+        raise ValueError(f"unknown split {split!r}; valid: all, {', '.join(SPLIT_NAMES)}")
     try:
         feature_names = FEATURE_SETS[feature_set]
     except KeyError as exc:
@@ -304,9 +504,23 @@ def run(
         ) from exc
 
     rows = _load_jsonl(input_jsonl)
+    split_map = build_content_split_map(rows, seed=split_seed)
+    if split_manifest is not None:
+        write_split_manifest(rows, output=split_manifest, seed=split_seed)
+    if audit_output is not None:
+        audit_chug_hdr_metadata(
+            rows,
+            clips_dir=clips_dir,
+            output=audit_output,
+            split_seed=split_seed,
+            ffprobe_bin=ffprobe_bin,
+            runner=runner,
+        )
     pairs = build_feature_pairs(
         rows,
         clips_dir=clips_dir,
+        split_map=split_map,
+        split=split,
         include_reference_identity=include_reference_identity,
     )
     if max_rows is not None:
@@ -348,6 +562,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--clips-dir", type=Path, default=DEFAULT_CLIPS_DIR)
     ap.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
     ap.add_argument("--feature-set", choices=sorted(FEATURE_SETS), default=DEFAULT_FEATURE_SET)
+    ap.add_argument("--split", choices=("all", *SPLIT_NAMES), default="all")
+    ap.add_argument("--split-seed", default=DEFAULT_SPLIT_SEED)
+    ap.add_argument("--split-manifest", type=Path, default=None)
+    ap.add_argument(
+        "--audit-output",
+        type=Path,
+        default=None,
+        help="write a local ffprobe HDR metadata audit JSON before extraction",
+    )
     ap.add_argument("--max-rows", type=int, default=100)
     ap.add_argument("--full", action="store_true", help="Process every available pair.")
     ap.add_argument(
@@ -356,6 +579,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Also emit ref==distorted identity rows for CHUG reference clips.",
     )
     ap.add_argument("--ffmpeg-bin", default="ffmpeg")
+    ap.add_argument("--ffprobe-bin", default="ffprobe")
     ap.add_argument("--vmaf-bin", type=Path, default=Path("build/tools/vmaf"))
     args = ap.parse_args(argv)
 
@@ -367,8 +591,13 @@ def main(argv: list[str] | None = None) -> int:
             cache_dir=args.cache_dir,
             feature_set=args.feature_set,
             max_rows=None if args.full else args.max_rows,
+            split=args.split,
+            split_seed=args.split_seed,
+            split_manifest=args.split_manifest,
+            audit_output=args.audit_output,
             include_reference_identity=args.include_reference_identity,
             ffmpeg_bin=args.ffmpeg_bin,
+            ffprobe_bin=args.ffprobe_bin,
             vmaf_bin=args.vmaf_bin,
         )
         print(f"[chug-features] wrote {written} rows to {args.output}")

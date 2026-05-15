@@ -179,6 +179,78 @@ def test_load_corpus_accepts_phase_1_jsonl_shape(tmp_path: Path) -> None:
     assert mos.max() <= trainer.MOS_MAX
 
 
+def test_load_corpus_preserves_explicit_split_labels(tmp_path: Path) -> None:
+    p = tmp_path / "chug_features.jsonl"
+    rows = [
+        {"src": "a.mp4", "mos": 3.0, "adm2": 0.9, "split": "train"},
+        {"src": "b.mp4", "mos": 2.8, "adm2": 0.7, "split": "val"},
+        {"src": "c.mp4", "mos": 2.5, "adm2": 0.6, "split": "test"},
+        {"src": "d.mp4", "mos": 2.0, "adm2": 0.5},
+    ]
+    p.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    arrays = trainer._load_corpus_arrays([p])
+
+    assert arrays.features.shape == (4, trainer.N_FEATURES)
+    assert arrays.splits.tolist() == ["train", "val", "test", ""]
+
+
+def test_load_corpus_accepts_full_features_parquet(tmp_path: Path) -> None:
+    pd = pytest.importorskip("pandas")
+    p = tmp_path / "full_features.parquet"
+    pd.DataFrame(
+        [
+            {
+                "clip_name": "a.mp4",
+                "mos": 3.2,
+                "adm2_mean": 0.91,
+                "vif_scale0_mean": 0.71,
+                "vif_scale1_mean": 0.72,
+                "vif_scale2_mean": 0.73,
+                "vif_scale3_mean": 0.74,
+                "motion2_mean": 3.5,
+                "split": "train",
+            },
+            {
+                "clip_name": "b.mp4",
+                "mos_raw_0_100": 50.0,
+                "adm2": 0.62,
+                "motion2_mean": 1.5,
+                "split": "val",
+            },
+        ]
+    ).to_parquet(p)
+
+    arrays = trainer._load_corpus_arrays([p])
+
+    adm_idx = trainer.FEATURE_COLUMNS.index("adm2")
+    motion_idx = trainer.FEATURE_COLUMNS.index("motion2")
+    assert arrays.features.shape == (2, trainer.N_FEATURES)
+    assert arrays.features[0, adm_idx] == pytest.approx(0.91)
+    assert arrays.features[0, motion_idx] == pytest.approx(3.5)
+    assert arrays.features[1, adm_idx] == pytest.approx(0.62)
+    assert arrays.mos.tolist() == pytest.approx([3.2, 3.0])
+    assert arrays.splits.tolist() == ["train", "val"]
+
+
+def test_heldout_split_indices_prefer_validation_split() -> None:
+    splits = np.asarray(["train", "train", "val", "test", ""], dtype="<U5")
+
+    train_idx, val_idx = trainer._heldout_split_indices(splits)
+
+    np.testing.assert_array_equal(train_idx, [0, 1])
+    np.testing.assert_array_equal(val_idx, [2])
+
+
+def test_heldout_split_indices_falls_back_to_test_split() -> None:
+    splits = np.asarray(["train", "train", "test", ""], dtype="<U5")
+
+    train_idx, val_idx = trainer._heldout_split_indices(splits)
+
+    np.testing.assert_array_equal(train_idx, [0, 1])
+    np.testing.assert_array_equal(val_idx, [2])
+
+
 def test_load_corpus_drops_out_of_range_rows(tmp_path: Path) -> None:
     p = tmp_path / "garbled.jsonl"
     p.write_text(
