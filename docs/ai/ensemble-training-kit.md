@@ -1,8 +1,11 @@
 # Ensemble Training Kit
 
-> **Status**: Proposed packaging surface. The component scripts exist in
-> tree; the portable `tools/ensemble-training-kit/` bundle is not yet a
-> required release artefact.
+> **Status**: Shipped packaging surface. The portable
+> `tools/ensemble-training-kit/` bundle is in tree, accepted by
+> [ADR-0324](../adr/0324-ensemble-training-kit.md), and includes the
+> numbered step scripts, one-command orchestrator, tarball builder,
+> corpus extraction helper, frozen Python requirements, and shell smoke
+> tests.
 
 The *ensemble training kit* (per
 [ADR-0324](../adr/0324-ensemble-training-kit.md)) is a portable
@@ -21,9 +24,11 @@ already-in-tree pieces:
 - [`docs/ai/ensemble-v2-real-corpus-retrain-runbook.md`](ensemble-v2-real-corpus-retrain-runbook.md)
   — the operator runbook.
 
-Status: **Proposed** in ADR-0324; the on-disk bundle exists under
-`tools/ensemble-training-kit/` but the kit is not yet on the
-"ship-as-package" critical path.
+Status: **Accepted / shipped**. ADR-0324 was accepted during the
+2026-05-08 ADR status sweep, and the on-disk bundle exists under
+`tools/ensemble-training-kit/`. Treat this page as the overview for the
+release-facing package; the detailed operator runbook lives in
+[`tools/ensemble-training-kit/README.md`](../../tools/ensemble-training-kit/README.md).
 
 ## What The Kit Packages
 
@@ -39,17 +44,30 @@ not define a new model format and does not replace the LOSO trainer.
 
 ## Current Use
 
-Use the runbook directly when retraining today:
+Use the kit when handing the retrain workflow to another operator or
+when running the full loop locally:
 
 ```bash
-bash ai/scripts/run_ensemble_v2_real_corpus_loso.sh
-python ai/scripts/validate_ensemble_seeds.py runs/ensemble_v2_real/
-python ai/scripts/export_ensemble_v2_seeds.py --help
+bash tools/ensemble-training-kit/run-full-pipeline.sh --ref-dir /path/to/netflix/ref
+bash tools/ensemble-training-kit/make-distribution-tarball.sh /tmp/vmaf-ensemble-kit.tar.gz
+bash tools/ensemble-training-kit/tests/test_platform_detect.sh
 ```
 
-The kit becomes release-critical only when ADR-0324 is accepted and the
-portable bundle is promoted from convenience packaging to a supported
-operator surface.
+For manual retry / debug runs, the numbered scripts are stable entry
+points:
+
+```bash
+bash tools/ensemble-training-kit/01-prereqs.sh
+REF_DIR=/path/to/netflix/ref bash tools/ensemble-training-kit/02-generate-corpus.sh
+bash tools/ensemble-training-kit/03-train-loso.sh
+bash tools/ensemble-training-kit/04-validate.sh
+bash tools/ensemble-training-kit/05-bundle-results.sh
+```
+
+The lower-level scripts remain available for maintainers who are
+developing the trainer itself, but operator handoff should use the kit
+so the argv order, platform detection, corpus extraction, and result
+bundle shape are all exercised together.
 
 ## See also
 
