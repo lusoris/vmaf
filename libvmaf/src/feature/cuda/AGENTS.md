@@ -149,6 +149,22 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
   `submit_fex_cuda` — they guard the DtoH coherency for the host
   residual. `places=4` gate is load-bearing; do not loosen it.
 
+- **`cuLaunchKernel` `kernelParams[]` must point to the device-pointer
+  VALUE, not to a `VmafCudaBuffer` struct** (Issue #857 / fix PR). The
+  dispatch helpers in `integer_cambi_cuda.c` (`dispatch_mask`,
+  `dispatch_decimate`, `dispatch_filter_mode`) pass `&buf->data`
+  (address of the `CUdeviceptr` field) to `cuLaunchKernel`. Passing
+  `(void *)buf` (address of the struct) makes the driver read
+  `buf->size` (a host byte count) as a device pointer, causing an
+  immediate GPU invalid-address fault (SIGSEGV/SIGBUS on the host).
+  The same invariant applies to every CUDA feature extractor that
+  allocates device-side flat buffers via `vmaf_cuda_buffer_alloc`
+  and passes them directly to `cuLaunchKernel`: always use
+  `&buf->data`, never `(void *)buf`. Device-pointer arithmetic must
+  also be performed on the `CUdeviceptr` integer type directly —
+  avoid casting through `uint8_t *` (UB even though it round-trips
+  on x86-64 today).
+
 - **`integer_adm_cuda.c` must NOT include `feature/adm_options.h`
   directly.** `DEFAULT_ADM_NOISE_WEIGHT`, `DEFAULT_ADM_CSF_SCALE`,
   `DEFAULT_ADM_CSF_DIAG_SCALE`, and the full 4-member
