@@ -243,6 +243,16 @@ little weight mass for an int8 sidecar to be worth the audit cost.
   versions. When ORT is bumped, regenerate both sidecars and
   refresh `int8_sha256` in `model/tiny/registry.json` +
   `vmaf_tiny_v{3,4}.json` in the same PR.
+
+## Frame loader pixel formats
+
+`ai/src/vmaf_train/data/frame_loader.py` is the direct ffmpeg frame
+ingest seam for C2/C3 training. It accepts `gray` as `HxW` arrays and
+packed `rgb24` / `bgr24` / `rgba` / `bgra` as `HxWxC` arrays. Do not
+silently accept planar or subsampled formats such as `yuv420p` in this
+loader; those need explicit plane semantics before they are safe to
+feed into training tensors.
+
 ## `fr_regressor_v2_ensemble_v1` — probabilistic head (ADR-0279)
 
 The probabilistic successor to the codec-aware

@@ -6,6 +6,7 @@ import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO, Protocol
 
 import numpy as np
 
@@ -18,12 +19,44 @@ class FrameSource:
     pix_fmt: str = "gray"
 
 
-def iter_frames(source: FrameSource, ffmpeg: str = "ffmpeg") -> Iterator[np.ndarray]:
-    """Yield frames from `source` as HxW uint8 numpy arrays (single-channel)."""
-    if source.pix_fmt != "gray":
-        raise NotImplementedError("only pix_fmt=gray supported for now")
-    frame_bytes = source.width * source.height
-    proc = subprocess.Popen(
+class _PopenLike(Protocol):
+    stdout: BinaryIO
+
+    def wait(self) -> int: ...
+
+
+_PIX_FMT_CHANNELS: dict[str, int] = {
+    "gray": 1,
+    "rgb24": 3,
+    "bgr24": 3,
+    "rgba": 4,
+    "bgra": 4,
+}
+
+
+def _frame_shape(source: FrameSource) -> tuple[int, ...]:
+    channels = _PIX_FMT_CHANNELS.get(source.pix_fmt)
+    if channels is None:
+        supported = ", ".join(sorted(_PIX_FMT_CHANNELS))
+        raise ValueError(f"unsupported pix_fmt={source.pix_fmt!r}; expected one of {supported}")
+    if channels == 1:
+        return (source.height, source.width)
+    return (source.height, source.width, channels)
+
+
+def iter_frames(
+    source: FrameSource,
+    ffmpeg: str = "ffmpeg",
+    popen=subprocess.Popen,
+) -> Iterator[np.ndarray]:
+    """Yield ffmpeg-decoded frames as uint8 numpy arrays.
+
+    ``gray`` yields ``HxW`` arrays. Packed colour formats
+    (``rgb24``, ``bgr24``, ``rgba``, ``bgra``) yield ``HxWxC`` arrays.
+    """
+    shape = _frame_shape(source)
+    frame_bytes = source.width * source.height * _PIX_FMT_CHANNELS[source.pix_fmt]
+    proc: _PopenLike = popen(
         [
             ffmpeg,
             "-v",
@@ -44,7 +77,7 @@ def iter_frames(source: FrameSource, ffmpeg: str = "ffmpeg") -> Iterator[np.ndar
             buf = proc.stdout.read(frame_bytes)
             if len(buf) < frame_bytes:
                 return
-            yield np.frombuffer(buf, dtype=np.uint8).reshape(source.height, source.width).copy()
+            yield np.frombuffer(buf, dtype=np.uint8).reshape(shape).copy()
     finally:
         proc.stdout.close()
         proc.wait()

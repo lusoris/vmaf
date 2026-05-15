@@ -318,7 +318,11 @@ still produces a deterministic artefact.
 Same flow, different config: [`ai/configs/nr_mobilenet_v1.yaml`](../../ai/configs/nr_mobilenet_v1.yaml).
 `extract-features` is replaced by a direct frame loader
 ([`frame_loader.py`](../../ai/src/vmaf_train/data/frame_loader.py)) that
-feeds ffmpeg-decoded tensors into training.
+feeds ffmpeg-decoded tensors into training. The loader supports
+single-channel `gray` frames as `HxW` arrays and packed colour formats
+`rgb24`, `bgr24`, `rgba`, and `bgra` as `HxWxC` arrays. Other FFmpeg
+pixel formats fail before spawning the decoder so training jobs do not
+silently reinterpret planar or subsampled layouts as packed tensors.
 
 ## C3 — Learned filter
 
