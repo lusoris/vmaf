@@ -16,7 +16,8 @@ files at the same subjective quality.
 > smoke-only placeholder is documented in
 > [ADR-0215](../../adr/0215-fastdvdnet-pre-filter.md); the weights swap
 > rationale and the luma adapter design are recorded in
-> ADR-0246 (T6-7b). The downstream FFmpeg `vmaf_pre_temporal` filter
+> [ADR-0255](../../adr/0255-fastdvdnet-pre-real-weights.md). The
+> downstream FFmpeg `vmaf_pre_temporal` filter
 > that consumes the denoised frame buffer is still tracked separately.
 
 ## What the output means
@@ -203,5 +204,6 @@ meson test -C build --suite=fast --print-errorlogs test_fastdvdnet_pre
   [github.com/m-tassano/fastdvdnet](https://github.com/m-tassano/fastdvdnet)
 - [ADR-0215](../../adr/0215-fastdvdnet-pre-filter.md) — placeholder
   rationale and contract design.
-- ADR-0246 — T6-7b real-weights drop and luma adapter design.
+- [ADR-0255](../../adr/0255-fastdvdnet-pre-real-weights.md) — T6-7b
+  real-weights drop and luma adapter design.
 - [Roadmap §3.3](../roadmap.md) — Wave 1 schedule.
