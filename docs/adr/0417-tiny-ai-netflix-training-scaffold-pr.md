@@ -1,6 +1,9 @@
 # ADR-0417: Tiny-AI Netflix corpus training scaffold — draft PR registration
 
-- **Status**: Proposed
+- **Status**: Accepted
+- **Status update 2026-05-15**: implemented; PR #759 merged;
+  `ai/data/netflix_loader.py` + `test_netflix_loader.py` present on
+  master; Netflix corpus integration scaffolded (commit e7f524c44).
 - **Date**: 2026-05-11
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: `ai`, `training`, `mcp`, `fork-local`, `onnx`, `docs`

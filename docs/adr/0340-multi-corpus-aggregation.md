@@ -1,6 +1,10 @@
 # ADR-0340: Multi-corpus aggregation for the FR-regressor / predictor v2 trainer
 
-- **Status**: Proposed
+- **Status**: Accepted
+- **Status update 2026-05-15**: implemented;
+  `ai/scripts/aggregate_corpora.py` present; `SCALE_CONVERSIONS`
+  table + dedup logic active; aggregates BVI-DVC, Netflix Public,
+  K150K, and KonViD.
 - **Date**: 2026-05-09
 - **Deciders**: @Lusoris
 - **Tags**: ai, training, corpus, fork-local
