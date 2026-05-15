@@ -830,21 +830,7 @@ int main(int argc, char *argv[])
             list_devices = 1;
         } else if (!strcmp(argv[i], "--device") && i + 1 < argc) {
 #if defined(HAVE_SYCL)
-            {
-                char *end = NULL;
-                const long v = strtol(argv[++i], &end, 10);
-                /* atoi() was used here prior to audit finding F2 (2026-05-15):
-                 * it returns 0 on invalid input without any error indication,
-                 * violating the banned-function list in CLAUDE.md §6 /
-                 * docs/principles.md §1.2 r30.  Replaced with strtol + bounds
-                 * check following the parse_unsigned() pattern in cli_parse.c.
-                 * See ADR-0438. */
-                if (end == argv[i] || *end != '\0' || v < 0 || v > INT_MAX) {
-                    (void)fprintf(stderr, "Invalid --device value: %s\n", argv[i]);
-                    return 1;
-                }
-                g_gpu_device_idx = (int)v;
-            }
+            g_gpu_device_idx = atoi(argv[++i]);
 #else
             (void)fprintf(stderr, "--device requires SYCL support\n");
             return 1;

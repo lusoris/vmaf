@@ -26,12 +26,6 @@
  *    float_ansnr  = 10*log10(sig/noise)                    (or psnr_max)
  *    float_anpsnr = MIN(10*log10(peak^2*w*h/max(noise,1e-10)), psnr_max)
  *
- *  enable_chroma option (ADR-0453 parity with CUDA / SYCL / Vulkan /
- *  integer_psnr_hip twins): when true the extractor loops over planes
- *  0-2, emitting float_ansnr_cb/cr and float_anpsnr_cb/cr in addition
- *  to the luma scores. YUV400P clamps to luma-only regardless of the
- *  flag. Default false mirrors CPU float_ansnr.c PR #947 / CUDA PR #957.
- *
  *  Like the CUDA twin, the submit path intentionally bypasses
  *  `vmaf_hip_kernel_submit_pre_launch` because the kernel writes
  *  per-block partials directly (no atomic accumulator, no memset
@@ -40,7 +34,6 @@
 
 #include <errno.h>
 #include <math.h>
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -65,38 +58,29 @@ extern const unsigned char float_ansnr_score_hsaco[];
 extern const unsigned int float_ansnr_score_hsaco_len;
 #endif /* HAVE_HIPCC */
 
-#define ANSNR_HIP_MAX_PLANES 3U
-
 typedef struct FloatAnsnrStateHip {
-    /* Lifecycle (private stream + submit/finished event pair) shared
-     * across all active plane dispatches (T7-10b fifth consumer /
-     * ADR-0266). Per-plane readback slots mirror the CUDA twin's
-     * multi-readback layout: one (device partials, pinned host) pair
-     * per plane. */
+    /* Lifecycle (private stream + submit/finished event pair) and the
+     * (device per-block (sig, noise) float partials, pinned host
+     * readback slot) pair are managed by `hip/kernel_template.h`
+     * (T7-10b fifth consumer / ADR-0266). The struct shape mirrors
+     * the CUDA twin's `FloatAnsnrStateCuda`. */
     VmafHipKernelLifecycle lc;
-    VmafHipKernelReadback rb[ANSNR_HIP_MAX_PLANES];
+    VmafHipKernelReadback rb;
     VmafHipContext *ctx;
-    /* Number of workgroups per plane (differs for subsampled chroma). */
-    unsigned wg_count[ANSNR_HIP_MAX_PLANES];
+    unsigned wg_count;
     unsigned index;
-    /* Per-plane geometry. */
-    unsigned plane_w[ANSNR_HIP_MAX_PLANES];
-    unsigned plane_h[ANSNR_HIP_MAX_PLANES];
+    unsigned frame_w;
+    unsigned frame_h;
     unsigned bpc;
     double peak;
     double psnr_max;
-    /* `enable_chroma` option: when false, only luma is dispatched.
-     * Default false mirrors CPU float_ansnr.c PR #947 and CUDA PR #957. */
-    bool enable_chroma;
-    /* Number of active planes (1 for YUV400 or enable_chroma=false, 3 otherwise). */
-    unsigned n_planes;
 #ifdef HAVE_HIPCC
     hipModule_t module;
     hipFunction_t funcbpc8;
     hipFunction_t funcbpc16;
-    /* Per-plane staging buffers for ref + dis pixel data. */
-    void *ref_in[ANSNR_HIP_MAX_PLANES];
-    void *dis_in[ANSNR_HIP_MAX_PLANES];
+    /* Per-frame staging buffers for ref + dis luma planes. */
+    void *ref_in;
+    void *dis_in;
 #endif /* HAVE_HIPCC */
     VmafDictionary *feature_name_dict;
 } FloatAnsnrStateHip;
@@ -105,21 +89,7 @@ typedef struct FloatAnsnrStateHip {
 #define ANSNR_HIP_BX 16
 #define ANSNR_HIP_BY 16
 
-static const VmafOption options[] = {
-    {
-        .name = "enable_chroma",
-        .help = "enable ANSNR/ANPSNR calculation for chroma (Cb/Cr) channels",
-        .offset = offsetof(FloatAnsnrStateHip, enable_chroma),
-        .type = VMAF_OPT_TYPE_BOOL,
-        .default_val.b = false,
-    },
-    {0}};
-
-/* Feature name tables — luma + chroma, mirrors the CUDA twin. */
-static const char *const ansnr_name[ANSNR_HIP_MAX_PLANES] = {"float_ansnr", "float_ansnr_cb",
-                                                             "float_ansnr_cr"};
-static const char *const anpsnr_name[ANSNR_HIP_MAX_PLANES] = {"float_anpsnr", "float_anpsnr_cb",
-                                                              "float_anpsnr_cr"};
+static const VmafOption options[] = {{0}};
 
 #ifdef HAVE_HIPCC
 /* Translate a HIP error code to a negative errno. Mirrors
@@ -167,24 +137,25 @@ static int ansnr_hip_module_load(FloatAnsnrStateHip *s)
     return 0;
 }
 
-/* Launch the kernel for one plane on `pstr`. The kernel writes per-block
- * (sig, noise) float partials directly — no prior memset needed (the
- * intentional bypass documented in ADR-0372). The caller (submit_fex_hip)
- * handles the cross-stream record/wait and DtoH copies after all planes
- * are dispatched. */
-static int ansnr_hip_launch_plane(FloatAnsnrStateHip *s, unsigned p, uintptr_t pic_stream)
+/* Launch the appropriate bpc kernel on `pic_stream`. The kernel writes
+ * per-block (sig, noise) float partials to `rb.device` directly — no
+ * atomic accumulator, so no prior memset is needed (CUDA twin uses the
+ * same bypass pattern for float_ansnr). After launch, record submit,
+ * wait on private stream, DtoH copy partials, record finished. */
+static int ansnr_hip_launch(FloatAnsnrStateHip *s, uintptr_t pic_stream)
 {
+    hipStream_t str = (hipStream_t)s->lc.str;
     hipStream_t pstr = (hipStream_t)pic_stream;
 
-    const unsigned w = s->plane_w[p];
-    const unsigned h = s->plane_h[p];
-    const ptrdiff_t plane_pitch = (ptrdiff_t)(w * (s->bpc <= 8u ? 1u : 2u));
-    const unsigned gx = (w + ANSNR_HIP_BX - 1u) / ANSNR_HIP_BX;
-    const unsigned gy = (h + ANSNR_HIP_BY - 1u) / ANSNR_HIP_BY;
+    const ptrdiff_t plane_pitch = (ptrdiff_t)(s->frame_w * (s->bpc <= 8u ? 1u : 2u));
+    const unsigned gx = (s->frame_w + ANSNR_HIP_BX - 1u) / ANSNR_HIP_BX;
+    const unsigned gy = (s->frame_h + ANSNR_HIP_BY - 1u) / ANSNR_HIP_BY;
 
-    float *partials_dev = (float *)s->rb[p].device;
-    const uint8_t *ref_dev = (const uint8_t *)s->ref_in[p];
-    const uint8_t *dis_dev = (const uint8_t *)s->dis_in[p];
+    float *partials_dev = (float *)s->rb.device;
+    const uint8_t *ref_dev = (const uint8_t *)s->ref_in;
+    const uint8_t *dis_dev = (const uint8_t *)s->dis_in;
+    unsigned w = s->frame_w;
+    unsigned h = s->frame_h;
     unsigned bpc = s->bpc;
 
     hipError_t rc;
@@ -210,15 +181,30 @@ static int ansnr_hip_launch_plane(FloatAnsnrStateHip *s, unsigned p, uintptr_t p
     if (rc != hipSuccess)
         return ansnr_hip_rc(rc);
 
-    return 0;
+    rc = hipEventRecord((hipEvent_t)s->lc.submit, pstr);
+    if (rc != hipSuccess)
+        return ansnr_hip_rc(rc);
+    rc = hipStreamWaitEvent(str, (hipEvent_t)s->lc.submit, 0);
+    if (rc != hipSuccess)
+        return ansnr_hip_rc(rc);
+
+    rc = hipMemcpyAsync(s->rb.host_pinned, s->rb.device, (size_t)s->wg_count * 2u * sizeof(float),
+                        hipMemcpyDeviceToHost, str);
+    if (rc != hipSuccess)
+        return ansnr_hip_rc(rc);
+
+    return vmaf_hip_kernel_submit_post_record(&s->lc, s->ctx);
 }
 #endif /* HAVE_HIPCC */
 
 static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                         unsigned w, unsigned h)
 {
+    (void)pix_fmt;
     FloatAnsnrStateHip *s = fex->priv;
 
+    s->frame_w = w;
+    s->frame_h = h;
     s->bpc = bpc;
 
     /* peak / psnr_max table mirrors the CUDA twin verbatim. */
@@ -238,25 +224,6 @@ static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
         return -EINVAL;
     }
 
-    /* Mirror CPU float_ansnr.c PR #947: YUV400P forces luma-only,
-     * as does enable_chroma == false (the default). */
-    if (pix_fmt == VMAF_PIX_FMT_YUV400P)
-        s->enable_chroma = false;
-
-    s->n_planes = s->enable_chroma ? ANSNR_HIP_MAX_PLANES : 1U;
-
-    /* Derive per-plane geometry (mirrors picture.c subsampling logic). */
-    s->plane_w[0] = w;
-    s->plane_h[0] = h;
-    if (s->n_planes > 1U) {
-        const int ss_hor = (pix_fmt != VMAF_PIX_FMT_YUV444P);
-        const int ss_ver = (pix_fmt == VMAF_PIX_FMT_YUV420P);
-        const unsigned cw = (w + (unsigned)ss_hor) >> ss_hor;
-        const unsigned ch = (h + (unsigned)ss_ver) >> ss_ver;
-        s->plane_w[1] = s->plane_w[2] = cw;
-        s->plane_h[1] = s->plane_h[2] = ch;
-    }
-
     int err = vmaf_hip_context_new(&s->ctx, 0);
     if (err != 0)
         return err;
@@ -265,39 +232,35 @@ static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
     if (err != 0)
         goto fail_after_ctx;
 
-    /* Per-plane readback pairs: device interleaved (sig, noise) float
-     * partials + pinned host slot, sized at 2 floats per workgroup. */
-    for (unsigned p = 0U; p < s->n_planes; p++) {
-        const unsigned gx = (s->plane_w[p] + (ANSNR_HIP_BX - 1u)) / ANSNR_HIP_BX;
-        const unsigned gy = (s->plane_h[p] + (ANSNR_HIP_BY - 1u)) / ANSNR_HIP_BY;
-        s->wg_count[p] = gx * gy;
-        err = vmaf_hip_kernel_readback_alloc(&s->rb[p], s->ctx,
-                                             (size_t)s->wg_count[p] * 2u * sizeof(float));
-        if (err != 0)
-            goto fail_after_rb;
-    }
+    const unsigned grid_x = (w + (ANSNR_HIP_BX - 1u)) / ANSNR_HIP_BX;
+    const unsigned grid_y = (h + (ANSNR_HIP_BY - 1u)) / ANSNR_HIP_BY;
+    s->wg_count = grid_x * grid_y;
+
+    /* Readback pair: device interleaved (sig, noise) float partials +
+     * pinned host slot, sized at 2 floats per workgroup. */
+    err = vmaf_hip_kernel_readback_alloc(&s->rb, s->ctx, (size_t)s->wg_count * 2u * sizeof(float));
+    if (err != 0)
+        goto fail_after_lc;
 
 #ifdef HAVE_HIPCC
     err = ansnr_hip_module_load(s);
     if (err != 0)
         goto fail_after_rb;
 
-    /* Staging buffers for ref + dis, one pair per active plane. */
+    /* Staging buffers for ref + dis luma planes. */
     const size_t bpp = (bpc <= 8u) ? 1u : 2u;
-    for (unsigned p = 0U; p < s->n_planes; p++) {
-        const size_t plane_bytes = (size_t)s->plane_w[p] * s->plane_h[p] * bpp;
-        hipError_t rc = hipMalloc(&s->ref_in[p], plane_bytes);
-        if (rc != hipSuccess) {
-            err = -ENOMEM;
-            goto fail_after_module;
-        }
-        rc = hipMalloc(&s->dis_in[p], plane_bytes);
-        if (rc != hipSuccess) {
-            (void)hipFree(s->ref_in[p]);
-            s->ref_in[p] = NULL;
-            err = -ENOMEM;
-            goto fail_after_module;
-        }
+    const size_t plane_bytes = (size_t)w * h * bpp;
+    hipError_t rc = hipMalloc(&s->ref_in, plane_bytes);
+    if (rc != hipSuccess) {
+        err = -ENOMEM;
+        goto fail_after_module;
+    }
+    rc = hipMalloc(&s->dis_in, plane_bytes);
+    if (rc != hipSuccess) {
+        (void)hipFree(s->ref_in);
+        s->ref_in = NULL;
+        err = -ENOMEM;
+        goto fail_after_module;
     }
 #endif /* HAVE_HIPCC */
 
@@ -316,15 +279,13 @@ static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
 
 #ifdef HAVE_HIPCC
 fail_after_bufs:
-    for (unsigned p = 0U; p < s->n_planes; p++) {
-        if (s->dis_in[p] != NULL) {
-            (void)hipFree(s->dis_in[p]);
-            s->dis_in[p] = NULL;
-        }
-        if (s->ref_in[p] != NULL) {
-            (void)hipFree(s->ref_in[p]);
-            s->ref_in[p] = NULL;
-        }
+    if (s->dis_in != NULL) {
+        (void)hipFree(s->dis_in);
+        s->dis_in = NULL;
+    }
+    if (s->ref_in != NULL) {
+        (void)hipFree(s->ref_in);
+        s->ref_in = NULL;
     }
 fail_after_module:
     if (s->module != NULL) {
@@ -333,8 +294,8 @@ fail_after_module:
     }
 #endif /* HAVE_HIPCC */
 fail_after_rb:
-    for (unsigned p = 0U; p < s->n_planes; p++)
-        (void)vmaf_hip_kernel_readback_free(&s->rb[p], s->ctx);
+    (void)vmaf_hip_kernel_readback_free(&s->rb, s->ctx);
+fail_after_lc:
     (void)vmaf_hip_kernel_lifecycle_close(&s->lc, s->ctx);
 fail_after_ctx:
     vmaf_hip_context_destroy(s->ctx);
@@ -350,53 +311,32 @@ static int submit_fex_hip(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafP
     FloatAnsnrStateHip *s = fex->priv;
 
     s->index = index;
+    s->frame_w = ref_pic->w[0];
+    s->frame_h = ref_pic->h[0];
 
 #ifdef HAVE_HIPCC
-    /* Use picture_stream = 0 (scaffold posture — mirrors integer_psnr_hip.c). */
+    const ptrdiff_t plane_pitch = (ptrdiff_t)(s->frame_w * (s->bpc <= 8u ? 1u : 2u));
     const uintptr_t pic_stream_handle = 0;
-    hipStream_t pstr = (hipStream_t)pic_stream_handle;
-    hipStream_t str = (hipStream_t)s->lc.str;
-    const size_t bpp = (s->bpc <= 8u) ? 1u : 2u;
 
-    /* HtoD copy each active plane, then launch its kernel. The ansnr kernel
-     * writes per-block partials directly — no prior memset needed (ADR-0372
-     * intentional bypass). */
-    for (unsigned p = 0U; p < s->n_planes; p++) {
-        const ptrdiff_t pitch = (ptrdiff_t)(s->plane_w[p] * bpp);
-        hipError_t rc = hipMemcpy2DAsync(s->ref_in[p], (size_t)pitch, ref_pic->data[p],
-                                         (size_t)ref_pic->stride[p], (size_t)pitch,
-                                         (size_t)s->plane_h[p], hipMemcpyHostToDevice, pstr);
-        if (rc != hipSuccess)
-            return -EIO;
-        rc = hipMemcpy2DAsync(s->dis_in[p], (size_t)pitch, dist_pic->data[p],
-                              (size_t)dist_pic->stride[p], (size_t)pitch, (size_t)s->plane_h[p],
-                              hipMemcpyHostToDevice, pstr);
-        if (rc != hipSuccess)
-            return -EIO;
-        int err = ansnr_hip_launch_plane(s, p, pic_stream_handle);
-        if (err != 0)
-            return err;
-    }
+    hipError_t rc =
+        hipMemcpy2DAsync(s->ref_in, (size_t)plane_pitch, ref_pic->data[0],
+                         (size_t)ref_pic->stride[0], (size_t)plane_pitch, (size_t)s->frame_h,
+                         hipMemcpyHostToDevice, (hipStream_t)pic_stream_handle);
+    if (rc != hipSuccess)
+        return -EIO;
 
-    /* Record submit on the picture stream, wait on the private readback
-     * stream, then DtoH copy each plane's partials. */
-    hipError_t rc = hipEventRecord((hipEvent_t)s->lc.submit, pstr);
+    rc = hipMemcpy2DAsync(s->dis_in, (size_t)plane_pitch, dist_pic->data[0],
+                          (size_t)dist_pic->stride[0], (size_t)plane_pitch, (size_t)s->frame_h,
+                          hipMemcpyHostToDevice, (hipStream_t)pic_stream_handle);
     if (rc != hipSuccess)
-        return ansnr_hip_rc(rc);
-    rc = hipStreamWaitEvent(str, (hipEvent_t)s->lc.submit, 0);
-    if (rc != hipSuccess)
-        return ansnr_hip_rc(rc);
-    for (unsigned p = 0U; p < s->n_planes; p++) {
-        rc =
-            hipMemcpyAsync(s->rb[p].host_pinned, s->rb[p].device,
-                           (size_t)s->wg_count[p] * 2u * sizeof(float), hipMemcpyDeviceToHost, str);
-        if (rc != hipSuccess)
-            return ansnr_hip_rc(rc);
-    }
-    return vmaf_hip_kernel_submit_post_record(&s->lc, s->ctx);
+        return -EIO;
+
+    /* The ansnr kernel writes per-block partials directly — no prior
+     * memset / zero of the accumulator needed. The CUDA twin makes the
+     * same choice and documents it as the intentional bypass. */
+    return ansnr_hip_launch(s, pic_stream_handle);
 #else
     /* Scaffold posture (no HAVE_HIPCC). */
-    (void)ref_pic;
     (void)dist_pic;
     return -ENOSYS;
 #endif /* HAVE_HIPCC */
@@ -412,37 +352,31 @@ static int collect_fex_hip(VmafFeatureExtractor *fex, unsigned index,
         return err;
 
 #ifdef HAVE_HIPCC
-    /* Accumulate interleaved (sig, noise) float partials in double per plane.
+    /* Accumulate interleaved (sig, noise) float partials in double.
      * Matches the CUDA twin's cross-block reduction precision posture. */
-    int rc = 0;
-    for (unsigned p = 0U; p < s->n_planes; p++) {
-        const float *partials_host = (const float *)s->rb[p].host_pinned;
-        double sig = 0.0;
-        double noise = 0.0;
-        for (unsigned i = 0U; i < s->wg_count[p]; i++) {
-            sig += (double)partials_host[2u * i + 0u];
-            noise += (double)partials_host[2u * i + 1u];
-        }
-
-        /* float_ansnr formula matches CPU ansnr.c and the CUDA twin. */
-        const double score = (noise == 0.0) ? s->psnr_max : 10.0 * log10(sig / noise);
-        const double eps = 1e-10;
-        const double n_pix = (double)s->plane_w[p] * (double)s->plane_h[p];
-        const double max_noise = (noise > eps) ? noise : eps;
-        double score_psnr = 10.0 * log10(s->peak * s->peak * n_pix / max_noise);
-        if (score_psnr > s->psnr_max)
-            score_psnr = s->psnr_max;
-
-        const int e = vmaf_feature_collector_append_with_dict(
-            feature_collector, s->feature_name_dict, ansnr_name[p], score, index);
-        if (e != 0 && rc == 0)
-            rc = e;
-        const int e2 = vmaf_feature_collector_append_with_dict(
-            feature_collector, s->feature_name_dict, anpsnr_name[p], score_psnr, index);
-        if (e2 != 0 && rc == 0)
-            rc = e2;
+    const float *partials_host = (const float *)s->rb.host_pinned;
+    double sig = 0.0;
+    double noise = 0.0;
+    for (unsigned i = 0; i < s->wg_count; i++) {
+        sig += (double)partials_host[2u * i + 0u];
+        noise += (double)partials_host[2u * i + 1u];
     }
-    return rc;
+
+    /* float_ansnr formula matches CPU ansnr.c and the CUDA twin. */
+    const double score = (noise == 0.0) ? s->psnr_max : 10.0 * log10(sig / noise);
+    const double eps = 1e-10;
+    const double n_pix = (double)s->frame_w * (double)s->frame_h;
+    const double max_noise = (noise > eps) ? noise : eps;
+    double score_psnr = 10.0 * log10(s->peak * s->peak * n_pix / max_noise);
+    if (score_psnr > s->psnr_max)
+        score_psnr = s->psnr_max;
+
+    err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                  "float_ansnr", score, index);
+    if (err != 0)
+        return err;
+    return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "float_anpsnr", score_psnr, index);
 #else
     (void)feature_collector;
     (void)index;
@@ -455,22 +389,18 @@ static int close_fex_hip(VmafFeatureExtractor *fex)
     FloatAnsnrStateHip *s = fex->priv;
 
     int rc = vmaf_hip_kernel_lifecycle_close(&s->lc, s->ctx);
-    for (unsigned p = 0U; p < ANSNR_HIP_MAX_PLANES; p++) {
-        const int err = vmaf_hip_kernel_readback_free(&s->rb[p], s->ctx);
-        if (err != 0 && rc == 0)
-            rc = err;
-    }
+    int err = vmaf_hip_kernel_readback_free(&s->rb, s->ctx);
+    if (err != 0 && rc == 0)
+        rc = err;
 
 #ifdef HAVE_HIPCC
-    for (unsigned p = 0U; p < ANSNR_HIP_MAX_PLANES; p++) {
-        if (s->dis_in[p] != NULL) {
-            (void)hipFree(s->dis_in[p]);
-            s->dis_in[p] = NULL;
-        }
-        if (s->ref_in[p] != NULL) {
-            (void)hipFree(s->ref_in[p]);
-            s->ref_in[p] = NULL;
-        }
+    if (s->dis_in != NULL) {
+        (void)hipFree(s->dis_in);
+        s->dis_in = NULL;
+    }
+    if (s->ref_in != NULL) {
+        (void)hipFree(s->ref_in);
+        s->ref_in = NULL;
     }
     if (s->module != NULL) {
         hipError_t hip_err = hipModuleUnload(s->module);
@@ -481,7 +411,7 @@ static int close_fex_hip(VmafFeatureExtractor *fex)
 #endif /* HAVE_HIPCC */
 
     if (s->feature_name_dict != NULL) {
-        const int err = vmaf_dictionary_free(&s->feature_name_dict);
+        err = vmaf_dictionary_free(&s->feature_name_dict);
         if (err != 0 && rc == 0)
             rc = err;
     }
@@ -492,18 +422,7 @@ static int close_fex_hip(VmafFeatureExtractor *fex)
     return rc;
 }
 
-/* Provided features — full luma + chroma. For YUV400 sources or
- * enable_chroma=false, init() clamps n_planes to 1 and chroma dispatches
- * are skipped at runtime, but the static list claims chroma so the
- * dispatcher can route float_ansnr_cb / float_anpsnr_cb requests through
- * this extractor. */
-static const char *provided_features[] = {"float_ansnr",
-                                          "float_anpsnr",
-                                          "float_ansnr_cb",
-                                          "float_anpsnr_cb",
-                                          "float_ansnr_cr",
-                                          "float_anpsnr_cr",
-                                          NULL};
+static const char *provided_features[] = {"float_ansnr", "float_anpsnr", NULL};
 
 /* Load-bearing: registered via `extern VmafFeatureExtractor vmaf_fex_float_ansnr_hip;`
  * in `libvmaf/src/feature/feature_extractor.c`'s `feature_extractor_list[]`.
@@ -527,7 +446,7 @@ VmafFeatureExtractor vmaf_fex_float_ansnr_hip = {
     .flags = 0,
     .chars =
         {
-            .n_dispatches_per_frame = 3,
+            .n_dispatches_per_frame = 1,
             .is_reduction_only = false,
             .min_useful_frame_area = 1920U * 1080U,
             .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
