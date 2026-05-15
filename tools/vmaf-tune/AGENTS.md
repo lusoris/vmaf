@@ -172,6 +172,14 @@ for the option-space digest.
   Keep failures conservative (1920x1080 SDR, `duration_s=0.0`) so the
   planner can still emit an auditable JSON plan instead of depending on
   host ffprobe quirks or reintroducing `NotImplementedError`.
+- **`auto` emits one selected winner.** `run_auto` must keep
+  `metadata.winner` aligned with the single `cells[].selected == true`
+  row whenever the winner status has a `cell_index`; evidence-failure
+  plans may report `no_eligible_cells` with no selected row. The
+  selector is quality/budget ordered per ADR-0428: first
+  in-budget target passes, then target passes with the smallest budget
+  overage, then the closest quality miss. Do not make callers infer the
+  winner from cell order.
 - **Fast-path proxy invariant
   ([ADR-0304](../../docs/adr/0304-vmaf-tune-fast-path-prod-wiring.md)).**
   The production proxy is **always** `fr_regressor_v2` (no smoke

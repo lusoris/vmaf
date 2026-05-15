@@ -38,6 +38,7 @@ from vmaftune.auto import (  # noqa: E402
     _should_short_circuit_7_skip_per_shot,
     emit_plan_json,
     evaluate_short_circuits,
+    pick_auto_winner,
     run_auto,
 )
 
@@ -408,6 +409,98 @@ def test_run_auto_smoke_emits_stable_json() -> None:
     assert "metadata" in payload
     assert payload["metadata"]["short_circuits"]
     assert "sample-clip-propagate" in payload["metadata"]["short_circuits"]
+    assert payload["metadata"]["winner"]["status"] == "budget_and_quality_met"
+    assert payload["cells"][payload["metadata"]["winner"]["cell_index"]]["selected"] is True
+
+
+def test_pick_auto_winner_prefers_lowest_bitrate_inside_quality_and_budget() -> None:
+    cells = [
+        {
+            "rung": 1080,
+            "codec": "libx264",
+            "crf": 22,
+            "estimated_vmaf": 94.0,
+            "estimated_bitrate_kbps": 4700.0,
+        },
+        {
+            "rung": 1080,
+            "codec": "libx265",
+            "crf": 24,
+            "estimated_vmaf": 93.5,
+            "estimated_bitrate_kbps": 3200.0,
+        },
+        {
+            "rung": 720,
+            "codec": "libx265",
+            "crf": 28,
+            "estimated_vmaf": 91.0,
+            "estimated_bitrate_kbps": 1800.0,
+        },
+    ]
+
+    winner = pick_auto_winner(cells, target_vmaf=93.0, max_budget_kbps=5000.0)
+
+    assert winner["status"] == "budget_and_quality_met"
+    assert winner["cell_index"] == 1
+    assert winner["codec"] == "libx265"
+    assert winner["budget_margin_kbps"] == pytest.approx(1800.0)
+
+
+def test_pick_auto_winner_keeps_quality_gate_when_budget_is_exceeded() -> None:
+    cells = [
+        {
+            "rung": 1080,
+            "codec": "libx264",
+            "crf": 22,
+            "estimated_vmaf": 94.0,
+            "estimated_bitrate_kbps": 6200.0,
+        },
+        {
+            "rung": 1080,
+            "codec": "libx265",
+            "crf": 24,
+            "estimated_vmaf": 93.2,
+            "estimated_bitrate_kbps": 5400.0,
+        },
+        {
+            "rung": 720,
+            "codec": "libx265",
+            "crf": 30,
+            "estimated_vmaf": 91.0,
+            "estimated_bitrate_kbps": 2000.0,
+        },
+    ]
+
+    winner = pick_auto_winner(cells, target_vmaf=93.0, max_budget_kbps=5000.0)
+
+    assert winner["status"] == "quality_met_budget_exceeded"
+    assert winner["cell_index"] == 1
+    assert winner["budget_margin_kbps"] == pytest.approx(-400.0)
+
+
+def test_pick_auto_winner_returns_closest_quality_miss_when_target_unmet() -> None:
+    cells = [
+        {
+            "rung": 720,
+            "codec": "libx264",
+            "crf": 28,
+            "estimated_vmaf": 89.0,
+            "estimated_bitrate_kbps": 1100.0,
+        },
+        {
+            "rung": 1080,
+            "codec": "libx265",
+            "crf": 25,
+            "estimated_vmaf": 92.5,
+            "estimated_bitrate_kbps": 3400.0,
+        },
+    ]
+
+    winner = pick_auto_winner(cells, target_vmaf=93.0, max_budget_kbps=5000.0)
+
+    assert winner["status"] == "target_unmet"
+    assert winner["cell_index"] == 1
+    assert winner["quality_margin"] == pytest.approx(-0.5)
 
 
 def test_probe_source_meta_reads_geometry_duration_and_hdr(tmp_path: Path) -> None:

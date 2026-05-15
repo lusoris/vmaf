@@ -945,6 +945,114 @@ def _estimate_cell_bitrate_kbps(features: "ShotFeatures", codec: str, crf: int) 
     return max(1.0, float(features.probe_bitrate_kbps) * scale)
 
 
+def _finite_float(value: object) -> float | None:
+    """Return ``value`` as a finite float, or ``None`` when unusable."""
+    try:
+        out = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(out):
+        return None
+    return out
+
+
+def pick_auto_winner(
+    cells: Sequence[dict],
+    *,
+    target_vmaf: float,
+    max_budget_kbps: float,
+) -> dict[str, object]:
+    """Pick the Phase F realised cell from estimated plan rows.
+
+    The selector is intentionally conservative:
+
+    * prefer cells that satisfy both the quality target and bitrate budget;
+    * if no cell is inside budget, keep the quality gate and minimise budget
+      overage;
+    * if no cell meets quality, return the closest quality miss so callers get
+      a concrete next encode instead of an empty plan.
+
+    Ties favour lower bitrate, then higher VMAF, then a higher rung, then a
+    stable codec/name ordering.
+    """
+    scored: list[tuple[int, dict, float, float]] = []
+    for index, cell in enumerate(cells):
+        estimated_vmaf = _finite_float(cell.get("estimated_vmaf"))
+        estimated_bitrate = _finite_float(cell.get("estimated_bitrate_kbps"))
+        if estimated_vmaf is None or estimated_bitrate is None:
+            continue
+        scored.append((index, cell, estimated_vmaf, estimated_bitrate))
+
+    if not scored:
+        return {
+            "status": "no_eligible_cells",
+            "reason": "no cell carried finite estimated_vmaf and estimated_bitrate_kbps",
+        }
+
+    target = float(target_vmaf)
+    budget = float(max_budget_kbps)
+    passing = [item for item in scored if item[2] >= target and item[3] <= budget]
+    if passing:
+        status = "budget_and_quality_met"
+        selected = min(
+            passing,
+            key=lambda item: (
+                item[3],
+                -item[2],
+                -int(item[1].get("rung", 0)),
+                str(item[1].get("codec", "")),
+                item[0],
+            ),
+        )
+    else:
+        quality_only = [item for item in scored if item[2] >= target]
+        if quality_only:
+            status = "quality_met_budget_exceeded"
+            selected = min(
+                quality_only,
+                key=lambda item: (
+                    item[3] - budget,
+                    item[3],
+                    -item[2],
+                    -int(item[1].get("rung", 0)),
+                    str(item[1].get("codec", "")),
+                    item[0],
+                ),
+            )
+        else:
+            status = "target_unmet"
+            selected = max(
+                scored,
+                key=lambda item: (
+                    item[2],
+                    -item[3],
+                    int(item[1].get("rung", 0)),
+                    str(item[1].get("codec", "")),
+                    -item[0],
+                ),
+            )
+
+    index, cell, estimated_vmaf, estimated_bitrate = selected
+    return {
+        "status": status,
+        "cell_index": index,
+        "rung": int(cell.get("rung", 0)),
+        "codec": str(cell.get("codec", "")),
+        "crf": int(cell.get("crf", 0)),
+        "estimated_vmaf": estimated_vmaf,
+        "estimated_bitrate_kbps": estimated_bitrate,
+        "quality_margin": estimated_vmaf - target,
+        "budget_margin_kbps": budget - estimated_bitrate,
+    }
+
+
+def _mark_selected_cell(cells: list[dict], winner: dict[str, object]) -> None:
+    """Annotate cells in-place with the winner selected by ``pick_auto_winner``."""
+    selected_index = winner.get("cell_index")
+    for index, cell in enumerate(cells):
+        cell["selected"] = index == selected_index
+
+
 def run_auto(
     *,
     src: Path,
@@ -1244,6 +1352,13 @@ def run_auto(
         if _should_short_circuit_no_two_pass(meta, plan_state):
             plan_state.fired(ShortCircuit.NO_TWO_PASS)
 
+    winner = pick_auto_winner(
+        cells,
+        target_vmaf=target_vmaf,
+        max_budget_kbps=max_budget_kbps,
+    )
+    _mark_selected_cell(cells, winner)
+
     metadata = {
         "src": str(src),
         "target_vmaf": float(target_vmaf),
@@ -1262,6 +1377,7 @@ def run_auto(
         "recipe_applied": recipe_class,
         "recipe_overrides": dict(recipe),
         "effective_predictor_target_vmaf": float(effective_predictor_target_vmaf),
+        "winner": winner,
     }
     return AutoPlan(cells=cells, metadata=metadata)
 
@@ -1473,9 +1589,6 @@ __all__ = [
     "AutoPlan",
     "ConfidenceDecision",
     "ConfidenceThresholds",
-    "AutoPlan",
-    "ConfidenceDecision",
-    "ConfidenceThresholds",
     "LADDER_MULTI_RUNG_HEIGHT",
     "PHASE_D_DURATION_GATE_S",
     "PHASE_D_SHOT_VARIANCE_GATE",
@@ -1508,5 +1621,6 @@ __all__ = [
     "evaluate_short_circuits",
     "get_recipe_for_class",
     "load_confidence_thresholds",
+    "pick_auto_winner",
     "run_auto",
 ]

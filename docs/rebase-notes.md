@@ -33971,6 +33971,27 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_benchmark.py -q
 ```
 
+## 2026-05-14 — vmaf-tune auto winner selection
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/auto.py`,
+`tools/vmaf-tune/tests/test_auto_short_circuits.py`,
+`docs/usage/vmaf-tune.md`, `tools/vmaf-tune/AGENTS.md`.
+
+**Rebase impact**: low. The Phase F JSON schema now includes
+`metadata.winner` and a per-cell `selected` boolean, but corpus rows and
+libvmaf public APIs are unchanged.
+
+**Invariant to preserve on rebase**: keep `metadata.winner` aligned with
+exactly one `cells[].selected == true` row. The selector remains
+quality/budget ordered per ADR-0428.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_auto_short_circuits.py -q
+```
+
 ## 2026-05-14 — CHUG HDR Corpus Ingestion + Feature Materialisation
 
 **Files touched**: `ai/scripts/chug_to_corpus_jsonl.py`,
