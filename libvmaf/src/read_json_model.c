@@ -17,6 +17,7 @@
  */
 
 #include "libvmaf/model.h"
+#include "log.h"
 #include "model.h"
 #include "pdjson.h"
 #include "read_json_model.h"
@@ -107,7 +108,14 @@ static int parse_feature_opts_entry(json_stream *s, VmafModel *model, unsigned i
         const uint64_t flags = VMAF_DICT_DO_NOT_OVERWRITE;
         return vmaf_dictionary_set(&(model->feature[i].opts_dict), key, val, flags);
     }
-    return -EINVAL; //TODO
+    /* Unknown JSON value type for a feature option key — not string, number,
+     * or boolean.  Log before returning so operators can diagnose which model
+     * file triggered the error. */
+    vmaf_log(VMAF_LOG_LEVEL_ERROR,
+             "read_json_model: unsupported JSON value type for feature option "
+             "key \"%s\" (expected string, number, or boolean)\n",
+             key);
+    return -EINVAL;
 }
 
 static int parse_feature_opts_object(json_stream *s, VmafModel *model, unsigned i)
