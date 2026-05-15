@@ -7,6 +7,14 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
+No rebase impact: `feat/tiny-ai-registry-ci-and-saliency-v2-promotion-2026-05-15`
+touches `model/tiny/registry.json` (fork-local tiny-AI registry),
+`docs/ai/models/` (fork-local model cards), `docs/adr/0444-*` (fork-local
+ADR), and the `registry-validate` CI job (fork-local CI). No upstream-shared
+code, headers, build files, or feature extractors are modified; the saliency
+model change is registry and docs only — the C-side `mobilesal` extractor
+is unaffected. Sync-upstream conflicts in this area are not expected.
+
 No rebase impact: `fix/mcp-embedded-docs-live-2026-05-14` updates
 fork-local MCP documentation and `tools/vmaf-tune` auto-planner code
 only; it does not touch upstream-shared code, headers, build files,
