@@ -1,6 +1,6 @@
 # ADR-0353: Vulkan submit-pool migration PR-B — six secondary kernels
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-09
 - **Deciders**: lusoris
 - **Tags**: vulkan, gpu, performance, fork-local
