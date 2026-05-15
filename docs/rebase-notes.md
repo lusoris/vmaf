@@ -34380,6 +34380,32 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_predictor_train.py -q
 ```
 
+## 2026-05-15 — `vmaf-tune sidecar` CLI wiring
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/cli.py`,
+`tools/vmaf-tune/tests/test_cli_sidecar.py`,
+`tools/vmaf-tune/tests/test_sidecar.py`, `tools/vmaf-tune/AGENTS.md`,
+`docs/ai/local-sidecar-training.md`, `docs/usage/vmaf-tune.md`,
+`docs/research/0122-vmaf-tune-sidecar-cli-2026-05-15.md`.
+
+**Rebase impact**: low. This adds one top-level `vmaf-tune sidecar`
+subcommand group and does not change corpus row schemas, predictor ONNX
+schemas, codec adapters, libvmaf public APIs, or FFmpeg patches.
+
+**Invariant to preserve on rebase**: the CLI must remain a thin wrapper
+over `vmaftune.sidecar.SidecarPredictor`. It must keep the same cache
+layout (`<cache>/<predictor-version>/<codec>/state.json`), random host
+UUID posture, and `ShotFeatures` feature names as the Python API. Do
+not add upload, hostname-derived IDs, or predictor mutation to this
+surface.
+
+**Smoke-test after rebase**:
+
+```bash
+cd tools/vmaf-tune && ../../.venv/bin/python -m pytest \
+  tests/test_cli_sidecar.py tests/test_sidecar.py -q
+```
+
 ## 2026-05-14 — `vmaf-tune` Phase-B Bisect Sample Clips
 
 **Files touched**: `tools/vmaf-tune/src/vmaftune/bisect.py`,

@@ -158,6 +158,14 @@ for the option-space digest.
   state, update both the standalone page and the umbrella page in
   the same PR; do not leave `(stub)`, `scaffold-only`, or stale CLI
   names on paths backed by implementation and tests.
+- **Local sidecar CLI mirrors the programmatic sidecar contract
+  (ADR-0394).** `vmaf-tune sidecar` is the operator surface for
+  `vmaftune.sidecar.SidecarPredictor`: it must keep the same
+  cache layout (`<cache>/<predictor-version>/<codec>/state.json`),
+  same random host UUID posture, and same `ShotFeatures` column
+  semantics as the Python API. Do not add upload, hostname-derived
+  identifiers, or predictor mutation to this CLI; community pooling
+  and non-linear sidecars require a separate ADR / PR.
 - **Ladder uncertainty is post-hull / pre-knee.** `vmaf-tune ladder
   --with-uncertainty` must run the ADR-0279 prune/insert recipe only
   after `convex_hull()` and before `select_knees()`. Preserve corpus

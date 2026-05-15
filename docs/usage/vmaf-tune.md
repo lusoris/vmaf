@@ -20,6 +20,7 @@ with [`vmaf`](cli.md), and emits a JSONL corpus of
 | `hdr`                 | HDR-aware tuning + HDR-VMAF scoring                    | (PR #434, bucket #9)                                                                                 |
 | `compare`             | Apples-to-apples codec comparison at matched VMAF      | (PR #435)                                                                                            |
 | `benchmark`           | Offline cross-codec report from an existing JSONL      | [ADR-0424](../adr/0424-vmaf-tune-corpus-benchmark.md)                                                |
+| `sidecar`             | Local predictor bias-correction training / inspection  | [ADR-0394](../adr/0394-local-sidecar-training.md)                                                    |
 
 ## Codec adapters
 
@@ -87,6 +88,50 @@ codec still falls back to the documented synthetic-stub corpus and the
 model card records `corpus.kind: synthetic-stub-*`. Directory inputs
 are passed through the same loader as single files; a codec with rows in
 any shard records `corpus.kind: real-N=<rows>`.
+
+## Local Sidecar Bias Correction
+
+`vmaf-tune sidecar` exposes the local sidecar model from
+[`docs/ai/local-sidecar-training.md`](../ai/local-sidecar-training.md)
+as an operator CLI. It never uploads captures and never mutates the
+shipped predictor; it stores only the online-ridge correction under
+`${XDG_CACHE_HOME:-~/.cache}/vmaf-tune/sidecar/`.
+
+Inspect the current sidecar state:
+
+```shell
+vmaf-tune sidecar status --codec libx264 --json
+```
+
+Record one observed encode. `features.json` may be either a flat
+`ShotFeatures` object or `{ "features": { ... } }`; the required
+fields are `probe_bitrate_kbps`, `probe_i_frame_avg_bytes`,
+`probe_p_frame_avg_bytes`, and `probe_b_frame_avg_bytes`.
+
+```shell
+vmaf-tune sidecar record \
+    --codec libx264 \
+    --features-json features.json \
+    --crf 28 \
+    --observed-vmaf 94.2
+```
+
+Batch training accepts JSONL with one row per observed encode:
+
+```json
+{"features":{"probe_bitrate_kbps":3000,"probe_i_frame_avg_bytes":10000,"probe_p_frame_avg_bytes":2000,"probe_b_frame_avg_bytes":1000,"width":1920,"height":1080,"fps":24},"crf":28,"observed_vmaf":94.2}
+```
+
+```shell
+vmaf-tune sidecar batch-record --codec libx264 --captures-jsonl captures.jsonl
+```
+
+Prediction reports the bare predictor score, sidecar correction, and
+clamped final score:
+
+```shell
+vmaf-tune sidecar predict --codec libx264 --features-json features.json --crf 28 --json
+```
 
 ## Quick start
 
