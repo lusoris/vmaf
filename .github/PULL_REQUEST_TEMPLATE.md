@@ -64,6 +64,13 @@
      "no <item> needed: <reason>" justification (e.g. "no rebase impact: docs-only").
      Upstream-port PRs (see /port-upstream-commit) and pure upstream syncs are exempt. -->
 
+> **IMPORTANT for automated agents:** This section MUST use `- [x]` checkbox syntax.
+> NOT numbered lists (`1. **Research digest**`) or prose bullets (`- Research digest: foo.md`).
+> To opt out, KEEP the `- [ ]` checkbox and add the opt-out text inline:
+> `- [ ] **Research digest** — no digest needed: trivial change.`
+> A pre-push hook and CI gate (ADR-0108) enforce this; prose bullets fail the parser.
+> See `docs/development/pr-body-sentinel-guide.md` for the exact forms.
+
 - [ ] **Research digest** — `docs/research/NNNN-*.md` written or linked, OR "no digest needed: trivial".
 - [ ] **Decision matrix** — captured in the corresponding ADR's `## Alternatives considered` (or in the digest), OR "no alternatives: only-one-way fix".
 - [ ] **`AGENTS.md` invariant note** — added to the relevant package's `AGENTS.md`, OR "no rebase-sensitive invariants".
