@@ -12,30 +12,40 @@ separate surface — see [`docs/mcp/`](../mcp/) for that one.
 
 ## Status
 
-Audit-first scaffold per
-[ADR-0209](../adr/0209-mcp-embedded-scaffold.md). The header surface is
-stable for downstream consumers, but every entry point currently returns
-`-ENOSYS` until the runtime PR (T5-2b — vendored cJSON + mongoose,
-SPSC ring buffer, transport bodies) lands. Linking against the header
-today gives a caller a predictable error path so they can fall back to
-the external Python server.
+The audit-first header scaffold from
+[ADR-0209](../adr/0209-mcp-embedded-scaffold.md) has been promoted to a
+working embedded runtime:
 
-When libvmaf is built without `-Denable_mcp=true`, every entry point
-also returns `-ENOSYS` unconditionally; the symbols are resolved against
-the same stub TU at `libvmaf/src/mcp/mcp.c`.
+- `vmaf_mcp_init()` / `vmaf_mcp_stop()` / `vmaf_mcp_close()` manage a
+  server handle bound to a host `VmafContext`.
+- `vmaf_mcp_start_stdio()` serves line-delimited JSON-RPC on a
+  caller-owned fd pair.
+- `vmaf_mcp_start_uds()` serves line-delimited JSON-RPC over an
+  AF_UNIX socket and creates the socket path mode 0700.
+- `vmaf_mcp_start_sse()` serves loopback HTTP with an SSE endpoint and
+  JSON-RPC `POST` requests.
+- The embedded tool set currently includes read-only `list_features`
+  and out-of-band `compute_vmaf` for YUV420p 8-bit pairs.
+
+When libvmaf is built without `-Denable_mcp=true`, the public symbols
+remain available but `vmaf_mcp_available()` returns `0` and start/init
+entry points return `-ENOSYS`. Transport availability is controlled by
+the per-transport build flags.
 
 ## Build flag
 
 ```bash
 meson setup build -Denable_mcp=true \
-                  -Denable_mcp_sse=true   `# loopback HTTP / SSE`     \
+                  -Denable_mcp_sse=enabled `# loopback HTTP / SSE`     \
                   -Denable_mcp_uds=true   `# AF_UNIX, JSON-RPC`       \
-                  -Denable_mcp_stdio=true `# LSP framing on host fds`
+                  -Denable_mcp_stdio=true `# line JSON-RPC on host fds`
 ```
 
 The umbrella flag (`enable_mcp`) compiles in the API surface; each
 transport sub-flag adds the corresponding wire driver. Sub-flags
-default to off so a minimal MCP build can ship with a single transport.
+let a minimal MCP build ship with only the transports it needs. SSE is a
+Meson feature option (`auto` by default); UDS and stdio are boolean
+options that default to `false`.
 
 ## Public surface (one-liner reference)
 
@@ -55,14 +65,16 @@ default to off so a minimal MCP build can ship with a single transport.
 Per [ADR-0209](../adr/0209-mcp-embedded-scaffold.md) and
 Research-0005:
 
-- `vmaf_mcp_init()` pre-allocates the SPSC ring buffer at construction
-  time. **No further allocation crosses the measurement-thread boundary**
-  (NASA Power-of-10 rule 3).
-- The measurement thread drains at most `max_drain_per_frame`
-  envelopes per frame (default 4, cap 64). Bounded loop, NASA Power-of-10
-  rule 2.
 - Each `_start_*` call spawns one dedicated MCP pthread. Multiple
   transports can co-exist on one server handle.
+- JSON parsing, socket I/O, and per-request allocation stay on the
+  transport thread. The host measurement thread is not mutated by the
+  current tool set.
+- `compute_vmaf` uses a short-lived private `VmafContext` for the
+  requested YUV pair instead of borrowing the host's active scorer.
+- `queue_depth` and `max_drain_per_frame` are validated API fields for
+  the planned v4 SPSC bridge, but v3 does not yet drain envelopes on
+  frame boundaries.
 
 ## Auth
 
@@ -99,16 +111,16 @@ if (vmaf_mcp_available()) {
 vmaf_close(ctx);
 ```
 
-`-ENOSYS` from any of the calls means "MCP not built in / runtime not
-yet wired" — fall back to the external Python server for the time
-being.
+`-ENOSYS` from init/start calls means this libvmaf build omitted the
+embedded MCP umbrella flag. `vmaf_mcp_transport_available()` lets hosts
+check individual transport flags before calling `_start_*`.
 
 ## Error contract
 
 All entry points return a negative `errno` on failure (`0` on success).
 The most common codes:
 
-- `-ENOSYS` — feature not built (or scaffold not yet wired).
+- `-ENOSYS` — embedded MCP was not built into this libvmaf.
 - `-ENODEV` — transport-specific runtime unavailable (e.g. UDS on a
   non-POSIX host).
 - `-EINVAL` — bad argument (NULL where required, malformed config,
@@ -121,7 +133,7 @@ The most common codes:
 ## Related
 
 - [ADR-0209](../adr/0209-mcp-embedded-scaffold.md) — embedded-MCP
-  scaffold decision.
+  scaffold and runtime status history.
 - [`docs/mcp/embedded.md`](../mcp/embedded.md) — user-side overview of
   the embedded server.
 - [`docs/mcp/`](../mcp/) — standalone Python MCP server surface.

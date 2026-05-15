@@ -32,6 +32,19 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/mcp-runtime-doc-status-2026-05-15 — embedded MCP runtime docs
+
+- **Touches**: `docs/api/mcp.md`, `docs/development/build-flags.md`,
+  `libvmaf/meson_options.txt`, and `libvmaf/AGENTS.md`.
+- **Invariant**: embedded MCP is no longer an all-entrypoint
+  `-ENOSYS` scaffold. Preserve the runtime contract when rebasing:
+  stdio / UDS / loopback-SSE transports are live when their build flags
+  are enabled; `compute_vmaf` uses a per-call ephemeral `VmafContext`;
+  mutating measurement-thread tools still wait on the future SPSC
+  bridge; `enable_mcp` remains default-off until that bridge lands.
+- **Re-test**:
+  `meson setup /tmp/vmaf-mcp-doc-check -Denable_mcp=true -Denable_mcp_stdio=true -Denable_mcp_uds=true -Denable_mcp_sse=enabled && ninja -C /tmp/vmaf-mcp-doc-check test_mcp_smoke && meson test -C /tmp/vmaf-mcp-doc-check test_mcp_smoke`
+
 ### fix/chug-cuda-feature-split-2026-05-15 — FR-from-NR CUDA feature split
 
 - **Touches**: `ai/scripts/extract_k150k_features.py`,
