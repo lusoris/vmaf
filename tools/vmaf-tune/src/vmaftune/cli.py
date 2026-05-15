@@ -500,6 +500,22 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="path to saliency_student_v1.onnx (default: shipped fork model)",
     )
+    rec_sal.add_argument(
+        "--saliency-aggregator",
+        choices=("mean", "ema", "max", "motion-weighted"),
+        default="mean",
+        help=(
+            "temporal reducer for sampled saliency masks: mean preserves "
+            "the historical behaviour; ema/max/motion-weighted are "
+            "video-saliency baselines"
+        ),
+    )
+    rec_sal.add_argument(
+        "--saliency-ema-alpha",
+        type=float,
+        default=0.6,
+        help="current-frame weight for --saliency-aggregator=ema (default 0.6)",
+    )
     rec_sal.add_argument("--ffmpeg-bin", default="ffmpeg")
     rec_sal.add_argument(
         "--output",
@@ -1788,7 +1804,15 @@ def _run_recommend_saliency(args: argparse.Namespace) -> int:
         crf=crf,
         output=args.output,
     )
-    cfg = SaliencyConfig(foreground_offset=args.saliency_offset) if args.saliency_aware else None
+    cfg = (
+        SaliencyConfig(
+            foreground_offset=args.saliency_offset,
+            temporal_aggregator=args.saliency_aggregator,
+            ema_alpha=args.saliency_ema_alpha,
+        )
+        if args.saliency_aware
+        else None
+    )
     result = saliency_aware_encode(
         request,
         duration_frames=args.duration_frames,
@@ -1806,6 +1830,7 @@ def _run_recommend_saliency(args: argparse.Namespace) -> int:
         "ffmpeg_version": result.ffmpeg_version,
         "encoder_version": result.encoder_version,
         "saliency_aware": bool(args.saliency_aware),
+        "saliency_aggregator": args.saliency_aggregator,
         "exit_status": result.exit_status,
     }
     sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")

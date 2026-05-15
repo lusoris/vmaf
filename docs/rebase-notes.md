@@ -32,6 +32,22 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/vmaf-tune-temporal-saliency-2026-05-15 — recommend-saliency temporal aggregation
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/saliency.py`,
+  `tools/vmaf-tune/src/vmaftune/cli.py`,
+  `tools/vmaf-tune/tests/test_saliency.py`, and
+  `docs/usage/vmaf-tune.md`.
+- **Invariant**: `mean` remains the default compatibility reducer for
+  `recommend-saliency --saliency-aggregator`. Changing the default
+  changes user-visible saliency ROI behaviour and needs an ADR-0396
+  follow-up plus usage-doc update.
+- **Re-test**:
+
+  ```shell
+  PYTHONPATH=tools/vmaf-tune/src pytest tools/vmaf-tune/tests/test_saliency.py -q
+  ```
+
 ### fix/chug-hdr-audit-splits-2026-05-15 — CHUG HDR audit and content-safe splits
 
 - **Touches**: `ai/scripts/chug_extract_features.py`,
