@@ -68,9 +68,10 @@ def apply_saliency_mask(
     Returns ``req.output``. Raises ``RuntimeError`` if onnxruntime is
     required but not importable.
 
-    Supports 8-bit planar YUV 4:2:0, 4:2:2, and 4:4:4 inputs. The
-    saliency mask is inferred from the reference Y plane converted to
-    RGB and then downsampled for chroma planes when needed.
+    Supports little-endian planar YUV 4:2:0, 4:2:2, and 4:4:4 inputs
+    at 8, 10, 12, and 16 bits per component. The saliency mask is
+    inferred from the reference Y plane converted to 8-bit RGB and then
+    downsampled for chroma planes when needed.
     """
     if inference is None:
         inference = _lazy_onnx_inference(req.saliency_model)
@@ -106,9 +107,9 @@ def apply_saliency_mask(
             alpha_y = _mask_to_alpha(mask, req.threshold, req.fade)
             alpha_c = _resize_nearest(alpha_y, layout.chroma_width, layout.chroma_height)
 
-            out_y = _blend_plane(ref_planes.y, dis_planes.y, alpha_y)
-            out_u = _blend_plane(ref_planes.u, dis_planes.u, alpha_c)
-            out_v = _blend_plane(ref_planes.v, dis_planes.v, alpha_c)
+            out_y = _blend_plane(ref_planes.y, dis_planes.y, alpha_y, layout)
+            out_u = _blend_plane(ref_planes.u, dis_planes.u, alpha_c, layout)
+            out_v = _blend_plane(ref_planes.v, dis_planes.v, alpha_c, layout)
             out_fh.write(out_y.tobytes())
             out_fh.write(out_u.tobytes())
             out_fh.write(out_v.tobytes())
@@ -171,14 +172,35 @@ class _Layout:
     height: int
     chroma_width: int
     chroma_height: int
+    bit_depth: int
 
     @property
     def y_size(self) -> int:
-        return self.width * self.height
+        return self.y_samples * self.bytes_per_sample
 
     @property
     def c_size(self) -> int:
+        return self.c_samples * self.bytes_per_sample
+
+    @property
+    def y_samples(self) -> int:
+        return self.width * self.height
+
+    @property
+    def c_samples(self) -> int:
         return self.chroma_width * self.chroma_height
+
+    @property
+    def bytes_per_sample(self) -> int:
+        return 1 if self.bit_depth <= 8 else 2
+
+    @property
+    def dtype(self) -> np.dtype:
+        return np.dtype(np.uint8) if self.bytes_per_sample == 1 else np.dtype("<u2")
+
+    @property
+    def max_value(self) -> int:
+        return (1 << self.bit_depth) - 1
 
 
 @dataclasses.dataclass(frozen=True)
@@ -191,25 +213,39 @@ class _Planes:
 def _layout_for(pix_fmt: str, width: int, height: int) -> _Layout:
     if width <= 0 or height <= 0:
         raise ValueError(f"width/height must be positive, got {width}x{height}")
-    if "10" in pix_fmt or "12" in pix_fmt or "16" in pix_fmt:
-        raise ValueError(f"vmaf-roi-score mask materialisation supports 8-bit YUV only: {pix_fmt}")
+    bit_depth = _bit_depth_for(pix_fmt)
+    if bit_depth > 8 and pix_fmt.endswith("be"):
+        raise ValueError(
+            "vmaf-roi-score mask materialisation supports little-endian "
+            f"high-bit-depth YUV only: {pix_fmt}"
+        )
     if pix_fmt.startswith("yuv444"):
-        return _Layout(width, height, width, height)
+        return _Layout(width, height, width, height, bit_depth)
     if pix_fmt.startswith("yuv422"):
-        return _Layout(width, height, (width + 1) // 2, height)
+        return _Layout(width, height, (width + 1) // 2, height, bit_depth)
     if pix_fmt.startswith("yuv420"):
-        return _Layout(width, height, (width + 1) // 2, (height + 1) // 2)
+        return _Layout(width, height, (width + 1) // 2, (height + 1) // 2, bit_depth)
     raise ValueError(f"unsupported pix_fmt for mask materialisation: {pix_fmt}")
+
+
+def _bit_depth_for(pix_fmt: str) -> int:
+    if "16" in pix_fmt:
+        return 16
+    if "12" in pix_fmt:
+        return 12
+    if "10" in pix_fmt:
+        return 10
+    return 8
 
 
 def _split_frame(frame: bytes, layout: _Layout) -> _Planes:
     y_end = layout.y_size
     u_end = y_end + layout.c_size
-    y = np.frombuffer(frame[:y_end], dtype=np.uint8).reshape((layout.height, layout.width))
-    u = np.frombuffer(frame[y_end:u_end], dtype=np.uint8).reshape(
+    y = np.frombuffer(frame[:y_end], dtype=layout.dtype).reshape((layout.height, layout.width))
+    u = np.frombuffer(frame[y_end:u_end], dtype=layout.dtype).reshape(
         (layout.chroma_height, layout.chroma_width)
     )
-    v = np.frombuffer(frame[u_end:], dtype=np.uint8).reshape(
+    v = np.frombuffer(frame[u_end:], dtype=layout.dtype).reshape(
         (layout.chroma_height, layout.chroma_width)
     )
     return _Planes(y=y, u=u, v=v)
@@ -219,12 +255,13 @@ def _yuv_to_rgb_bytes(y: np.ndarray, u: np.ndarray, v: np.ndarray, layout: _Layo
     u_full = _resize_nearest(u.astype(np.float32), layout.width, layout.height)
     v_full = _resize_nearest(v.astype(np.float32), layout.width, layout.height)
     y_f = y.astype(np.float32)
-    c = y_f - 16.0
-    d = u_full - 128.0
-    e = v_full - 128.0
-    r = (1.164383 * c) + (1.596027 * e)
-    g = (1.164383 * c) - (0.391762 * d) - (0.812968 * e)
-    b = (1.164383 * c) + (2.017232 * d)
+    scale = float(1 << max(layout.bit_depth - 8, 0))
+    c = y_f - (16.0 * scale)
+    d = u_full - (128.0 * scale)
+    e = v_full - (128.0 * scale)
+    r = ((1.164383 * c) + (1.596027 * e)) / scale
+    g = ((1.164383 * c) - (0.391762 * d) - (0.812968 * e)) / scale
+    b = ((1.164383 * c) + (2.017232 * d)) / scale
     rgb = np.stack([r, g, b], axis=2)
     return np.clip(np.rint(rgb), 0, 255).astype(np.uint8).tobytes()
 
@@ -257,6 +294,8 @@ def _resize_nearest(src: np.ndarray, width: int, height: int) -> np.ndarray:
     return src[y_idx[:, None], x_idx[None, :]]
 
 
-def _blend_plane(ref: np.ndarray, dis: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+def _blend_plane(
+    ref: np.ndarray, dis: np.ndarray, alpha: np.ndarray, layout: _Layout
+) -> np.ndarray:
     blended = (ref.astype(np.float32) * (1.0 - alpha)) + (dis.astype(np.float32) * alpha)
-    return np.clip(np.rint(blended), 0, 255).astype(np.uint8)
+    return np.clip(np.rint(blended), 0, layout.max_value).astype(layout.dtype)

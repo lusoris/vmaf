@@ -111,10 +111,12 @@ blends each plane halfway between the reference and distorted inputs.
 
 ## Mask Materialisation
 
-`--saliency-model` currently supports 8-bit planar YUV formats:
-`yuv420p`, `yuv422p`, and `yuv444p`. Higher-bit-depth inputs should use
-the normal full-frame VMAF path until the ROI materialiser grows
-16-bit plane support.
+`--saliency-model` supports little-endian planar YUV formats:
+`yuv420p`, `yuv422p`, `yuv444p`, and the matching 10/12/16-bit
+variants such as `yuv420p10le`, `yuv422p12le`, and `yuv444p16le`.
+High-bit-depth planes are blended at their native sample depth; the
+reference frame is converted down to 8-bit RGB only for saliency-model
+inference. Big-endian high-bit-depth YUV is not supported.
 
 The mask is inferred from the reference frame, not the distorted frame.
 That keeps saliency tied to scene content rather than compression

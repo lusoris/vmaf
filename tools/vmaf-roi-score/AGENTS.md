@@ -38,8 +38,8 @@ and ADR-0424.
 2. If you change the JSON schema, bump `SCHEMA_VERSION`, update the
    tests' canonical-key assertion, and update
    `docs/usage/vmaf-roi-score.md`.
-3. The `--saliency-model` path supports 8-bit planar YUV only
-   (`yuv420p`, `yuv422p`, `yuv444p`). Extending it to 10/12/16-bit
-   planes changes user-visible behaviour; update
-   `docs/usage/vmaf-roi-score.md` and add tests for the new plane
-   width.
+3. The `--saliency-model` path supports little-endian planar 8/10/12/16-bit
+   YUV (`yuv420p`, `yuv420p10le`, `yuv420p12le`, `yuv420p16le`, and the
+   corresponding 4:2:2 / 4:4:4 variants). Big-endian high-bit-depth YUV
+   remains unsupported. Any new pix_fmt family changes user-visible behaviour;
+   update `docs/usage/vmaf-roi-score.md` and add materialisation tests.

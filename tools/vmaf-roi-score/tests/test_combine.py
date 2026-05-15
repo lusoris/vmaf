@@ -190,6 +190,65 @@ def test_apply_saliency_mask_materialises_yuv420p(tmp_path: Path):
     assert data[20:24] == bytes([30, 130, 30, 130])
 
 
+def test_apply_saliency_mask_materialises_yuv420p10le(tmp_path: Path):
+    ref = tmp_path / "ref10.yuv"
+    dis = tmp_path / "dis10.yuv"
+    out = tmp_path / "masked10.yuv"
+
+    def _le16(values: list[int]) -> bytes:
+        return b"".join(v.to_bytes(2, "little") for v in values)
+
+    # 4x4 yuv420p10le: Y has 16 samples, U/V have 4 samples each.
+    ref.write_bytes(_le16([64] * 16 + [256] * 4 + [384] * 4))
+    dis.write_bytes(_le16([940] * 16 + [768] * 4 + [896] * 4))
+
+    def _mask(_rgb: bytes, width: int, height: int):
+        assert width == 4
+        assert height == 4
+        return [
+            [0.0, 0.0, 1.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+        ]
+
+    apply_saliency_mask(
+        MaskRequest(
+            reference=ref,
+            distorted=dis,
+            output=out,
+            width=4,
+            height=4,
+            pix_fmt="yuv420p10le",
+            saliency_model=tmp_path / "unused.onnx",
+            threshold=0.5,
+            fade=0.0,
+        ),
+        inference=_mask,
+    )
+
+    samples = [
+        int.from_bytes(out.read_bytes()[idx : idx + 2], "little")
+        for idx in range(0, out.stat().st_size, 2)
+    ]
+    assert samples[:16] == [64, 64, 940, 940] * 4
+    assert samples[16:20] == [256, 768, 256, 768]
+    assert samples[20:24] == [384, 896, 384, 896]
+
+
+def test_build_vmaf_command_preserves_yuv420p16le_bitdepth():
+    req = ScoreRequest(
+        reference=Path("/tmp/ref.yuv"),
+        distorted=Path("/tmp/dis.yuv"),
+        width=4,
+        height=4,
+        pix_fmt="yuv420p16le",
+    )
+    cmd = build_vmaf_command(req, Path("/tmp/out.json"))
+    assert cmd[cmd.index("--pixel_format") + 1] == "420"
+    assert cmd[cmd.index("--bitdepth") + 1] == "16"
+
+
 # ---------------------------------------------------------------------------
 # end-to-end smoke (synthetic-mask path) — mocks subprocess
 

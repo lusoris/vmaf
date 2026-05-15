@@ -101,6 +101,8 @@ def _pixfmt_to_vmaf(pix_fmt: str) -> str:
 
 
 def _bitdepth_for(pix_fmt: str) -> int:
+    if "16le" in pix_fmt or "p16" in pix_fmt:
+        return 16
     if "10le" in pix_fmt or "p10" in pix_fmt:
         return 10
     if "12le" in pix_fmt or "p12" in pix_fmt:
