@@ -56,31 +56,50 @@ a real kernel lands; they are removed from `metal_sources` in
 
 ## Kernel files
 
-| File                               | Status      | Feature(s)                                                              |
-|------------------------------------|-------------|-------------------------------------------------------------------------|
-| `integer_motion_v2.metal`          | Done (T8-1c) | `VMAF_integer_feature_motion_v2_sad_score`, `motion2_v2_score`         |
-| `integer_motion_v2_metal.mm`       | Done (T8-1c) | host dispatch                                                           |
-| `float_psnr.metal`                 | Done (T8-1d) | `float_psnr`                                                            |
-| `float_psnr_metal.mm`              | Done (T8-1d) | host dispatch                                                           |
-| `float_moment.metal`               | Done (T8-1e) | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd` |
-| `float_moment_metal.mm`            | Done (T8-1e) | host dispatch (fixes provided_features)                                 |
-| `float_ansnr.metal`                | Done (T8-1f) | `float_ansnr`                                                           |
-| `float_ansnr_metal.mm`             | Done (T8-1f) | host dispatch                                                           |
-| `integer_psnr.metal`               | Done (T8-1g) | `psnr_y`, `psnr_cb`, `psnr_cr`                                          |
-| `integer_psnr_metal.mm`            | Done (T8-1g) | host dispatch                                                           |
-| `float_motion.metal`               | Done (T8-1h) | `float_motion`                                                          |
-| `float_motion_metal.mm`            | Done (T8-1h) | host dispatch                                                           |
-| `integer_motion.metal`             | Done (T8-1i) | `VMAF_integer_feature_motion_y_score`, `motion2_score`, `motion3_score` |
-| `integer_motion_metal.mm`          | Done (T8-1i) | host dispatch                                                           |
-| `float_ssim.metal`                 | Done (T8-1j) | `float_ssim`, `float_ms_ssim`                                           |
-| `float_ssim_metal.mm`              | Done (T8-1j) | host dispatch                                                           |
-| `float_psnr_metal.c`               | Scaffold     | replaced by float_psnr_metal.mm                                         |
-| `float_moment_metal.c`             | Scaffold     | replaced by float_moment_metal.mm                                       |
-| `float_ansnr_metal.c`              | Scaffold     | replaced by float_ansnr_metal.mm                                        |
-| `integer_psnr_metal.c`             | Scaffold     | replaced by integer_psnr_metal.mm                                       |
-| `float_motion_metal.c`             | Scaffold     | replaced by float_motion_metal.mm                                       |
-| `integer_motion_metal.c`           | Scaffold     | replaced by integer_motion_metal.mm                                     |
-| `float_ssim_metal.c`               | Scaffold     | replaced by float_ssim_metal.mm                                         |
+| File                         | Status       | Feature(s)                                                                                 |
+|------------------------------|--------------|--------------------------------------------------------------------------------------------|
+| `integer_motion_v2.metal`    | Done (T8-1c) | `VMAF_integer_feature_motion_v2_sad_score`, `motion2_v2_score`                             |
+| `integer_motion_v2_metal.mm` | Done (T8-1c) | host dispatch                                                                              |
+| `float_psnr.metal`           | Done (T8-1d) | `float_psnr`                                                                               |
+| `float_psnr_metal.mm`        | Done (T8-1d) | host dispatch                                                                              |
+| `float_moment.metal`         | Done (T8-1e) | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd` |
+| `float_moment_metal.mm`      | Done (T8-1e) | host dispatch (fixes provided_features)                                                    |
+| `float_ansnr.metal`          | Done (T8-1f) | `float_ansnr`                                                                              |
+| `float_ansnr_metal.mm`       | Done (T8-1f) | host dispatch                                                                              |
+| `integer_psnr.metal`         | Done (T8-1g) | `psnr_y`, `psnr_cb`, `psnr_cr`                                                             |
+| `integer_psnr_metal.mm`      | Done (T8-1g) | host dispatch                                                                              |
+| `float_motion.metal`         | Done (T8-1h) | `float_motion`                                                                             |
+| `float_motion_metal.mm`      | Done (T8-1h) | host dispatch                                                                              |
+| `integer_motion.metal`       | Done (T8-1i) | `VMAF_integer_feature_motion_y_score`, `motion2_score`, `motion3_score`                    |
+| `integer_motion_metal.mm`    | Done (T8-1i) | host dispatch                                                                              |
+| `float_ssim.metal`           | Done (T8-1j) | `float_ssim`, `float_ms_ssim`                                                              |
+| `float_ssim_metal.mm`        | Done (T8-1j) | host dispatch                                                                              |
+| `float_vif.metal`            | Done (T8-1k) | `VMAF_feature_vif_scale{0,1,2,3}_score`                                                    |
+| `float_vif_metal.mm`         | Done (T8-1k) | host dispatch — 4-scale VIF, 7 dispatches per frame (ADR-0445)                             |
+| `float_psnr_metal.c`         | Scaffold     | replaced by float_psnr_metal.mm                                                            |
+| `float_moment_metal.c`       | Scaffold     | replaced by float_moment_metal.mm                                                          |
+| `float_ansnr_metal.c`        | Scaffold     | replaced by float_ansnr_metal.mm                                                           |
+| `integer_psnr_metal.c`       | Scaffold     | replaced by integer_psnr_metal.mm                                                          |
+| `float_motion_metal.c`       | Scaffold     | replaced by float_motion_metal.mm                                                          |
+| `integer_motion_metal.c`     | Scaffold     | replaced by integer_motion_metal.mm                                                        |
+| `float_ssim_metal.c`         | Scaffold     | replaced by float_ssim_metal.mm                                                            |
+
+## Registration invariant (ADR-0445)
+
+Every new Metal kernel MUST be registered in BOTH places:
+
+1. `feature_extractor_list[]` in `libvmaf/src/feature/feature_extractor.c`
+   (extern decl + array entry under `#if HAVE_METAL`).
+2. `g_metal_features[]` in `libvmaf/src/metal/dispatch_strategy.c`
+   (extractor name + every `provided_features[]` string it emits).
+
+PR #864 shipped the dispatch-registry gap detector (`scripts/ci/check-metal-dispatch.sh`).
+Re-run it before pushing any new Metal kernel:
+
+    bash scripts/ci/check-metal-dispatch.sh
+
+A kernel missing from `dispatch_strategy.c` will be silently skipped by the
+runtime dispatcher and score 0 on every frame — the gap detector catches this.
 
 ## Rebase-sensitive invariants (motion_fps_weight)
 
@@ -98,7 +117,8 @@ a real kernel lands; they are removed from `metal_sources` in
 
 ## Governing ADRs
 
-- [ADR-0421](../../../../docs/adr/0421-metal-first-kernel-motion-v2.md) — T8-1c through T8-1k batch specification
+- [ADR-0445](../../../../docs/adr/0445-metal-float-vif-kernel.md) — T8-1k: float_vif Metal kernel (ADR-0445)
+- [ADR-0421](../../../../docs/adr/0421-metal-first-kernel-motion-v2.md) — T8-1c through T8-1j batch specification
 - [ADR-0420](../../../../docs/adr/0420-metal-backend-runtime-t8-1b.md) — runtime (T8-1b), prerequisite
 - [ADR-0361](../../../../docs/adr/0361-metal-compute-backend.md) — scaffold (T8-1), origin
 - [ADR-0214](../../../../docs/adr/0214-gpu-parity-ci-gate.md) — `places=4` cross-backend parity gate

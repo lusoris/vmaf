@@ -37,6 +37,11 @@ static const char *const g_metal_features[] = {
     "float_ssim_metal",
     "float_ssim",
     "float_ms_ssim",
+    "float_vif_metal",
+    "VMAF_feature_vif_scale0_score",
+    "VMAF_feature_vif_scale1_score",
+    "VMAF_feature_vif_scale2_score",
+    "VMAF_feature_vif_scale3_score",
     NULL,
 };
 
