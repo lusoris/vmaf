@@ -33,6 +33,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <stddef.h>
@@ -406,6 +407,86 @@ static char *test_compute_vmaf_real_score(void)
     return NULL;
 }
 
+static int write_all_bytes(int fd, const unsigned char *buf, size_t len)
+{
+    size_t off = 0u;
+    while (off < len) {
+        ssize_t w = write(fd, buf + off, len - off);
+        if (w <= 0)
+            return -1;
+        off += (size_t)w;
+    }
+    return 0;
+}
+
+static int write_yuv420p10_fixture(const char *path, unsigned width, unsigned height,
+                                   unsigned frames)
+{
+    int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0600);
+    if (fd < 0)
+        return -1;
+    const unsigned chroma_width = width / 2u;
+    const unsigned chroma_height = height / 2u;
+    const unsigned char y_sample[2] = {0x00u, 0x02u};  /* 512 little-endian. */
+    const unsigned char uv_sample[2] = {0x00u, 0x02u}; /* neutral chroma. */
+    int rc = 0;
+    for (unsigned f = 0u; f < frames && rc == 0; ++f) {
+        for (unsigned i = 0u; i < width * height && rc == 0; ++i)
+            rc = write_all_bytes(fd, y_sample, sizeof(y_sample));
+        for (unsigned p = 0u; p < 2u && rc == 0; ++p) {
+            for (unsigned i = 0u; i < chroma_width * chroma_height && rc == 0; ++i)
+                rc = write_all_bytes(fd, uv_sample, sizeof(uv_sample));
+        }
+    }
+    int close_rc = close(fd);
+    return rc == 0 && close_rc == 0 ? 0 : -1;
+}
+
+static char *test_compute_vmaf_yuv420p10_score(void)
+{
+    char ref_path[96];
+    char dis_path[96];
+    int rn = snprintf(ref_path, sizeof(ref_path), "/tmp/vmaf-mcp-ref-10b-%d.yuv", (int)getpid());
+    int dn = snprintf(dis_path, sizeof(dis_path), "/tmp/vmaf-mcp-dis-10b-%d.yuv", (int)getpid());
+    mu_assert("ref path snprintf", rn > 0 && (size_t)rn < sizeof(ref_path));
+    mu_assert("dis path snprintf", dn > 0 && (size_t)dn < sizeof(dis_path));
+    mu_assert("write ref 10-bit fixture", write_yuv420p10_fixture(ref_path, 64u, 64u, 2u) == 0);
+    mu_assert("write dis 10-bit fixture", write_yuv420p10_fixture(dis_path, 64u, 64u, 2u) == 0);
+
+    McpHarness h;
+    mu_assert("harness init", harness_init(&h) == 0);
+
+    char req[640];
+    int n = snprintf(req, sizeof(req),
+                     "{\"jsonrpc\":\"2.0\",\"id\":100,\"method\":\"tools/call\","
+                     "\"params\":{\"name\":\"compute_vmaf\",\"arguments\":{"
+                     "\"reference_path\":\"%s\","
+                     "\"distorted_path\":\"%s\","
+                     "\"width\":64,\"height\":64,\"bitdepth\":10,"
+                     "\"model_version\":\"vmaf_v0.6.1\"}}}\n",
+                     ref_path, dis_path);
+    mu_assert("req snprintf", n > 0 && (size_t)n < sizeof(req));
+
+    static char line[16384];
+    char *err = send_and_read(&h, req, (size_t)n, line, sizeof(line));
+    if (err != NULL) {
+        harness_teardown(&h);
+        (void)unlink(ref_path);
+        (void)unlink(dis_path);
+        return err;
+    }
+    mu_assert("compute_vmaf 10-bit id 100", strstr(line, "\"id\":100") != NULL);
+    mu_assert("compute_vmaf 10-bit returns score", strstr(line, "\\\"score\\\"") != NULL);
+    mu_assert("compute_vmaf 10-bit reports bitdepth", strstr(line, "\\\"bitdepth\\\":10") != NULL);
+    mu_assert("compute_vmaf 10-bit reports frames",
+              strstr(line, "\\\"frames_scored\\\":2") != NULL);
+
+    harness_teardown(&h);
+    (void)unlink(ref_path);
+    (void)unlink(dis_path);
+    return NULL;
+}
+
 /* ============================================================
  * SSE transport round-trip (v3)
  *
@@ -573,6 +654,7 @@ static const test_fn k_test_table[] = {
     test_jsonrpc_method_not_found,
     test_uds_roundtrip,
     test_compute_vmaf_real_score,
+    test_compute_vmaf_yuv420p10_score,
     test_sse_event_stream,
 };
 

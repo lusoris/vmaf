@@ -45,6 +45,21 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Re-test**:
   `meson setup /tmp/vmaf-mcp-doc-check -Denable_mcp=true -Denable_mcp_stdio=true -Denable_mcp_uds=true -Denable_mcp_sse=enabled && ninja -C /tmp/vmaf-mcp-doc-check test_mcp_smoke && meson test -C /tmp/vmaf-mcp-doc-check test_mcp_smoke`
 
+### fix/mcp-compute-vmaf-high-bitdepth-2026-05-15 — MCP compute_vmaf bitdepth
+
+- **Touches**: `libvmaf/src/mcp/compute_vmaf.c`,
+  `libvmaf/src/mcp/dispatcher.c`, `libvmaf/test/test_mcp_smoke.c`,
+  `libvmaf/src/mcp/AGENTS.md`, `docs/api/mcp.md`, and
+  `docs/mcp/embedded.md`.
+- **Invariant**: embedded MCP `compute_vmaf` accepts YUV420p at
+  8/10/12/16 bpc and defaults to 8 when `bitdepth` is omitted.
+  High-bit-depth raw samples are little-endian 16-bit words read
+  directly into libvmaf picture storage. Do not silently add YUV422P
+  or YUV444P without extending the tool schema with an explicit
+  `pixel_format` argument and matching docs/tests.
+- **Re-test**:
+  `meson test -C libvmaf/build-mcp-hbd test_mcp_smoke --print-errorlogs`
+
 ### fix/chug-cuda-feature-split-2026-05-15 — FR-from-NR CUDA feature split
 
 - **Touches**: `ai/scripts/extract_k150k_features.py`,

@@ -25,7 +25,7 @@ working embedded runtime:
 - `vmaf_mcp_start_sse()` serves loopback HTTP with an SSE endpoint and
   JSON-RPC `POST` requests.
 - The embedded tool set currently includes read-only `list_features`
-  and out-of-band `compute_vmaf` for YUV420p 8-bit pairs.
+  and out-of-band `compute_vmaf` for YUV420p 8/10/12/16-bit pairs.
 
 When libvmaf is built without `-Denable_mcp=true`, the public symbols
 remain available but `vmaf_mcp_available()` returns `0` and start/init
@@ -51,14 +51,18 @@ options that default to `false`.
 
 | Symbol                            | Returns         | Purpose                                                         |
 |-----------------------------------|-----------------|-----------------------------------------------------------------|
-| `vmaf_mcp_available()`            | `int` (0/1)     | Built with `-Denable_mcp=true`?                                 |
-| `vmaf_mcp_transport_available(t)` | `int` (0/1)     | Built with the named transport sub-flag?                        |
-| `vmaf_mcp_init(out, ctx, cfg)`    | `0 / -errno`    | Allocate a server handle bound to a `VmafContext`.              |
-| `vmaf_mcp_start_sse(s, cfg)`      | `0 / -errno`    | Bind a loopback HTTP listener; spawn the SSE pthread.           |
-| `vmaf_mcp_start_uds(s, cfg)`      | `0 / -errno`    | Bind an AF_UNIX listener at the configured path (mode 0700).    |
-| `vmaf_mcp_start_stdio(s, cfg)`    | `0 / -errno`    | Spawn the stdio pthread on a caller-supplied fd pair.           |
-| `vmaf_mcp_stop(s)`                | `0 / -errno`    | Join every running transport thread (idempotent).               |
-| `vmaf_mcp_close(out)`             | `void`          | Release the handle; sets `*out` to `NULL`.                      |
+| `vmaf_mcp_available()`            | `int` (0/1)     | Built with `-Denable_mcp=true`?                              |
+| `vmaf_mcp_transport_available(t)` | `int` (0/1)     | Built with the named transport sub-flag?                     |
+| `vmaf_mcp_init(out, ctx, cfg)`    | `0 / -errno`    | Allocate a server handle bound to a `VmafContext`.           |
+| `vmaf_mcp_start_sse(s, cfg)`      | `0 / -errno`    | Bind a loopback HTTP listener; spawn the SSE pthread.        |
+| `vmaf_mcp_start_uds(s, cfg)`      | `0 / -errno`    | Bind an AF_UNIX listener at the configured path (mode 0700). |
+| `vmaf_mcp_start_stdio(s, cfg)`    | `0 / -errno`    | Spawn the stdio pthread on a caller-supplied fd pair.        |
+| `vmaf_mcp_stop(s)`                | `0 / -errno`    | Join every running transport thread (idempotent).            |
+| `vmaf_mcp_close(out)`             | `void`          | Release the handle; sets `*out` to `NULL`.                   |
+
+The embedded `compute_vmaf` tool accepts YUV420p inputs at 8, 10, 12,
+or 16 bpc via its optional `bitdepth` JSON argument. The default is
+8 bpc. YUV422P / YUV444P are intentionally outside the current schema.
 
 ## Threading and allocation
 

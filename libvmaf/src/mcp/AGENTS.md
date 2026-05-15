@@ -94,7 +94,9 @@ Fork-local subtree. Read this before editing any TU under
 4. **`compute_vmaf` uses a per-call ephemeral `VmafContext`.** Do
    NOT rewire it to reuse `server->ctx`: `vmaf_score_pooled`
    commits the model destructively to the context, which would
-   corrupt the host's main measurement run.
+   corrupt the host's main measurement run. The tool accepts YUV420p
+   8/10/12/16-bit inputs only; adding 4:2:2 / 4:4:4 requires a
+   `pixel_format` schema extension, docs, and tests in the same PR.
 5. **Vendored cJSON v1.7.18 is verbatim** under MIT. Do NOT patch
    it locally — refresh by re-downloading from upstream
    `DaveGamble/cJSON` and update `3rdparty/cJSON/LICENSE` in the
