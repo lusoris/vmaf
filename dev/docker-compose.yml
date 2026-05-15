@@ -1,0 +1,147 @@
+# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
+# Copyright 2026 Lusoris and Claude (Anthropic)
+#
+# dev/docker-compose.yml — VMAF fork dev-MCP stack
+#
+# Services:
+#   dev-mcp          — libvmaf + MCP UDS server (primary container)
+#   smoke-probe-cron — periodic golden-pair + MCP probe loop (every 15 min)
+#
+# Usage:
+#   docker compose build
+#   docker compose up -d
+#   docker compose down
+#
+# See docs/development/dev-mcp.md for full operator guide.
+
+name: vmaf-dev-mcp
+
+# ---------------------------------------------------------------------------
+# Shared extension anchor
+# ---------------------------------------------------------------------------
+x-common-env: &common-env
+  VMAF_MODEL_PATH: /workspace/model
+  VMAF_TESTDATA_PATH: /workspace/testdata
+  VMAF_MCP_UDS_PATH: /sockets/vmaf-mcp.sock
+  # Set NVIDIA_VISIBLE_DEVICES=all on the host to enable GPU passthrough.
+  # When not set, containers run CPU + Vulkan/lavapipe only.
+  NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-}
+
+x-common-deploy: &common-deploy
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: all
+          capabilities: [gpu]
+
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
+volumes:
+  vmaf-sockets:
+    driver: local
+  vmaf-probe-results:
+    driver: local
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+services:
+
+  # -------------------------------------------------------------------------
+  # dev-mcp — primary MCP server container
+  # -------------------------------------------------------------------------
+  dev-mcp:
+    build:
+      # Paths are relative to --project-directory (repo root), NOT to the
+      # compose-file directory. Earlier `context: ..` resolved to
+      # /home/kilian/dev (one up from project-dir) and broke the build.
+      context: .
+      dockerfile: dev/Containerfile
+      target: dev-mcp
+    image: vmaf-dev-mcp:local
+    container_name: vmaf-dev-mcp
+    restart: unless-stopped
+
+    environment:
+      <<: *common-env
+
+    volumes:
+      # Repo source tree — read-only at runtime (built into image)
+      - type: bind
+        source: .
+        target: /workspace
+        read_only: true
+      # UDS socket directory — shared with smoke-probe-cron
+      - type: volume
+        source: vmaf-sockets
+        target: /sockets
+      # Probe results — read-write (dev-mcp writes logs here too)
+      - type: bind
+        source: ./.workingdir/dev-mcp-probes
+        target: /probes
+        read_only: false
+
+    # NVIDIA Container Toolkit runtime — only active when nvidia runtime
+    # is configured on the host Docker daemon.
+    # See: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+    runtime: ${CONTAINER_RUNTIME:-runc}
+
+    # Override the deploy section only when NVIDIA_VISIBLE_DEVICES is set.
+    # Uncomment to enable GPU reservation on docker compose v2+:
+    # deploy:
+    #   <<: *common-deploy
+
+    networks:
+      - vmaf-net
+
+    healthcheck:
+      test: ["CMD", "test", "-S", "/sockets/vmaf-mcp.sock"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # -------------------------------------------------------------------------
+  # smoke-probe-cron — periodic backend + MCP probe
+  # -------------------------------------------------------------------------
+  smoke-probe-cron:
+    image: vmaf-dev-mcp:local
+    container_name: vmaf-smoke-probe-cron
+    restart: unless-stopped
+    depends_on:
+      dev-mcp:
+        condition: service_healthy
+
+    command: ["/workspace/dev/scripts/smoke-probe-loop.sh"]
+
+    environment:
+      <<: *common-env
+      PROBE_INTERVAL_SECONDS: "900"  # 15 minutes
+      PROBE_OUTPUT_DIR: /probes
+
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+        read_only: true
+      - type: volume
+        source: vmaf-sockets
+        target: /sockets
+      - type: bind
+        source: ./.workingdir/dev-mcp-probes
+        target: /probes
+        read_only: false
+
+    runtime: ${CONTAINER_RUNTIME:-runc}
+
+    networks:
+      - vmaf-net
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  vmaf-net:
+    driver: bridge
