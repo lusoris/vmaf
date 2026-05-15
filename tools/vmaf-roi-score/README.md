@@ -45,7 +45,7 @@ tools/vmaf-roi-score/
 | Combine math (`blend_scores`) | shipped, tested |
 | CLI (`--reference / --distorted / --weight / --synthetic-mask`) | shipped, tested |
 | `vmaf` subprocess seam | shipped, tested (mocked) |
-| `--saliency-model` ONNX inference | shipped for 8-bit planar YUV |
+| `--saliency-model` ONNX inference | shipped for little-endian planar 8/10/12/16-bit YUV |
 | Per-pixel saliency-weighted pooling (Option A) | deferred — separate PR + ADR follow-up |
 
 ## Quick start
