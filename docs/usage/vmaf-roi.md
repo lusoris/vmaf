@@ -41,7 +41,7 @@ useful only for smoke-testing the sidecar plumbing.
 ```text
 vmaf-roi --reference REF.yuv --width W --height H \
          --frame N --output qpfile.txt \
-         [--pixel_format 420|422|444] [--bitdepth 8] \
+         [--pixel_format 420|422|444] [--bitdepth 8|10|12|16] \
          [--ctu-size 8..128] [--encoder x265|svt-av1] \
          [--strength FLOAT] [--saliency-model model.onnx]
 ```
@@ -61,7 +61,7 @@ Optional flags:
 | Flag                | Default | Description                                                                 |
 |---------------------|---------|-----------------------------------------------------------------------------|
 | `--pixel_format`    | `420`   | One of `420` / `422` / `444`. Saliency reads luma only; chroma is skipped.  |
-| `--bitdepth`        | `8`     | 8-bit only in T6-2b; 10/12-bit lands with the `mobilesal` upgrade.          |
+| `--bitdepth`        | `8`     | One of `8`, `10`, `12`, or `16`. High-bit-depth planar YUV uses little-endian 16-bit containers; luma is downscaled to the 8-bit DNN contract. |
 | `--ctu-size`        | `64`    | Luma samples per CTU side. Range `8..128`. Use 64 for x265, 64 for SVT-AV1. |
 | `--encoder`         | `x265`  | Selects sidecar format: `x265` (ASCII) or `svt-av1` (binary `int8_t`).      |
 | `--strength`        | `6.0`   | QP-offset gain. Output is clamped to ±12 regardless of strength.            |
@@ -119,6 +119,15 @@ vmaf-roi --reference clip.yuv --width 1920 --height 1080 \
          --encoder x265 --strength 8.0
 ```
 
+### 10-bit planar input
+
+```bash
+vmaf-roi --reference hdr_clip_420p10le.yuv --width 3840 --height 2160 \
+         --frame 42 --pixel_format 420 --bitdepth 10 \
+         --output frame_42.qp --encoder x265 \
+         --saliency-model model/tiny/mobilesal.onnx
+```
+
 ### Per-frame loop (shell-driver pattern)
 
 ```bash
@@ -136,9 +145,11 @@ done
 - **Placeholder is for smoke testing only.** Without `--saliency-model`
   the tool emits a center-weighted radial map that has zero perceptual
   validity. Do not drive a real encode from it.
-- **8-bit only in T6-2b.** 10/12-bit support lands when the `mobilesal`
-  extractor's bit-depth contract is finalised — tracked in the same
-  Wave 1 entry as chroma `vmaf_pre`.
+- **High-bit-depth input is luma8-normalised.** `--bitdepth 10|12|16`
+  accepts little-endian 16-bit planar YUV, skips chroma using the
+  selected `--pixel_format`, and downscales luma to the saliency
+  model's existing 8-bit input contract. The ROI sidecar itself remains
+  per-CTU QP offsets, not a high-bit-depth image output.
 - **Single frame per invocation.** Wave 1 keeps the sidecar one-frame at
   a time so callers can reuse it from any encoder driver. A streaming
   variant is a follow-up.

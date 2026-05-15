@@ -63,6 +63,10 @@ tools/
   - The placeholder saliency map (when `--saliency-model` is absent)
     is for smoke-test plumbing only and explicitly documented as
     not-for-real-encodes in `docs/usage/vmaf-roi.md`.
+  - `--bitdepth 8|10|12|16` is part of the input contract. High-bit-depth
+    planar YUV uses little-endian 16-bit containers; frame seeking must
+    count the chroma planes and sample width even though only luma enters
+    the saliency path. The DNN-facing tensor remains luma8.
 - **Long-only options must not pass synthesised short-option
   chars to `error()`** (rebase-sensitive). Handlers for
   `ARG_THREADS`, `ARG_SUBSAMPLE`, `ARG_CPUMASK`, and any

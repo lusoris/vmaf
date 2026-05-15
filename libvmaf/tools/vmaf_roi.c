@@ -7,8 +7,8 @@
  *  by x265 (--qpfile) and SVT-AV1 (--roi-map-file).
  *
  *  Pipeline:
- *      raw YUV (Y plane only, planar 4:2:0/4:2:2/4:4:4, 8 bit)
- *          -> luma -> ONNX saliency model (optional) -> [0, 1] saliency map
+ *      raw YUV (Y plane only, planar 4:2:0/4:2:2/4:4:4, 8/10/12/16 bit)
+ *          -> luma8 -> ONNX saliency model (optional) -> [0, 1] saliency map
  *          -> per-CTU mean reduce
  *          -> linear map to signed QP offsets in [-12, +12]
  *          -> ASCII (x265) or binary int8 (SVT-AV1) sidecar
@@ -65,7 +65,7 @@ struct vmaf_roi_opts {
     int height;
     int frame;    /* 0-based frame index to score */
     int ctu_size; /* in luma samples */
-    int bitdepth; /* must be 8 in this iteration */
+    int bitdepth; /* 8-bit samples or 16-bit little-endian containers */
     enum vmaf_roi_pixfmt pixfmt;
     enum vmaf_roi_encoder encoder;
     double strength; /* QP-offset gain; saliency=1 -> -strength */
@@ -86,7 +86,7 @@ static void print_usage(FILE *out)
                        "\n"
                        "Optional:\n"
                        "  --pixel_format 420|422|444   Default 420.\n"
-                       "  --bitdepth 8                 Default 8 (only 8 supported now).\n"
+                       "  --bitdepth 8|10|12|16        Default 8.\n"
                        "  --ctu-size N                 8..128, default 64 (x265 max-ctu).\n"
                        "  --encoder x265|svt-av1       Default x265.\n"
                        "  --strength F                 QP-offset gain, default 6.0.\n"
@@ -168,20 +168,66 @@ static size_t luma_plane_size(int w, int h)
     return (size_t)w * (size_t)h;
 }
 
-/* Frame size in bytes for an 8-bit planar YUV layout, used to seek to the
- * requested frame. We ignore chroma content (saliency is luma-only) but we
- * must still skip past it in the file. */
-static size_t frame_bytes_8bit(int w, int h, enum vmaf_roi_pixfmt pf)
+static size_t sample_bytes_for_bitdepth(int bitdepth)
+{
+    return (bitdepth > 8) ? 2U : 1U;
+}
+
+/* Frame size in bytes for planar YUV, used to seek to the requested frame.
+ * We ignore chroma content (saliency is luma-only) but we must still skip
+ * past it in the file. High-bit-depth YUV is interpreted as little-endian
+ * 16-bit containers, matching this fork's CLI conventions. */
+static size_t frame_bytes(int w, int h, enum vmaf_roi_pixfmt pf, int bitdepth)
 {
     size_t y = luma_plane_size(w, h);
+    size_t samples = 0U;
     switch (pf) {
     case VMAF_ROI_PIXFMT_420:
-        return y + (y / 2U); /* 1 + 0.5 */
+        samples = y + (y / 2U); /* 1 + 0.5 */
+        break;
     case VMAF_ROI_PIXFMT_422:
-        return y + y; /* 1 + 1   */
+        samples = y + y; /* 1 + 1   */
+        break;
     case VMAF_ROI_PIXFMT_444:
-        return y + (y * 2U); /* 1 + 2   */
+        samples = y + (y * 2U); /* 1 + 2   */
+        break;
     }
+    return samples * sample_bytes_for_bitdepth(bitdepth);
+}
+
+static int read_luma8(FILE *fp, uint8_t *dst, size_t y_sz, int bitdepth, size_t *got_bytes)
+{
+    if (got_bytes == NULL)
+        return -EINVAL;
+    *got_bytes = 0U;
+    if (bitdepth == 8) {
+        size_t got = fread(dst, 1U, y_sz, fp);
+        *got_bytes = got;
+        if (got != y_sz)
+            return -EIO;
+        return 0;
+    }
+
+    uint8_t *raw = (uint8_t *)malloc(y_sz * 2U);
+    if (raw == NULL)
+        return -ENOMEM;
+    size_t got = fread(raw, 2U, y_sz, fp);
+    *got_bytes = got * 2U;
+    if (got != y_sz) {
+        free(raw);
+        return -EIO;
+    }
+
+    const unsigned shift = (unsigned)bitdepth - 8U;
+    const unsigned round = (shift == 0U) ? 0U : (1U << (shift - 1U));
+    const unsigned max_sample = (1U << (unsigned)bitdepth) - 1U;
+    for (size_t i = 0U; i < y_sz; ++i) {
+        unsigned v = (unsigned)raw[i * 2U] | ((unsigned)raw[i * 2U + 1U] << 8U);
+        if (v > max_sample)
+            v = max_sample;
+        dst[i] = (uint8_t)((v + round) >> shift);
+    }
+    free(raw);
     return 0;
 }
 
@@ -194,7 +240,7 @@ static int load_luma_frame(const struct vmaf_roi_opts *o, uint8_t *dst)
         return -ENOENT;
     }
 
-    const size_t frame_sz = frame_bytes_8bit(o->width, o->height, o->pixfmt);
+    const size_t frame_sz = frame_bytes(o->width, o->height, o->pixfmt, o->bitdepth);
     if (frame_sz == 0U) {
         (void)fclose(fp);
         return -EINVAL;
@@ -213,12 +259,12 @@ static int load_luma_frame(const struct vmaf_roi_opts *o, uint8_t *dst)
     }
 
     const size_t y_sz = luma_plane_size(o->width, o->height);
-    size_t got = fread(dst, 1U, y_sz, fp);
-    int rc = 0;
-    if (got != y_sz) {
+    size_t got = 0U;
+    const size_t expected = y_sz * sample_bytes_for_bitdepth(o->bitdepth);
+    int rc = read_luma8(fp, dst, y_sz, o->bitdepth, &got);
+    if (rc < 0) {
         (void)fprintf(stderr, "vmaf-roi: short read at frame %d (%zu of %zu bytes)\n", o->frame,
-                      got, y_sz);
-        rc = -EIO;
+                      got, expected);
     }
     (void)fclose(fp);
     return rc;
@@ -450,10 +496,14 @@ static int parse_args_num_opt(int code, struct vmaf_roi_opts *o)
         o->frame = (int)lv;
         return rc;
     case OPT_BITDEPTH:
-        rc = parse_int_arg(optarg, 8, 8, &lv);
+        rc = parse_int_arg(optarg, 8, 16, &lv);
         if (rc < 0) {
-            (void)fprintf(stderr, "vmaf-roi: only --bitdepth 8 is supported in T6-2b\n");
+            (void)fprintf(stderr, "vmaf-roi: --bitdepth must be 8, 10, 12, or 16\n");
             return rc;
+        }
+        if (lv != 8 && lv != 10 && lv != 12 && lv != 16) {
+            (void)fprintf(stderr, "vmaf-roi: --bitdepth must be 8, 10, 12, or 16\n");
+            return -ERANGE;
         }
         o->bitdepth = (int)lv;
         return 0;
