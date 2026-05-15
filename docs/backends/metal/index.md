@@ -1,22 +1,23 @@
 # Metal (Apple Silicon) compute backend
 
-> **Status: runtime + first kernel batch.** The Metal backend now has a
+> **Status: runtime + nine kernel batch.** The Metal backend now has a
 > real Apple-Silicon runtime, shared-memory `MTLBuffer` picture storage,
-> metallib embedding, and eight wired feature extractors:
+> metallib embedding, and nine wired feature extractors:
 > `float_ansnr_metal`, `float_moment_metal`, `float_motion_metal`,
-> `float_psnr_metal`, `float_ssim_metal`, `integer_motion_metal`,
-> `integer_psnr_metal`, and `motion_v2_metal`.
+> `float_psnr_metal`, `float_ssim_metal`, `float_vif_metal`,
+> `integer_motion_metal`, `integer_psnr_metal`, and `motion_v2_metal`.
 >
 > The dispatch support predicate recognises both those extractor names
 > and their provided feature keys (`psnr_y`, `psnr_cb`, `psnr_cr`,
-> `float_ms_ssim`, `motion2_v2_score`, etc.). Remaining metrics such
-> as VIF, ADM, CIEDE, CAMBI, and SSIMULACRA2 are still future kernel
-> ports.
+> `float_ms_ssim`, `motion2_v2_score`,
+> `VMAF_feature_vif_scale{0,1,2,3}_score`, etc.). Remaining metrics such
+> as ADM, CIEDE, CAMBI, and SSIMULACRA2 are still future kernel ports.
 >
 > Governing ADRs:
 > [ADR-0361](../../adr/0361-metal-compute-backend.md),
-> [ADR-0420](../../adr/0420-metal-backend-runtime-t8-1b.md), and
-> [ADR-0421](../../adr/0421-metal-first-kernel-motion-v2.md).
+> [ADR-0420](../../adr/0420-metal-backend-runtime-t8-1b.md),
+> [ADR-0421](../../adr/0421-metal-first-kernel-motion-v2.md), and
+> [ADR-0445](../../adr/0445-metal-float-vif-kernel.md).
 
 ## Why Metal
 
@@ -108,7 +109,10 @@ files.
 3. **T8-1c…T8-1j (first kernel batch)** — `motion_v2`, float/integer
    PSNR, float moment, float ANSNR, float/integer motion, and
    float SSIM/MS-SSIM host dispatch + MSL kernels.
-4. **T8-1k+** — remaining kernels (VIF, ADM, CIEDE, CAMBI,
+4. **T8-1k (float_vif_metal)** — 4-scale VIF on Metal (ADR-0445).
+   7 dispatches per frame (4 compute + 3 decimate); provides
+   `VMAF_feature_vif_scale{0,1,2,3}_score`.
+5. **T8-1k+** — remaining kernels (ADM, CIEDE, CAMBI,
    SSIMULACRA2, etc.) follow as their own PRs gated by the `places=4`
    cross-backend-diff lane (per [ADR-0214](../../adr/0214-gpu-parity-ci-gate.md)).
 5. **`enable_metal` default flip** from `auto` to `enabled`: only
