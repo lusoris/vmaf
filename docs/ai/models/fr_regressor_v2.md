@@ -6,16 +6,13 @@ feature vector plus an 8-D codec block to a VMAF teacher score.
 Trained on the JSONL corpus emitted by `vmaf-tune corpus` (Phase A,
 [ADR-0237](../../adr/0237-quality-aware-encode-automation.md)).
 
-> **Status: SCAFFOLD.** This PR ships the training script + ONNX export
-> plumbing + registry plumbing. The shipped ONNX is generated via
-> `--smoke` mode (synthetic corpus, 1 epoch) and is registered with
-> `smoke: true` so the quality-metric harness skips it. The production
-> training run is a follow-up PR gated on (1) a multi-codec Phase A
-> corpus with ≥50 refs / ≥5 encoders, (2) per-frame feature emission
-> in the Phase A schema, and (3) clearing v1's 0.95 LOSO PLCC ship
-> threshold with a ≥0.005 multi-codec lift per
-> [ADR-0235](../../adr/0235-codec-aware-fr-regressor.md). See
-> [Research-0054](../../research/0058-fr-regressor-v2-feasibility.md).
+> **Status: production checkpoint.** `model/tiny/registry.json`
+> registers `fr_regressor_v2.onnx` with `smoke: false`, SHA-256 pin
+> `67934b0b61c73eb852d84ffb34e3333756e8da2530179ecc830336133e63e69e`,
+> and an in-sample PLCC of 0.9794 on the vmaf-tune Phase-A JSONL
+> corpus. The old scaffold-only card text is superseded; the follow-up
+> line is now the v3 16-slot vocabulary / LOSO production checkpoint,
+> documented in [`fr_regressor_v3.md`](fr_regressor_v3.md).
 
 ## Inputs
 
@@ -81,15 +78,16 @@ estimate; no graph surgery required.
 vmaf-tune Phase A JSONL (`tools/vmaf-tune/src/vmaftune/corpus.py`).
 One row per `(source, encoder, preset, crf)` cell with
 `schema_version=1`. The trainer reads the JSONL row-by-row; the
-canonical-6 features come from the optional
-`per_frame_features` payload (a Phase A follow-up; the current
-schema does not emit them — the smoke path synthesises them
-deterministically).
+canonical-6 features come from each row's measured libvmaf feature
+payload when present, with compatibility aliases for historical corpus
+runs. `--smoke` remains available for CI/load-path validation, but the
+committed `fr_regressor_v2.onnx` is the production export recorded in
+the registry.
 
 ## CLI
 
 ```bash
-# Smoke (synthetic corpus, validates the pipeline)
+# Smoke (synthetic corpus, validates the pipeline only)
 python ai/scripts/train_fr_regressor_v2.py --smoke
 
 # Production (real Phase A corpus)
@@ -106,7 +104,8 @@ checked.
 ## See also
 
 - [ADR-0272](../../adr/0272-fr-regressor-v2-codec-aware-scaffold.md)
-  — this scaffold's decision record.
+  — original scaffold decision; this card now reflects the promoted
+  production checkpoint.
 - [ADR-0235](../../adr/0235-codec-aware-fr-regressor.md) — the
   parent codec-aware decision.
 - [ADR-0237](../../adr/0237-quality-aware-encode-automation.md) —
@@ -117,7 +116,6 @@ checked.
   — feasibility digest, including the open question on production
   corpus diversity.
 - [`fr_regressor_v2_codec_aware.md`](fr_regressor_v2_codec_aware.md)
-  — the older ADR-0235 model card (canonical-9 features, training
-  blocked on cache reachability). The two cards describe different
-  takes on the codec-aware idea — `fr_regressor_v2` (this card) is
-  the vmaf-tune Phase B prerequisite that ships the corpus consumer.
+  — superseded ADR-0235-era design card (canonical-9 / FULL_FEATURES
+  path). The shipped model is `fr_regressor_v2` (this card), not a
+  separate `fr_regressor_v2_codec_aware.onnx`.
