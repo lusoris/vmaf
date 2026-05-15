@@ -179,6 +179,12 @@ for the option-space digest.
   YUV to RGB, and only then applies ImageNet normalisation for
   `saliency_student_v1`. Do not reintroduce the old luma-only tensor
   path unless the model card and operator docs explicitly change.
+- **Saliency temporal aggregation is a CLI-visible contract
+  (ADR-0396 Phase 1).** `recommend-saliency --saliency-aggregator`
+  exposes `mean`, `ema`, `max`, and `motion-weighted`. `mean` is the
+  compatibility default; changing that default or removing a reducer
+  changes user-visible encode behaviour and needs a same-PR usage-doc
+  update plus an ADR-0396 follow-up.
 - **`auto` non-smoke source probing is a real planning path.**
   `run_auto(smoke=False, meta_override=None)` must route source
   metadata through `_probe_source_meta`: ffprobe geometry, ffprobe
