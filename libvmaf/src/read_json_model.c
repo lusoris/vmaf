@@ -24,13 +24,71 @@
 #include "thread_locale.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_FEATURE_COUNT 64 //FIXME
-#define MAX_KNOT_COUNT 10    //FIXME
+#define MODEL_FEATURE_INITIAL_CAP 8u
+#define MODEL_KNOT_INITIAL_CAP 4u
+
+static int grow_count(unsigned current, unsigned needed, unsigned *out)
+{
+    unsigned next = current ? current : 1u;
+    while (next < needed) {
+        if (next > (UINT_MAX / 2u))
+            return -EOVERFLOW;
+        next *= 2u;
+    }
+    *out = next;
+    return 0;
+}
+
+static int ensure_feature_capacity(VmafModel *model, unsigned needed)
+{
+    if (needed <= model->feature_cap)
+        return 0;
+
+    unsigned next = 0;
+    const unsigned current = model->feature_cap ? model->feature_cap : MODEL_FEATURE_INITIAL_CAP;
+    int err = grow_count(current, needed, &next);
+    if (err)
+        return err;
+
+    VmafModelFeature *feature = realloc(model->feature, sizeof(*feature) * next);
+    if (!feature)
+        return -ENOMEM;
+
+    const size_t tail_sz = sizeof(*feature) * (next - model->feature_cap);
+    memset(&feature[model->feature_cap], 0, tail_sz);
+    model->feature = feature;
+    model->feature_cap = next;
+    return 0;
+}
+
+static int ensure_knot_capacity(VmafModel *model, unsigned needed)
+{
+    if (needed <= model->score_transform.knots.cap)
+        return 0;
+
+    unsigned next = 0;
+    const unsigned current = model->score_transform.knots.cap ? model->score_transform.knots.cap :
+                                                                MODEL_KNOT_INITIAL_CAP;
+    int err = grow_count(current, needed, &next);
+    if (err)
+        return err;
+
+    VmafPoint *list = realloc(model->score_transform.knots.list, sizeof(*list) * next);
+    if (!list)
+        return -ENOMEM;
+
+    const size_t tail_sz = sizeof(*list) * (next - model->score_transform.knots.cap);
+    memset(&list[model->score_transform.knots.cap], 0, tail_sz);
+    model->score_transform.knots.list = list;
+    model->score_transform.knots.cap = next;
+    return 0;
+}
 
 static int parse_feature_opts_entry(json_stream *s, VmafModel *model, unsigned i, char *key)
 {
@@ -75,10 +133,11 @@ static int parse_feature_opts_dicts(json_stream *s, VmafModel *model)
     while (json_peek(s) != JSON_ARRAY_END && !json_get_error(s)) {
         if (json_next(s) != JSON_OBJECT)
             return -EINVAL;
-        if (i >= MAX_FEATURE_COUNT)
-            return -EINVAL;
+        int err = ensure_feature_capacity(model, i + 1u);
+        if (err)
+            return err;
 
-        int err = parse_feature_opts_object(s, model, i);
+        err = parse_feature_opts_object(s, model, i);
         if (err)
             return err;
         i++;
@@ -99,8 +158,9 @@ static int parse_intercepts(json_stream *s, VmafModel *model)
     while (json_peek(s) != JSON_ARRAY_END && !json_get_error(s)) {
         if (json_next(s) != JSON_NUMBER)
             return -EINVAL;
-        if (i >= MAX_FEATURE_COUNT)
-            return -EINVAL;
+        int err = ensure_feature_capacity(model, i + 1u);
+        if (err)
+            return err;
         model->feature[i++].intercept = json_get_number(s);
     }
 
@@ -117,8 +177,9 @@ static int parse_slopes(json_stream *s, VmafModel *model)
     while (json_peek(s) != JSON_ARRAY_END && !json_get_error(s)) {
         if (json_next(s) != JSON_NUMBER)
             return -EINVAL;
-        if (i >= MAX_FEATURE_COUNT)
-            return -EINVAL;
+        int err = ensure_feature_capacity(model, i + 1u);
+        if (err)
+            return err;
         model->feature[i++].slope = json_get_number(s);
     }
 
@@ -150,9 +211,10 @@ static int parse_knots(json_stream *s, struct VmafModel *model)
     while (json_peek(s) != JSON_ARRAY_END && !json_get_error(s)) {
         if (json_next(s) != JSON_ARRAY)
             return -EINVAL;
-        if (i >= MAX_KNOT_COUNT)
-            return -EINVAL;
-        int err = parse_knots_list(s, model, i);
+        int err = ensure_knot_capacity(model, i + 1u);
+        if (err)
+            return err;
+        err = parse_knots_list(s, model, i);
         if (err)
             return err;
         json_skip_until(s, JSON_ARRAY_END);
@@ -165,8 +227,9 @@ static int parse_knots(json_stream *s, struct VmafModel *model)
 
 static int append_feature_name(VmafModel *model, const char *name, unsigned index)
 {
-    if (index >= MAX_FEATURE_COUNT)
-        return -EINVAL;
+    int err = ensure_feature_capacity(model, index + 1u);
+    if (err)
+        return err;
     model->feature[index].name = strdup(name);
     if (!model->feature[index].name)
         return -ENOMEM;
@@ -479,27 +542,11 @@ static int vmaf_read_json_model(VmafModel **model, VmafModelConfig *cfg, json_st
         return -ENOMEM;
     memset(m, 0, sizeof(*m));
 
-    const size_t model_sz = sizeof(*m->feature) * MAX_FEATURE_COUNT;
-    m->feature = malloc(model_sz);
-    if (!m->feature) {
-        err = -ENOMEM;
-        goto fail;
-    }
-    memset(m->feature, 0, model_sz);
-
     m->name = vmaf_model_generate_name(cfg);
     if (!m->name) {
         err = -ENOMEM;
         goto fail;
     }
-
-    const size_t knots_sz = sizeof(VmafPoint) * MAX_KNOT_COUNT;
-    m->score_transform.knots.list = malloc(knots_sz);
-    if (!m->score_transform.knots.list) {
-        err = -ENOMEM;
-        goto fail;
-    }
-    memset(m->score_transform.knots.list, 0, knots_sz);
 
     VmafThreadLocaleState *locale_state = vmaf_thread_locale_push_c();
 

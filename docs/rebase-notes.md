@@ -103,6 +103,17 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
 - **Re-test**:
   `PYTHONPATH=python .venv/bin/python -m pytest python/test/ssimulacra2_test.py -q && PYTHONPATH=mcp-server/vmaf-mcp/src .venv/bin/python -m pytest mcp-server/vmaf-mcp/tests/test_server.py -q`
 
+### fix/read-json-model-dynamic-limits-2026-05-14 — dynamic JSON model arrays
+
+- **Touches**: `libvmaf/src/read_json_model.c`, `libvmaf/src/model.h`,
+  `libvmaf/src/model.c`, and `libvmaf/test/test_model.c`.
+- **Invariant**: JSON model loading grows `VmafModel.feature` and
+  `score_transform.knots.list` from the payload. Do not restore the
+  old fixed `MAX_FEATURE_COUNT` / `MAX_KNOT_COUNT` parser caps; models
+  with 65+ features or 11+ score-transform knots must parse when the
+  JSON is otherwise valid.
+- **Re-test**: `meson test -C build test_model --print-errorlogs`.
+
 ### fix/real-scaffold-gap-pass-4-2026-05-14 — vmaf-tune x264 two-pass
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/x264.py`,
