@@ -158,3 +158,37 @@ For SIMD breakdown / `--precision` overhead numbers, see the harness
 scripts under `testdata/` (or paste the inlined `repeat_bench.py` /
 `simd_bench.py` / `precision_bench.py` from the
 [T7-37 PR description](https://github.com/lusoris/vmaf/pulls?q=T7-37)).
+
+## FFmpeg lavfi performance harness
+
+`testdata/bench_perf.py` runs the FFmpeg filter path used by the historical
+`perf_benchmark_results.json` snapshot. It is useful when the question is
+"how fast is FFmpeg decode/upload/filter end-to-end?" rather than "how fast
+is the `vmaf` CLI binary?"
+
+The harness is portable across checkouts:
+
+```bash
+python3 testdata/bench_perf.py \
+    --ffmpeg /path/to/ffmpeg \
+    --backend cpu \
+    --backend cuda \
+    --runs 3
+```
+
+Environment overrides are also supported:
+
+| Variable | CLI equivalent | Purpose |
+| --- | --- | --- |
+| `VMAF_FFMPEG` | `--ffmpeg` | FFmpeg binary with the fork's libvmaf filters. |
+| `VMAF_BENCH_RUNS` | `--runs` | Timing repetitions per backend. |
+| `VMAF_BENCH_TIMEOUT_S` | `--timeout-s` | Per-run timeout. |
+| `VMAF_BBB_MP4_REF` | `--bbb-mp4-ref` | Optional external BBB 4K MP4 for the decode+VMAF test. |
+| `VMAF_SYCL_DEVICE` | `--sycl-device` | VAAPI render node used by the SYCL/QSV import path. |
+| `VMAF_LD_LIBRARY_PATH` | `--ld-library-path` | Runtime library path for FFmpeg/libvmaf. |
+
+The committed raw 4K BBB pair remains the required fixture. The 1080p raw pair
+and MP4 decode test are optional by default; pass `--require-all` when you want
+a strict lab run that fails on any missing configured input. Use `--list-tests`
+to audit fixture availability and `--dry-run` to print the exact FFmpeg
+commands without touching hardware.
