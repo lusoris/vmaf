@@ -297,8 +297,11 @@ static inline int vmaf_vulkan_kernel_pipeline_create(VmafVulkanContext *ctx,
     cpci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     cpci.stage.module = out->shader;
     cpci.layout = out->pipeline_layout;
-    if (vkCreateComputePipelines(ctx->device, VK_NULL_HANDLE, 1, &cpci, NULL, &out->pipeline) !=
-        VK_SUCCESS) {
+    /* ADR-0445: pass ctx->pipeline_cache (not VK_NULL_HANDLE) so the
+     * driver accumulates compiled PSO blobs on first run and replays them
+     * on subsequent process invocations. */
+    if (vkCreateComputePipelines(ctx->device, ctx->pipeline_cache, 1, &cpci, NULL,
+                                 &out->pipeline) != VK_SUCCESS) {
         vkDestroyShaderModule(ctx->device, out->shader, NULL);
         vkDestroyPipelineLayout(ctx->device, out->pipeline_layout, NULL);
         vkDestroyDescriptorSetLayout(ctx->device, out->dsl, NULL);
@@ -686,7 +689,8 @@ static inline int vmaf_vulkan_kernel_pipeline_add_variant(
     cpci.stage.module = base->shader;
     cpci.layout = base->pipeline_layout;
     *out_pipeline = VK_NULL_HANDLE;
-    if (vkCreateComputePipelines(ctx->device, VK_NULL_HANDLE, 1, &cpci, NULL, out_pipeline) !=
+    /* ADR-0445: pass ctx->pipeline_cache — same invariant as _pipeline_create above. */
+    if (vkCreateComputePipelines(ctx->device, ctx->pipeline_cache, 1, &cpci, NULL, out_pipeline) !=
         VK_SUCCESS) {
         return -ENOMEM;
     }

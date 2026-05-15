@@ -77,6 +77,26 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### feat/vulkan-pipeline-cache-persistence-pr865 — persistent VkPipelineCache (ADR-0445)
+
+- **Touches**: `libvmaf/src/vulkan/common.c`, `libvmaf/src/vulkan/vulkan_internal.h`,
+  `libvmaf/src/vulkan/kernel_template.h`, `libvmaf/src/vulkan/AGENTS.md`.
+- **Invariant**: Every `vkCreateComputePipelines()` call must pass
+  `ctx->pipeline_cache` as the second argument, not `VK_NULL_HANDLE`.
+  The cache file path (`$XDG_CACHE_HOME/libvmaf/vulkan-pipeline-cache.bin`)
+  and the env-var opt-out (`LIBVMAF_VULKAN_PIPELINE_CACHE=0`) are part
+  of the public contract (user-visible). The `VkPipelineCacheHeaderVersionOne`
+  vendor ID + device ID validation must run before any blob is passed to
+  `vkCreatePipelineCache`.
+- **Re-test**:
+
+  ```shell
+  meson test -C build-vulkan test_vulkan_pipeline_cache
+  # Confirm no vkCreateComputePipelines with VK_NULL_HANDLE second arg:
+  grep -n 'vkCreateComputePipelines.*VK_NULL_HANDLE' libvmaf/src/vulkan/kernel_template.h
+  # Should return no matches.
+  ```
+
 ### fix/psnr-enable-chroma-gpu-parity-2026-05-16 — PSNR `enable_chroma` option GPU parity
 
 - **Touches**: `libvmaf/src/feature/cuda/integer_psnr_cuda.c`,
@@ -103,8 +123,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
       --feature-opts 'psnr=enable_chroma=false' \
       --feature-opts 'psnr_cuda=enable_chroma=false'
   ```
-
-
 ### fix/vmaf-tune-temporal-saliency-2026-05-15 — recommend-saliency temporal aggregation
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/saliency.py`,
@@ -11245,6 +11263,28 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### feat/vulkan-pipeline-cache-persistence-pr865 — persistent VkPipelineCache (ADR-0445)
+
+- **Touches**: `libvmaf/src/vulkan/common.c`, `libvmaf/src/vulkan/vulkan_internal.h`,
+  `libvmaf/src/vulkan/kernel_template.h`, `libvmaf/src/vulkan/AGENTS.md`.
+- **Invariant**: Every `vkCreateComputePipelines()` call must pass
+  `ctx->pipeline_cache` as the second argument, not `VK_NULL_HANDLE`.
+  The cache file path (`$XDG_CACHE_HOME/libvmaf/vulkan-pipeline-cache.bin`)
+  and the env-var opt-out (`LIBVMAF_VULKAN_PIPELINE_CACHE=0`) are part
+  of the public contract (user-visible). The `VkPipelineCacheHeaderVersionOne`
+  vendor ID + device ID validation must run before any blob is passed to
+  `vkCreatePipelineCache`.
+- **Re-test**:
+
+  ```shell
+  meson test -C build-vulkan test_vulkan_pipeline_cache
+  # Confirm no vkCreateComputePipelines with VK_NULL_HANDLE second arg:
+  grep -n 'vkCreateComputePipelines.*VK_NULL_HANDLE' libvmaf/src/vulkan/kernel_template.h
+  # Should return no matches.
+  ```
+
+
+
 
 ### 0332 — Agent worktree-drift hard guard (ADR-0332)
 
@@ -21761,6 +21801,28 @@ IDs are assigned in commit order and never reused. A single entry may
 cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
+
+### feat/vulkan-pipeline-cache-persistence-pr865 — persistent VkPipelineCache (ADR-0445)
+
+- **Touches**: `libvmaf/src/vulkan/common.c`, `libvmaf/src/vulkan/vulkan_internal.h`,
+  `libvmaf/src/vulkan/kernel_template.h`, `libvmaf/src/vulkan/AGENTS.md`.
+- **Invariant**: Every `vkCreateComputePipelines()` call must pass
+  `ctx->pipeline_cache` as the second argument, not `VK_NULL_HANDLE`.
+  The cache file path (`$XDG_CACHE_HOME/libvmaf/vulkan-pipeline-cache.bin`)
+  and the env-var opt-out (`LIBVMAF_VULKAN_PIPELINE_CACHE=0`) are part
+  of the public contract (user-visible). The `VkPipelineCacheHeaderVersionOne`
+  vendor ID + device ID validation must run before any blob is passed to
+  `vkCreatePipelineCache`.
+- **Re-test**:
+
+  ```shell
+  meson test -C build-vulkan test_vulkan_pipeline_cache
+  # Confirm no vkCreateComputePipelines with VK_NULL_HANDLE second arg:
+  grep -n 'vkCreateComputePipelines.*VK_NULL_HANDLE' libvmaf/src/vulkan/kernel_template.h
+  # Should return no matches.
+  ```
+
+
 
 
 
