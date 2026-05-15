@@ -125,8 +125,9 @@ complementary:
 
 - Small / latency-sensitive runs land on NEON via the existing CPU
   dispatch (no GPU command-buffer setup overhead).
-- Large / throughput-bound runs land on Metal once the runtime PR
-  ships; the GPU's parallelism + unified memory eliminate both the
+- Large / throughput-bound runs land on Metal when one of the shipped
+  Metal feature kernels is requested; the GPU's parallelism + unified
+  memory eliminate both the
   CPU-bound bottleneck and the H2D / D2H staging cost.
 
 Backend selection follows the standard libvmaf precedence (see
@@ -135,10 +136,11 @@ available, CPU SIMD wins otherwise.
 
 ## Verification
 
-The macOS CI lane `Build — macOS Metal (T8-1 scaffold)` is the
-ground-truth gate; it runs on every PR with `-Denable_metal=enabled`
-and exercises the smoke test. Linux-host dev sessions cannot reproduce
-the lane locally because `Metal.framework` only exists on macOS hosts.
+The macOS CI lane `Build — macOS Metal` is the ground-truth gate; it
+runs on every PR with `-Denable_metal=enabled` and exercises the smoke
+test plus the currently wired kernel batch. Linux-host dev sessions
+cannot reproduce the lane locally because `Metal.framework` only exists
+on macOS hosts.
 
 Reviewers verifying locally on a Mac:
 
@@ -150,8 +152,8 @@ meson test -C build test_metal_smoke
 
 ## References
 
-- [ADR-0361](../../adr/0361-metal-compute-backend.md) — governing
-  ADR for this scaffold.
+- [ADR-0361](../../adr/0361-metal-compute-backend.md) — original
+  audit-first Metal backend ADR.
 - [ADR-0212](../../adr/0212-hip-backend-scaffold.md) — HIP scaffold
   precedent (T7-10).
 - [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md) — Vulkan

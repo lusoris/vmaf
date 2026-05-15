@@ -5,9 +5,9 @@ measured VMAF still meets a target floor**, given a (source, codec,
 target VMAF) triple. Largest CRF = lowest bitrate at acceptable
 quality — the cost-optimal point.
 
-This is the production wiring the existing `compare`,
-`recommend-saliency`, `predict`, `tune-per-shot`, and `ladder`
-subcommands have been stubbing out via the placeholder predicate. See
+This is the production wiring that replaced the earlier placeholder
+predicate used by the `compare`, `recommend-saliency`, `predict`,
+`tune-per-shot`, and `ladder` subcommands. See
 [ADR-0326](../adr/0326-vmaf-tune-phase-b-bisect.md) for the decision
 and [Research-0090](../research/0090-vmaf-tune-phase-b-bisect-feasibility.md)
 for the algorithmic feasibility digest.

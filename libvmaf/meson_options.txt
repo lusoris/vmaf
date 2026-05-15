@@ -76,7 +76,7 @@ option('enable_vulkan',
 option('enable_mcp',
     type: 'boolean',
     value: false,
-    description: 'Build embedded MCP (Model Context Protocol) server inside libvmaf (ADR-0128 design; ADR-0209 / T5-2 scaffold; T5-2b runtime). Default disabled — opt in to use. Header surface lands in T5-2; runtime + transports in T5-2b. The umbrella flag enables the `vmaf_mcp_*` symbols; per-transport availability is gated by the sub-flags below.')
+    description: 'Build embedded MCP (Model Context Protocol) server inside libvmaf (ADR-0128 design; ADR-0209 / T5-2 scaffold; runtime promoted through T5-2b/c/d). Default disabled — opt in to use. The umbrella flag enables the `vmaf_mcp_*` symbols; per-transport availability is gated by the sub-flags below.')
 
 option('enable_mcp_sse',
     type: 'feature',
@@ -86,12 +86,12 @@ option('enable_mcp_sse',
 option('enable_mcp_uds',
     type: 'boolean',
     value: false,
-    description: 'Compile in the Unix-domain-socket transport for the embedded MCP server. Requires enable_mcp=true. POSIX-only; non-POSIX hosts return -ENODEV at runtime. Bodies land in T5-2b.')
+    description: 'Compile in the Unix-domain-socket transport for the embedded MCP server. Requires enable_mcp=true. POSIX-only; non-POSIX hosts return -ENODEV at runtime. Socket paths are created mode 0700.')
 
 option('enable_mcp_stdio',
     type: 'boolean',
     value: false,
-    description: 'Compile in the stdio (LSP-framed JSON-RPC on caller-supplied fd pair) transport for the embedded MCP server. Requires enable_mcp=true. Bodies land in T5-2b.')
+    description: 'Compile in the stdio transport for the embedded MCP server: newline-delimited JSON-RPC on a caller-supplied fd pair. Requires enable_mcp=true. LSP Content-Length framing remains a future compatibility addition.')
 
 option('enable_hip',
     type: 'boolean',
@@ -111,7 +111,7 @@ option('hip_gfx_targets',
 option('enable_metal',
     type: 'feature',
     value: 'auto',
-    description: 'Build Metal (Apple Silicon) compute backend (ADR-0338 scaffold / T8-1). Default `auto`: probes for Metal.framework / MetalKit.framework on macOS, disabled elsewhere. Apple Silicon (M1+ / GPU Family Apple 7+) only — Intel Macs surface as -ENODEV at runtime. Every entry point returns -ENOSYS until the runtime PR (T8-1b) lands.')
+    description: 'Build Metal (Apple Silicon) compute backend (ADR-0361 / T8-1 through T8-1k). Default `auto`: probes for Metal.framework / MetalKit.framework on macOS, disabled elsewhere. Apple Silicon (M1+ / GPU Family Apple 7+) only — Intel Macs surface as -ENODEV at runtime. Runtime, IOSurface import, and the first eight feature kernels are live; remaining metrics land as follow-up kernel batches.')
 
 option('fuzz',
     type: 'boolean',

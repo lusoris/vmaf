@@ -13,7 +13,7 @@ assessment. Backends are **opt-in at build time** via meson options and
 | CUDA | `-Denable_cuda=true` | no | `--no_cuda` | stable — see [cuda/overview.md](cuda/overview.md) |
 | SYCL / oneAPI | `-Denable_sycl=true` | no | `--no_sycl` / `--sycl_device N` | stable — see [sycl/overview.md](sycl/overview.md) |
 | HIP (AMD) | `-Denable_hip=true` | no | n/a | 8/11 real kernels (T7-10b, batch 1–4) — see [hip/overview.md](hip/overview.md); 3 stubs (adm, vif, integer_motion) remain `-ENOSYS` |
-| Metal (Apple Silicon) | `-Denable_metal=auto/enabled` | auto on macOS | n/a | 8/17 consumers registered (scaffold, T8-1) — see [metal/index.md](metal/index.md); all entry points return `-ENOSYS` until the runtime PR (ADR-0361 / T8-1b) |
+| Metal (Apple Silicon) | `-Denable_metal=auto/enabled` | auto on macOS | n/a | Runtime + 8 feature kernels live on Apple Silicon — see [metal/index.md](metal/index.md); remaining feature kernels are VIF, ADM, CIEDE, CAMBI, SSIMULACRA2, and other long-tail metrics |
 
 ## Runtime selection
 
@@ -56,8 +56,8 @@ per-backend page below.
 - [HIP / AMD ROCm](hip/overview.md) — opt-in backend; 8/11 real
   kernels (psnr, integer_psnr, float_ansnr, float_motion, float_moment,
   float_ssim, ciede, integer_motion_v2); 3 stubs pending
-- [Metal / Apple Silicon (scaffold)](metal/index.md) — auto-on-macOS;
-  4 consumers registered, all `-ENOSYS` until T8-1b runtime PR
+- [Metal / Apple Silicon](metal/index.md) — auto-on-macOS; runtime +
+  8 feature kernels live, remaining kernels follow the parity matrix
 
 ## Cross-backend parity
 

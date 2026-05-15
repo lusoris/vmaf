@@ -179,22 +179,21 @@ libvmaf/
   shrink without re-checking lavapipe behaviour under
   frames-in-flight > 1.
 
-- **Embedded MCP scaffold contract** (fork-local, [ADR-0209](../docs/adr/0209-mcp-embedded-scaffold.md)).
-  [`src/mcp/mcp.c`](src/mcp/mcp.c) is the audit-first stub TU
-  for the in-process MCP server declared in
-  [`include/libvmaf/libvmaf_mcp.h`](include/libvmaf/libvmaf_mcp.h).
-  Every public entry point validates its arguments first
-  (`-EINVAL` on NULLs / negative fds / NULL paths) **then** returns
-  `-ENOSYS`. The 12-sub-test smoke at
-  [`test/test_mcp_smoke.c`](test/test_mcp_smoke.c) pins the
-  contract; the T5-2b runtime PR flips bodies in place and
-  updates the smoke expectations in the same commit. Do not
-  drop the NULL-argument validation when wiring real bodies —
-  the smoke tests for `_init`, `_start_uds`, `_start_stdio`
-  rely on early `-EINVAL` even after the runtime arrives. The
-  `enable_mcp` umbrella flag must default `false` until all
-  three transport bodies are stable; the silent-flip risk is
-  the same as ADR-0175's Vulkan precedent.
+- **Embedded MCP runtime contract** (fork-local, [ADR-0209](../docs/adr/0209-mcp-embedded-scaffold.md)).
+  [`src/mcp/`](src/mcp/) now contains the promoted in-process MCP
+  runtime declared in
+  [`include/libvmaf/libvmaf_mcp.h`](include/libvmaf/libvmaf_mcp.h):
+  stdio, UDS, and loopback-SSE transports, plus read-only
+  `list_features` and out-of-band `compute_vmaf`. Preserve the
+  early argument validation (`-EINVAL` on NULLs / negative fds /
+  NULL paths) before any runtime work; the smoke tests for `_init`,
+  `_start_uds`, `_start_stdio`, and `_start_sse` rely on that
+  contract. `compute_vmaf` must keep using a per-call ephemeral
+  `VmafContext`, not the host scorer, because pooled scoring commits
+  models destructively. The `enable_mcp` umbrella flag must default
+  `false` until mutating measurement-thread tools and the SPSC bridge
+  land; the silent-flip risk is the same as ADR-0175's Vulkan
+  precedent.
 
 - **MS-SSIM `enable_lcs` GPU contract** (fork-local,
   [ADR-0243](../docs/adr/0243-enable-lcs-gpu.md)).

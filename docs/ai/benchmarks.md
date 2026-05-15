@@ -1,8 +1,9 @@
 # Tiny AI — benchmarks
 
 How to produce comparable numbers for the tiny-AI models and how to read
-them. **Placeholder numbers below** — regenerate via the scripts in this
-page once a trained model is available.
+them. The table below is a registry snapshot of shipped model-card
+metrics; regenerate the per-model reports before using any row for a
+release claim.
 
 ## Accuracy methodology
 
@@ -45,17 +46,23 @@ The `testdata/bench_all.sh` harness logs into
 `testdata/netflix_benchmark_results.json` (never committed — ad-hoc run
 artefact). Collect multiple runs and report median + p99.
 
-## Placeholder scoreboard
+## Shipped-score snapshot
 
-These rows are illustrative. The `vmaf-train register` step records
-actual scores in the sidecar JSON; paste them here on shipping a model.
+| Model | Target | Validation summary | Runtime note |
+| --- | --- | --- | --- |
+| `fr_regressor_v1` | FR VMAF-teacher score | Netflix Public Dataset 9-fold LOSO mean PLCC `0.9977 ± 0.0025` | Tiny MLP over canonical-6 features; standardisation lives in the sidecar. |
+| `fr_regressor_v2` | FR codec-aware VMAF-teacher score | Phase-A corpus in-sample PLCC `0.9794`; promoted by ADR-0291's LOSO gate | Adds codec / preset / CRF conditioning. |
+| `fr_regressor_v3` | FR codec-aware VMAF-teacher score | LOSO mean PLCC `0.9975`, gate `>= 0.95` | Current 16-slot encoder-vocab model. |
+| `vmaf_tiny_v2` | FR VMAF-teacher score | Netflix LOSO PLCC `0.9978 ± 0.0021`; KoNViD 5-fold PLCC `0.9998` | Production tiny fusion default; StandardScaler baked into ONNX. |
+| `vmaf_tiny_v3` | FR VMAF-teacher score | Netflix LOSO PLCC `0.9986 ± 0.0015`; train-set RMSE `0.112` | Higher-capacity opt-in model; int8 sidecar available. |
+| `vmaf_tiny_v4` | FR VMAF-teacher score | Netflix LOSO PLCC `0.9987 ± 0.0015` | Largest shipped tiny fusion model; opt-in. |
+| `dists_sq_placeholder_v0` | FR perceptual-distance smoke | No perceptual-quality score claimed; registry row is `smoke: true` | ABI / ORT two-input smoke checkpoint only. |
+| `mobilesal_placeholder_v0` | NR saliency smoke | Superseded for production ROI by `saliency_student_v1`; registry row is `smoke: true` | Retained to preserve the historical MobileSal I/O contract. |
 
-| Model | Target | PLCC | SROCC | RMSE | ms/frame (CPU) | ms/frame (CUDA) |
-| --- | --- | --- | --- | --- | --- | --- |
-| `vmaf_v0.6.1` (SVM, upstream) | FR | TBD | TBD | TBD | — | — |
-| `vmaf_tiny_fr_v1` | FR | TBD | TBD | TBD | TBD | TBD |
-| `vmaf_nr_mobilenet_v1` | NR | TBD | TBD | TBD | TBD | TBD |
-| `filter_denoise_residual_v1` | C3 | — | — | — | TBD | TBD |
+Runtime throughput depends on ORT execution provider, CPU ISA, and GPU
+driver. Record measured CPU / CUDA / SYCL / OpenVINO numbers in the
+individual model card or release note for the exact build under test
+rather than maintaining a single stale global table here.
 
 ## Model-size targets
 
