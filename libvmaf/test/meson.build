@@ -808,6 +808,22 @@ test_metal_smoke = executable('test_metal_smoke',
     c_args: ['-DHAVE_METAL=1']
 )
 test('test_metal_smoke', test_metal_smoke)
+
+# ADR-0437 — install-gate: verify libvmaf_metal.h is reachable via the
+# installed include path and that vmaf_metal_import_state + the IOSurface
+# sub-API are declared with the correct prototypes (compile+link check only;
+# no Metal runtime calls, so safe on runners without Apple-Family-7 devices).
+# Gated to macOS only: the header requires Apple SDK types even in stub mode.
+if host_machine.system() == 'darwin'
+test_metal_install_header = executable('test_metal_install_header',
+    ['test.c', 'test_metal_install_header.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency],
+    c_args: ['-DHAVE_METAL=1']
+)
+test('test_metal_install_header', test_metal_install_header)
+endif
 endif
 
 test('test_picture', test_picture)
