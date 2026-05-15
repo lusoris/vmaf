@@ -63,21 +63,6 @@ ADR-0214) catches drift but only after a full GPU run.
   `motion_five_frame_window=true` returns `-ENOTSUP` at `init()`.
   See [../../AGENTS.md §"motion3_score GPU contract"](../../AGENTS.md).
 
-- **`integer_psnr_sycl.cpp` honours `enable_chroma` option parity**
-  (ADR-0453). The `enable_chroma` option (default `true`) clamps `n_planes`
-  to 1 in `init_fex_sycl` when set to `false`, matching CPU
-  `integer_psnr.c::init`'s behaviour. On rebase: keep the clamp and its
-  `default_val.b = true` aligned with the CUDA and Vulkan twins; all three
-  backends must agree on the default and the dispatch logic.
-
-- **`integer_psnr_sycl.cpp` uses ceiling division for chroma plane geometry**
-  (PR #878 Vulkan twin fix). `cw` and `ch` are computed via
-  `(w + 1U) >> 1` / `(h + 1U) >> 1`, not `w / 2U` / `h / 2U`, to match
-  CPU + CUDA + Vulkan behaviour on odd-dimension YUV420. On rebase: if
-  upstream Netflix changes the chroma-dimension formula in
-  `integer_psnr.c::init`, propagate it here and to the CUDA and Vulkan twins
-  in the same PR.
-
 - **`integer_ms_ssim_sycl.cpp` honours the `enable_lcs` GPU
   contract** (ADR-0243). Emits 15 extra metrics
   (`float_ms_ssim_{l,c,s}_scale{0..4}`) when `enable_lcs=true`.
@@ -118,14 +103,6 @@ ADR-0214) catches drift but only after a full GPU run.
   If upstream Netflix adds or renames these parameters in
   `integer_adm.c` / `float_adm.c`, the SYCL twins must be updated
   in the same PR.
-
-- **`motion_fps_weight` cross-backend parity** — see the canonical
-  invariant note in [`../cuda/AGENTS.md`](../cuda/AGENTS.md).
-  `integer_motion_v2_sycl.cpp` and `float_motion_sycl.cpp` both carry
-  the `motion_fps_weight` option and apply it in `flush()` /
-  `collect()` exactly as documented there. Any future change to the
-  weight application math must span all motion-family GPU twins in
-  the same PR.
 
 - **VAAPI / dmabuf zero-copy import** — the FFmpeg `libvmaf_sycl`
   filter (`ffmpeg-patches/0005-*.patch`) consumes
@@ -171,21 +148,3 @@ DPC++ toolchain with `icpx` on PATH.
   feature kernels are unconditionally fp64-free (T7-17).
 - [ADR-0243](../../../../docs/adr/0243-enable-lcs-gpu.md) — MS-SSIM
   `enable_lcs` GPU contract.
-
-## Per-feature option-table sync invariant
-
-**Adding a feature knob to any one backend (SYCL / CUDA / HIP / Metal /
-Vulkan) requires adding it to all backends in the same PR** -- no deferred
-follow-ups. The canonical source of truth for the option signature (name,
-alias, type, min, max, default, flags) is the CPU feature extractor in
-`libvmaf/src/feature/` (e.g. `integer_motion.c`). The GPU twins copy the
-option entry verbatim and apply the weight in the equivalent host-side
-`flush()` or post-processing callback.
-
-Rationale: the CHUG / K150K extractor whitelist in
-`ai/scripts/extract_k150k_features.py` passes `_feature_arg` dicts to
-`vmaf_use_features_with_opts`; if the receiving backend's options table
-is missing the knob the option silently falls through to the default,
-producing silently-wrong scores without any error. This is the root cause
-of the `motion_fps_weight` gap in `integer_motion_v2_sycl.cpp` closed by
-PR #851-follow-up (2026-05-16).

@@ -53,20 +53,6 @@ if is_hip_enabled
   platform_specific_headers += 'libvmaf_hip.h'
 endif
 
-# `enable_metal` is a feature option (`disabled`/`enabled`/`auto`). Install the
-# public header whenever Metal is opted in (or auto-resolved on macOS) so that
-# downstream FFmpeg `--enable-libvmaf-metal` configure probes can find
-# `libvmaf/libvmaf_metal.h` in the install tree. Without this entry the header
-# was silently omitted from `meson install` output, breaking the
-# `check_pkg_config libvmaf_metal ... libvmaf/libvmaf_metal.h
-# vmaf_metal_state_init` configure check. Mirrors the Vulkan guard above —
-# same feature-option type, same treat-auto-as-install rationale (ADR-0437).
-is_metal_enabled = get_option('enable_metal').enabled() \
-                   or get_option('enable_metal').auto()
-if is_metal_enabled
-  platform_specific_headers += 'libvmaf_metal.h'
-endif
-
 if get_option('enable_dnn').enabled() or get_option('enable_dnn').auto()
   platform_specific_headers += 'dnn.h'
 endif

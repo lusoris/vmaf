@@ -555,16 +555,13 @@ back to a host-backed picture if the caller skipped
 
 ## HIP
 
-`libvmaf_hip.h` exposes the AMD ROCm/HIP lifecycle surface. It follows the
-CUDA header shape closely:
+`libvmaf_hip.h` exposes the AMD ROCm/HIP lifecycle surface and picture
+preallocation API. It follows the CUDA header shape closely:
 
-- `vmaf_hip_state_init` creates a backend state for a selected HIP device.
-- `vmaf_hip_import_state` hands the state to a `VmafContext`. Note:
-  `vmaf_hip_import_state` currently returns `-ENOSYS` — it remains a stub
-  until the first real HIP feature extractor wires HIP dispatch
-  (`vmaf_hip_state_init` and `vmaf_hip_list_devices` are fully implemented).
+- `vmaf_hip_state_new` creates a backend state for a selected HIP device.
 - `vmaf_hip_state_free` releases the state and any backend-owned resources.
-- `vmaf_hip_list_devices` enumerates visible ROCm devices.
+- `vmaf_hip_preallocate_pictures` prepares GPU-resident pictures for feature
+  extractors that can consume HIP memory directly.
 
 The HIP backend is compile-time gated behind `-Denable_hip=true` and the HIP
 compiler option used by this fork's build matrix. Runtime support depends on a
@@ -579,55 +576,19 @@ follow-up kernels.
 `libvmaf_metal.h` exposes the Apple Metal lifecycle and IOSurface import
 surface. It is available only on macOS builds with `-Denable_metal=auto` or
 `-Denable_metal=enabled`; unsupported hosts return `-ENODEV` instead of
-silently falling back to CPU. The header is installed into the system prefix by
-`meson install` whenever Metal is enabled, so that downstream FFmpeg
-`--enable-libvmaf-metal` configure probes can locate it (ADR-0437).
+silently falling back to CPU.
 
-### Core lifecycle API
+The public entry points mirror the other GPU backends:
 
-| Symbol | Description |
-| --- | --- |
-| `vmaf_metal_available` | Returns 1 if the library was built with Metal support; 0 otherwise. |
-| `vmaf_metal_state_init` | Allocates a `VmafMetalState`, selecting a device by index (-1 = system default). Returns `-ENODEV` on non-Apple-Family-7 hosts. |
-| `vmaf_metal_import_state` | Hands an allocated `VmafMetalState` to a `VmafContext` for use during feature extraction. The caller retains ownership and must call `vmaf_metal_state_free` after `vmaf_close`. |
-| `vmaf_metal_state_free` | Releases a state allocated via `vmaf_metal_state_init` or `vmaf_metal_state_init_external`. Safe to pass `NULL`. |
-| `vmaf_metal_list_devices` | Enumerates Apple-Family-7+ Metal devices. Returns device count or `-ENOSYS` when built without Metal. |
+- `vmaf_metal_state_new` creates a Metal device/queue state.
+- `vmaf_metal_state_free` releases the state.
+- `vmaf_metal_import_iosurface` imports IOSurface-backed frames for zero-copy
+  paths used by FFmpeg and AVFoundation-style producers.
 
-Typical call sequence:
-
-```text
-vmaf_init()
-vmaf_metal_state_init(&state, cfg)     ← new
-vmaf_metal_import_state(vmaf, state)   ← new; hands state to ctx
-loop:
-  vmaf_metal_picture_import(state, iosurface, plane, w, h, bpc, is_ref, index)
-  vmaf_metal_wait_compute(state)
-  vmaf_metal_read_imported_pictures(vmaf, index)
-vmaf_score_pooled(vmaf, ...)
-vmaf_close(vmaf)
-vmaf_metal_state_free(&state)
-```
-
-### IOSurface zero-copy import (ADR-0423)
-
-For FFmpeg/VideoToolbox callers that hold `CVPixelBufferRef`-backed frames, the
-fork ships a zero-copy IOSurface import path. The caller pulls the `IOSurface`
-via `CVPixelBufferGetIOSurface` and hands it to libvmaf; the Metal feature
-kernels read the frame without a host round-trip.
-
-| Symbol | Description |
-| --- | --- |
-| `VmafMetalExternalHandles` | Struct carrying an `id<MTLDevice>` and `id<MTLCommandQueue>` as `uintptr_t` to keep the header Metal-framework-free. |
-| `vmaf_metal_state_init_external` | Allocates a `VmafMetalState` that adopts caller-supplied Metal handles instead of creating its own device/queue. Required when the IOSurface source and libvmaf compute must share the same `MTLDevice`. |
-| `vmaf_metal_picture_import` | Imports a single plane of an `IOSurfaceRef` (as `uintptr_t`) into the libvmaf Metal pipeline. The caller retains ownership; libvmaf locks the surface read-only and copies the plane into a shared-storage `VmafPicture`. |
-| `vmaf_metal_wait_compute` | Blocks until all Metal compute work on `state` has finished. Currently a synchronous no-op (v1 import path is a host-side memcpy); future async paths replace this with an `MTLSharedEvent` drain. |
-| `vmaf_metal_read_imported_pictures` | Triggers a libvmaf score read for the ref+dis IOSurfaces at `index`. Mirrors `vmaf_vulkan_read_imported_pictures`. |
-
-Metal currently targets Apple Silicon (Apple-Family-7, M1 and later) and ships
-runtime dispatch for 8 feature kernels. VIF, ADM, CIEDE, CAMBI, SSIMULACRA2,
-MS-SSIM, PSNR-HVS, and motion3 are tracked as follow-up kernels. Intel-Mac
-paths remain MoltenVK/Vulkan-oriented unless a future ADR adds a dedicated
-Metal runtime contract for those devices.
+Metal currently targets Apple Silicon and ships runtime dispatch for the
+landed Metal extractor set documented in the backend guide. Intel-Mac paths
+remain MoltenVK/Vulkan-oriented unless a future ADR adds a dedicated Metal
+runtime contract for those devices.
 
 ## Related
 

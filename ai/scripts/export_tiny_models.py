@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# Copyright 2026 Lusoris and Claude (Anthropic)
-# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
 """Export trained C2 + C3 Lightning checkpoints to ONNX and update
 ``model/tiny/registry.json``.
 
@@ -23,15 +21,18 @@ the registry row in place.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
 
+import torch
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "ai" / "src"))
 
-from aiutils.file_utils import sha256  # noqa: E402
 from vmaf_train.models import LearnedFilter, NRMetric  # noqa: E402
+from vmaf_train.models.exports import export_to_onnx  # noqa: E402
 
 TINY_DIR = REPO_ROOT / "model" / "tiny"
 REGISTRY = TINY_DIR / "registry.json"
@@ -43,9 +44,18 @@ C2_INPUT_HW = 224
 C3_INPUT_HW = 224
 
 
-def _load_lightning_ckpt(model_cls, ckpt: Path):  # type: ignore[no-untyped-def]
-    import torch
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        while True:
+            chunk = fh.read(1 << 20)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
 
+
+def _load_lightning_ckpt(model_cls, ckpt: Path):
     state = torch.load(ckpt, map_location="cpu", weights_only=False)
     hp = state.get("hyper_parameters", {}) or {}
     model = model_cls(**hp)
@@ -53,7 +63,7 @@ def _load_lightning_ckpt(model_cls, ckpt: Path):  # type: ignore[no-untyped-def]
     return model.eval()
 
 
-def _export_one(  # type: ignore[no-untyped-def]
+def _export_one(
     *,
     model,
     onnx_path: Path,
@@ -61,8 +71,6 @@ def _export_one(  # type: ignore[no-untyped-def]
     input_name: str,
     output_name: str,
 ) -> None:
-    from vmaf_train.models.exports import export_to_onnx
-
     print(f"[export] {onnx_path.name} from in_shape={in_shape}")
     export_to_onnx(
         model,
@@ -72,6 +80,17 @@ def _export_one(  # type: ignore[no-untyped-def]
         output_name=output_name,
         atol=1e-4,
     )
+    # torch.onnx may emit a separate <onnx>.data file when the dynamo
+    # exporter splits weights out as external data. Re-save inline so the
+    # registry sha256 covers the full model bytes (the schema's trust-root
+    # contract assumes a single self-contained .onnx file).
+    import onnx
+
+    model_proto = onnx.load(str(onnx_path))
+    onnx.save(model_proto, str(onnx_path), save_as_external_data=False)
+    sidecar_data = onnx_path.with_suffix(".onnx.data")
+    if sidecar_data.exists():
+        sidecar_data.unlink()
 
 
 def _write_sidecar(model_id: str, onnx_path: Path, kind: str, notes: str) -> Path:
@@ -83,7 +102,7 @@ def _write_sidecar(model_id: str, onnx_path: Path, kind: str, notes: str) -> Pat
                 "kind": kind,
                 "onnx": onnx_path.name,
                 "opset": 17,
-                "sha256": sha256(onnx_path),
+                "sha256": _sha256(onnx_path),
                 "notes": notes,
             },
             indent=2,
@@ -148,7 +167,7 @@ def main() -> int:
                 ),
                 "onnx": c2_onnx.name,
                 "opset": 17,
-                "sha256": sha256(c2_onnx),
+                "sha256": _sha256(c2_onnx),
             }
         )
 
@@ -185,7 +204,7 @@ def main() -> int:
                 ),
                 "onnx": c3_onnx.name,
                 "opset": 17,
-                "sha256": sha256(c3_onnx),
+                "sha256": _sha256(c3_onnx),
             }
         )
 

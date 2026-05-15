@@ -1,4 +1,4 @@
-# Research-0128: DNN API execution-provider doc status
+# Research 0128: DNN API execution-provider doc status
 
 - **Date**: 2026-05-15
 - **Workstream**: tiny-AI DNN API documentation hygiene

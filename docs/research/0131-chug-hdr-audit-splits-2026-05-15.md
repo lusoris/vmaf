@@ -1,4 +1,4 @@
-# Research-0131: CHUG HDR Audit + Content Splits
+# CHUG HDR Audit + Content Splits
 
 ## Finding
 

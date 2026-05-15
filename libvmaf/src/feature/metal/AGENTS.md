@@ -82,29 +82,6 @@ a real kernel lands; they are removed from `metal_sources` in
 | `integer_motion_metal.c`           | Scaffold     | replaced by integer_motion_metal.mm                                     |
 | `float_ssim_metal.c`               | Scaffold     | replaced by float_ssim_metal.mm                                         |
 
-## Rebase-sensitive invariants (motion_fps_weight)
-
-- **`motion_fps_weight` cross-backend parity** — see the canonical
-  invariant note in [`../cuda/AGENTS.md`](../cuda/AGENTS.md).
-  `integer_motion_v2_metal.mm` and `float_motion_metal.mm` both carry
-  the `motion_fps_weight` option and apply it identically to the
-  CUDA / SYCL / Vulkan / HIP twins: `motion_v2` applies the weight in
-  `flush()` to both scores before the min; `float_motion` applies it
-  in `collect()` (index >= 2, to both `w_cur` and `w_prev` before the
-  min) and in `flush()` (scaled tail emission). When
-  `motion_fps_weight = 1.0` (default) the arithmetic is a no-op and
-  the `places=4` gate must pass. Any future change to the weight
-  application math must span all motion-family GPU twins in the same PR.
-
-## Registration coverage invariant
-
-Every new Metal `VmafFeatureExtractor` added to `feature_extractor.c`'s
-`feature_extractor_list[]` MUST appear in `libvmaf/test/test_metal_smoke.c`'s
-registration table with a `vmaf_get_feature_extractor_by_name` assertion
-in the same PR. Motion-class extractors must also assert
-`VMAF_FEATURE_EXTRACTOR_TEMPORAL` on the `.flags` field (load-bearing
-for the feature engine's collect-before-next-submit scheduling).
-
 ## Governing ADRs
 
 - [ADR-0421](../../../../docs/adr/0421-metal-first-kernel-motion-v2.md) — T8-1c through T8-1k batch specification

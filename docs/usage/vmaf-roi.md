@@ -6,11 +6,6 @@ emits an encoder-native per-CTU QP-offset file. It complements
 extractor): same model, two surfaces — scoring the residual vs steering
 the encoder.
 
-> **Binary name note:** Built and installed as `vmaf_roi` (underscore,
-> per `libvmaf/tools/meson.build`). Throughout this page the
-> `vmaf-roi` (hyphen) form refers to the same binary; if you typed
-> `vmaf-roi` and got "command not found", fall back to `vmaf_roi`.
-
 This is **T6-2b** (sidecar). T6-2a shipped the in-libvmaf saliency
 extractor.
 

@@ -51,7 +51,7 @@ smallest training share.
 The fork's training-data picture today:
 
 - Netflix Public corpus (~9 ref + 70 dis YUVs, 37 GB at
-  `.corpus/netflix/`): pre-encoded distortions with no
+  `.workingdir2/netflix/`): pre-encoded distortions with no
   in-band codec metadata. Tagged `"unknown"` in the new `codec`
   column.
 - BVI-DVC Part 1 (4-tier 10-bit YCbCr): reference-only material;
