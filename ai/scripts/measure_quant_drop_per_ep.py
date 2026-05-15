@@ -143,6 +143,9 @@ class _Runner:
         self.name = name
 
     def infer(self, x):  # pragma: no cover - abstract
+        # TODO(#842): convert _Runner to abc.ABC with @abc.abstractmethod so
+        # the abstract contract is enforced at instantiation time rather than
+        # relying on a bare raise here.
         raise NotImplementedError
 
 
