@@ -49,8 +49,9 @@ ADR-0279). F.4 ships per-content-type recipe overrides
 fires *before* the F.2 short-circuits evaluate so a recipe can flip
 ``force_single_rung`` and have the ladder stage honour it. Non-smoke
 runs probe source geometry, duration, and HDR signaling through
-ffprobe-backed helpers; ``--smoke`` keeps the same planner deterministic
-without ffmpeg or ONNX.
+ffprobe-backed helpers and use the predictor path for per-cell CRF,
+VMAF, and bitrate estimates until the later realise/encode step lands;
+``--smoke`` keeps the same planner deterministic without ffmpeg or ONNX.
 
 See also:
 
@@ -72,7 +73,10 @@ import logging
 import math
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .predictor import ShotFeatures
 
 _LOG = logging.getLogger(__name__)
 
@@ -886,6 +890,61 @@ class AutoPlan:
     metadata: dict
 
 
+def _predictor_features_from_meta(meta: SourceMeta) -> "ShotFeatures":
+    """Build predictor features from metadata-only auto inputs.
+
+    This is the first production step past the F.1 placeholder cell:
+    when a non-smoke caller has already probed the source, the auto
+    driver can use the existing analytical / ONNX predictor path to
+    choose a CRF without running a full coarse-to-fine sweep. Features
+    that require per-frame probe logs stay at zero until the Phase F
+    probe-encode capture lands; the predictor contract explicitly
+    treats those as unavailable signals.
+    """
+    from .predictor import ShotFeatures  # noqa: PLC0415
+
+    fps = 30.0
+    duration_s = max(float(meta.duration_s), 0.0)
+    shot_frames = int(round(duration_s * fps)) if duration_s > 0.0 else int(fps)
+    pixels = max(int(meta.width), 1) * max(int(meta.height), 1)
+    # Complexity score is the probe bitrate when available. If the
+    # caller has not supplied it yet, seed the predictor with a
+    # resolution-proportional neutral bitrate so non-smoke metadata
+    # runs still produce a codec-specific CRF instead of the old fixed
+    # placeholder.
+    probe_bitrate = float(meta.complexity_score)
+    if math.isnan(probe_bitrate) or probe_bitrate <= 0.0:
+        probe_bitrate = max(500.0, pixels / 900.0)
+    return ShotFeatures(
+        probe_bitrate_kbps=probe_bitrate,
+        probe_i_frame_avg_bytes=0.0,
+        probe_p_frame_avg_bytes=0.0,
+        probe_b_frame_avg_bytes=0.0,
+        frame_diff_mean=max(float(meta.shot_variance), 0.0),
+        shot_length_frames=max(shot_frames, 1),
+        fps=fps,
+        width=max(int(meta.width), 1),
+        height=max(int(meta.height), 1),
+    )
+
+
+def _estimate_cell_bitrate_kbps(features: "ShotFeatures", codec: str, crf: int) -> float:
+    """Estimate bitrate for an auto cell from probe bitrate + CRF.
+
+    The value is explicitly a predictor estimate, not a measured encode
+    result. It follows the common encoder rule of thumb that six CRF/QP
+    points roughly double / halve bitrate, anchored at the adapter's
+    probe quality. This gives downstream planners a monotone bitrate
+    estimate until the full encode/score realise step lands.
+    """
+    from .codec_adapters import get_adapter  # noqa: PLC0415
+
+    adapter = get_adapter(codec)
+    probe_quality = int(getattr(adapter, "probe_quality", getattr(adapter, "quality_default", crf)))
+    scale = 2.0 ** ((float(probe_quality) - float(crf)) / 6.0)
+    return max(1.0, float(features.probe_bitrate_kbps) * scale)
+
+
 def run_auto(
     *,
     src: Path,
@@ -903,9 +962,9 @@ def run_auto(
     """Drive the F.1 + F.2 + F.3 decision tree.
 
     The non-smoke path probes source metadata from the actual source
-    and runs the same deterministic planner. ``smoke=True`` skips the
-    process-bound probes and exercises the composition end-to-end with
-    synthetic metadata.
+    and uses the predictor path for per-cell CRF / bitrate / VMAF
+    estimates. ``smoke=True`` skips process-bound probes and exercises
+    the composition end-to-end with synthetic metadata.
 
     ``meta_override`` lets callers (and tests) inject a pre-built
     :class:`SourceMeta`. When ``None`` and ``smoke=True``, a synthetic
@@ -1048,6 +1107,13 @@ def run_auto(
 
     confidence_aware_escalations: list[dict] = []
     cells: list[dict] = []
+    predictor = None
+    predictor_features = None
+    if not smoke:
+        from .predictor import Predictor  # noqa: PLC0415
+
+        predictor = Predictor()
+        predictor_features = _predictor_features_from_meta(meta)
     for rung in rungs:
         for codec in codecs:
             cell_state = dataclasses.replace(plan_state)
@@ -1090,20 +1156,42 @@ def run_auto(
                     "decision": decision.value,
                 }
             )
+            if predictor is not None and predictor_features is not None:
+                from .predictor import pick_crf  # noqa: PLC0415
+
+                crf = pick_crf(
+                    predictor,
+                    predictor_features,
+                    float(effective_predictor_target_vmaf),
+                    str(codec),
+                )
+                estimated_vmaf = predictor.predict_vmaf(predictor_features, crf, str(codec))
+                estimated_bitrate_kbps = _estimate_cell_bitrate_kbps(
+                    predictor_features,
+                    str(codec),
+                    crf,
+                )
+                prediction_source = "predictor"
+            else:
+                crf = 23
+                estimated_vmaf = float(target_vmaf)
+                estimated_bitrate_kbps = float(max_budget_kbps)
+                prediction_source = "smoke-placeholder"
 
             cells.append(
                 {
                     "rung": int(rung),
                     "codec": str(codec),
                     "verdict": cell_verdict or plan_state.predictor_verdict or "UNKNOWN",
-                    "crf": 23,  # placeholder; production wiring fills this in
-                    "estimated_vmaf": float(target_vmaf),
-                    "estimated_bitrate_kbps": float(max_budget_kbps),
+                    "crf": int(crf),
+                    "estimated_vmaf": float(estimated_vmaf),
+                    "estimated_bitrate_kbps": float(estimated_bitrate_kbps),
                     "hdr_args": list(cell_hdr_args),
                     "sample_clip_seconds": propagated_clip,
                     "confidence_decision": decision.value,
                     "interval_width": cell_width,
                     "effective_predictor_target_vmaf": float(effective_predictor_target_vmaf),
+                    "prediction_source": prediction_source,
                     "saliency_intensity": saliency_intensity,
                 }
             )

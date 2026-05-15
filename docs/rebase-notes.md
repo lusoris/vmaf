@@ -7,6 +7,11 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
+No rebase impact: `fix/mcp-embedded-docs-live-2026-05-14` updates
+fork-local MCP documentation and `tools/vmaf-tune` auto-planner code
+only; it does not touch upstream-shared code, headers, build files,
+or rebase-sensitive invariants.
+
 The intended reader is whoever runs the next `/sync-upstream` (see
 [ADR-0002](adr/0002-merge-path-master-default.md) and
 `.claude/skills/sync-upstream/`). Read top-to-bottom before resolving

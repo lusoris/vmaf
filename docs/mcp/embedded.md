@@ -34,7 +34,7 @@ for the design rationale.
 | Workflow | Surface | Notes |
 |---|---|---|
 | "Score a video, hand the result to my agent." | **External Python MCP server** (`mcp-server/vmaf-mcp/`) | Recommended default. Spawns `vmaf` as a child process. See [`docs/mcp/index.md`](index.md). |
-| "Score from inside an embedding process, or prepare an in-process control plane for a running measurement." | **Embedded MCP server** (this doc) | Runs in-process. Stdio, UDS, and loopback SSE are live; `list_features` and `compute_vmaf` are implemented. Mutating mid-stream tools remain future work. |
+| "Score from inside an embedding process, or prepare an in-process control plane for a running measurement." | **Embedded MCP server** (this doc) | Runs in-process. Stdio, UDS, and loopback SSE are live; `list_features` and `compute_vmaf` are implemented. Mutating mid-stream tools wait on the v4 SPSC bridge. |
 
 The two are additive — running both at the same time is fine.
 
@@ -80,6 +80,7 @@ VmafMcpServer *server = NULL;
 VmafMcpConfig cfg = { .queue_depth = 64, .max_drain_per_frame = 4 };
 int rc = vmaf_mcp_init(&server, ctx, &cfg);
 if (rc < 0) {
+    /* -ENOSYS means libvmaf was built without -Denable_mcp=true. */
     fprintf(stderr, "MCP unavailable: %d\n", rc);
     /* Fall back to the external Python server, or proceed without. */
 }
@@ -189,14 +190,18 @@ This differs from the UDS transport (AF_UNIX), where plain
 - One **MCP pthread** per active transport. The thread owns the
   socket, owns JSON parsing, owns all per-request allocation. It
   does **not** touch measurement state directly.
-- `VmafMcpConfig.queue_depth` and
-  `VmafMcpConfig.max_drain_per_frame` are validated at init time
-  and reserved for the future measurement-thread queue. v1-v3
-  request handlers run to completion on the transport thread.
-- Mutating tools that need measurement-thread access must first
-  add the preallocated SPSC ring and bounded frame-boundary drain
-  described by ADR-0128. Until then, the live tools stay
-  read-only or use an ephemeral scoring context (`compute_vmaf`).
+- v3 tools execute on the transport thread and do not mutate the
+  host measurement state. `compute_vmaf` creates a short-lived
+  private `VmafContext` for the requested YUV pair instead of
+  borrowing the host's active scorer.
+- The SPSC ring-buffer bridge described by ADR-0128 is still v4
+  work. `VmafMcpConfig.queue_depth` and `max_drain_per_frame`
+  remain validated API fields so hosts can keep one configuration
+  shape across v3 and v4, but v3 does not yet drain envelopes on
+  frame boundaries.
+- Tools that need measurement-thread mutation, such as
+  `vmaf.request_model_swap`, must wait for that SPSC bridge. Until
+  then the embedded surface is read-only plus out-of-band scoring.
 
 These invariants are documented in the public header
 ([`libvmaf_mcp.h`](../../libvmaf/include/libvmaf/libvmaf_mcp.h)).
@@ -205,13 +210,13 @@ These invariants are documented in the public header
 
 | Component | Status | PR / ADR |
 |---|---|---|
-| Public header `libvmaf_mcp.h` | Landed (scaffold) | T5-2 / [ADR-0209](../adr/0209-mcp-embedded-scaffold.md) |
+| Public header `libvmaf_mcp.h` | Landed | T5-2 / [ADR-0209](../adr/0209-mcp-embedded-scaffold.md) |
 | TU `libvmaf/src/mcp/mcp.c` | Landed (v1 runtime; init / start_stdio / stop / close wired) | T5-2b / ADR-0209 § Status update 2026-05-08 |
 | Vendored cJSON v1.7.18 (MIT) under `libvmaf/src/mcp/3rdparty/cJSON/` | Landed | T5-2b |
 | JSON-RPC dispatcher (`tools/list`, `tools/call`, `resources/list`, `initialize`) | Landed | T5-2b |
 | Build flags + per-transport sub-flags | Landed (default off) | T5-2 |
 | Smoke + protocol test (15 sub-tests, real round-trip) | Landed | T5-2b |
-| stdio transport body | Landed (line-delimited JSON-RPC; LSP `Content-Length:` framing deferred to v3) | T5-2b |
+| stdio transport body | Landed (line-delimited JSON-RPC; LSP `Content-Length:` framing remains a v4 roadmap item) | T5-2b |
 | UDS transport body | Landed (line-delimited JSON-RPC; mode-0700 socket file) | T5-2c / [ADR-0332](../adr/0332-mcp-runtime-v2.md) |
 | SSE transport body | Landed (loopback HTTP/1.1 + `text/event-stream`; no third-party HTTP library — see ADR-0332 § "v3 SSE" for the license-driven mongoose pivot) | T5-2d / [ADR-0332](../adr/0332-mcp-runtime-v2.md) § "Status update 2026-05-09 (v3 SSE)" |
 | Tool: `list_features` (read-only) | Landed | T5-2b |
