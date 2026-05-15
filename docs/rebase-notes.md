@@ -34574,3 +34574,24 @@ python3 scripts/ci/cross_backend_vif_diff.py \
   --distorted testdata/dis_576x324_48f.yuv \
   --width 576 --height 324 --feature psnr_hvs --backend cuda --places 3
 ```
+
+## 2026-05-15 — `test_cli_parse` Sanitizer Deselect Retired
+
+**Files touched**: `.github/workflows/tests-and-quality-gates.yml`,
+`docs/state.md`, `changelog.d/fixed/sanitizer-cli-parse.md`.
+
+**Rebase impact**: low. This only narrows the ADR-0347 sanitizer
+deselect regexes after re-verifying `test_cli_parse` on current master;
+the CLI parser behavior and public options are unchanged.
+
+**Invariant to preserve on rebase**: keep `test_cli_parse` out of the
+ASan / UBSan / TSan `EXCLUDE` regexes unless a new sanitizer report is
+captured and tracked in `docs/state.md`.
+
+**Smoke-test after rebase**:
+
+```bash
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:abort_on_error=1:print_summary=1 ./libvmaf/build-asan-cli/test/test_cli_parse
+UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 ./libvmaf/build-ubsan-cli/test/test_cli_parse
+TSAN_OPTIONS=halt_on_error=1 ./libvmaf/build-tsan-cli/test/test_cli_parse
+```
