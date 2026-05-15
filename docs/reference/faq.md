@@ -198,17 +198,23 @@ that run through ONNX Runtime inside libvmaf. See
 [docs/ai/overview.md](../ai/overview.md) for the architecture and
 [docs/ai/inference.md](../ai/inference.md) for the CLI.
 
-No first-milestone model weights ship yet — `model/tiny/` is reserved for
-artefacts produced via the [`ai/`](../../ai/) training package
-(`pip install -e ai && vmaf-train --help`). Once a model passes the
-cross-backend ULP gate, it will land as `model/tiny/vmaf_tiny_vN.onnx`.
-Invocation will be:
+The fork now ships registry-pinned ONNX artefacts under
+[`model/tiny/`](../../model/tiny/), including VMAF-tiny FR regressors,
+codec-aware FR regressors, LPIPS-SqueezeNet, saliency students,
+TransNet V2, and learned pre-filter models. Check
+[`model/tiny/registry.json`](../../model/tiny/registry.json) for the
+authoritative list and each row's `smoke` flag; smoke entries are CI or
+compatibility probes, not production quality models. Invocation is:
 
 ```bash
 vmaf --reference ref.y4m --distorted dis.y4m \
-  --tiny-model model/tiny/vmaf_tiny_vN.onnx \
-  --tiny-device cuda
+  --tiny-model model/tiny/vmaf_tiny_v2.onnx \
+  --tiny-device auto
 ```
+
+Production deployments should combine the model registry with
+`--tiny-model-verify` and, where appropriate, the `VMAF_TINY_MODEL_DIR`
+path jail documented in [docs/ai/security.md](../ai/security.md).
 
 ### Q: Does the fork preserve Netflix's golden-data numerical contract?
 
