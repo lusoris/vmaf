@@ -1,6 +1,11 @@
 # ADR-0345: cambi × {CUDA, SYCL, HIP} GPU port strategy
 
-- **Status**: Proposed
+- **Status**: Accepted
+- **Status update 2026-05-15**: CUDA + SYCL ports implemented;
+  `libvmaf/src/feature/cuda/integer_cambi_cuda.c` and
+  `libvmaf/src/feature/sycl/integer_cambi_sycl.cpp` present on
+  master; cross-backend gate at places=4 active. HIP port deferred
+  to a separate follow-up task.
 - **Date**: 2026-05-09
 - **Deciders**: lusoris@pm.me, Claude (Anthropic)
 - **Tags**: cuda, sycl, hip, gpu, cambi, fork-local, places-4
