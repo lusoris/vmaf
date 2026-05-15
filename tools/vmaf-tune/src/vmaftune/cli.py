@@ -1758,23 +1758,20 @@ def _run_ladder(args: argparse.Namespace) -> int:
     used by default; tests can inject a stub via the ``ladder.SamplerFn``
     parameter.
 
-    When ``--with-uncertainty`` is set the CLI emits an informational
-    notice — the production path that wires per-rung intervals
-    through the sampler ships in a follow-up PR (see ADR-0279
-    status update); the library API
-    :func:`vmaftune.ladder.apply_uncertainty_recipe` is fully
-    functional today and is exercised by the unit tests.
+    When ``--with-uncertainty`` is set the production path preserves
+    per-row ``vmaf_interval`` payloads from the corpus sampler,
+    applies :func:`vmaftune.ladder.apply_uncertainty_recipe`, and
+    then selects knees from the adjusted rung set. Point-only sampler
+    rows get a conservative centred interval using the active
+    ``wide_interval_min_width`` threshold, so they still participate
+    in midpoint insertion instead of bypassing the recipe.
     """
     from .ladder import build_and_emit
+    from .uncertainty import load_confidence_thresholds
 
+    thresholds = None
     if getattr(args, "with_uncertainty", False):
-        sys.stderr.write(
-            "vmaf-tune ladder: --with-uncertainty set; the default "
-            "sampler still emits point-only rungs. The library API "
-            "vmaftune.ladder.apply_uncertainty_recipe is the entry "
-            "point for callers shipping their own interval-aware "
-            "sampler. Manifest unchanged.\n"
-        )
+        thresholds = load_confidence_thresholds(getattr(args, "uncertainty_sidecar", None))
     resolutions = _parse_resolutions(args.resolutions)
     target_vmafs = _parse_target_vmafs(args.target_vmafs)
     manifest = build_and_emit(
@@ -1785,6 +1782,9 @@ def _run_ladder(args: argparse.Namespace) -> int:
         quality_tiers=args.quality_tiers,
         format=args.format,
         spacing=args.spacing,
+        with_uncertainty=bool(getattr(args, "with_uncertainty", False)),
+        uncertainty_thresholds=thresholds,
+        rung_overlap_threshold=getattr(args, "rung_overlap_threshold", None),
     )
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
