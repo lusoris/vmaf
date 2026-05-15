@@ -47,7 +47,9 @@ Runtime directly.
   New tiny-AI feature extractors use the helpers in
   [`tiny_extractor_template.h`](tiny_extractor_template.h)
   (`vmaf_tiny_ai_resolve_model_path` / `vmaf_tiny_ai_open_session` /
-  `vmaf_tiny_ai_yuv8_to_rgb8_planes` / `VMAF_TINY_AI_MODEL_PATH_OPTION`).
+  `vmaf_tiny_ai_yuv8_to_rgb8_planes` /
+  `vmaf_tiny_ai_yuv_to_rgb8_planes` /
+  `VMAF_TINY_AI_MODEL_PATH_OPTION`).
   The user-facing log lines (`<name>: no model path …`, `<name>:
   vmaf_dnn_session_open(<path>) failed: <rc>`) are wire-format-stable
   across extractors — downstream tooling greps them. Don't introduce

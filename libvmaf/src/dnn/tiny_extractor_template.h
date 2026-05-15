@@ -25,12 +25,13 @@
  *    - vmaf_tiny_ai_open_session()       — `resolve` + `vmaf_dnn_session_open`
  *      with the standard `<name>: vmaf_dnn_session_open(...) failed`
  *      log line on error.
- *    - vmaf_tiny_ai_yuv8_to_rgb8_planes() — BT.709 limited-range YUV→RGB
- *      with nearest-neighbour chroma upsampling, shared with `ciede.c`'s
- *      colour-conversion convention so saliency / LPIPS / future colour-
- *      sensitive extractors stay numerically comparable on identical
- *      inputs. Hoisted verbatim from `feature_lpips.c`; `feature_mobilesal.c`
- *      ships an identical copy that this header retires.
+ *    - vmaf_tiny_ai_yuv8_to_rgb8_planes() / vmaf_tiny_ai_yuv_to_rgb8_planes()
+ *      — BT.709 limited-range YUV→RGB with nearest-neighbour chroma
+ *      upsampling, shared with `ciede.c`'s colour-conversion convention
+ *      so saliency / LPIPS / future colour-sensitive extractors stay
+ *      numerically comparable on identical inputs. Hoisted verbatim
+ *      from `feature_lpips.c`; `feature_mobilesal.c` ships an identical
+ *      copy that this header retires.
  *    - VMAF_TINY_AI_MODEL_PATH_OPTION() — emits the standard
  *      `model_path` row of a per-extractor `VmafOption[]` table; the
  *      help string is the only varying field.
@@ -224,6 +225,79 @@ static inline int vmaf_tiny_ai_yuv8_to_rgb8_planes(const VmafPicture *pic, uint8
             const unsigned cj = ss_hor ? (j >> 1) : j;
             vmaf_tiny_ai_yuv_bt709_to_rgb8_pixel(yrow[j], urow[cj], vrow[cj], rrow + j, grow + j,
                                                  brow + j);
+        }
+    }
+    return 0;
+}
+
+static inline int vmaf_tiny_ai_sample_to_8bit(uint16_t v, unsigned bpc)
+{
+    if (bpc == 8u) {
+        return (int)v;
+    }
+    if (bpc < 8u || bpc > 16u) {
+        return -EINVAL;
+    }
+    const unsigned max_sample = (bpc == 16u) ? 65535u : ((1u << bpc) - 1u);
+    unsigned sample = (v > max_sample) ? max_sample : (unsigned)v;
+    const unsigned shift = bpc - 8u;
+    const unsigned round = (shift == 0u) ? 0u : (1u << (shift - 1u));
+    return (int)((sample + round) >> shift);
+}
+
+/**
+ * Expand planar YUV (4:2:0 / 4:2:2 / 4:4:4, 8/10/12/16-bit) to RGB8.
+ * High-bit-depth input is interpreted as little-endian uint16 sample
+ * containers and rounded down to the 8-bit domain before applying the
+ * existing BT.709 limited-range conversion. That preserves the tiny-AI
+ * ImageNet tensor ABI while removing the raw-YUV 8-bit-only limitation.
+ */
+static inline int vmaf_tiny_ai_yuv_to_rgb8_planes(const VmafPicture *pic, uint8_t *dst_r,
+                                                  uint8_t *dst_g, uint8_t *dst_b)
+{
+    if (!pic || !dst_r || !dst_g || !dst_b) {
+        return -EINVAL;
+    }
+    if (pic->pix_fmt == VMAF_PIX_FMT_YUV400P) {
+        return -EINVAL;
+    }
+    if (pic->bpc == 8u) {
+        return vmaf_tiny_ai_yuv8_to_rgb8_planes(pic, dst_r, dst_g, dst_b);
+    }
+    if (pic->bpc != 10u && pic->bpc != 12u && pic->bpc != 16u) {
+        return -ENOTSUP;
+    }
+    const int ss_hor = (pic->pix_fmt != VMAF_PIX_FMT_YUV444P) ? 1 : 0;
+    const int ss_ver = (pic->pix_fmt == VMAF_PIX_FMT_YUV420P) ? 1 : 0;
+    const unsigned w = pic->w[0];
+    const unsigned h = pic->h[0];
+    const uint8_t *Y = pic->data[0];
+    const uint8_t *U = pic->data[1];
+    const uint8_t *V = pic->data[2];
+    const size_t sy = pic->stride[0];
+    const size_t su = pic->stride[1];
+    const size_t sv = pic->stride[2];
+
+    for (unsigned i = 0; i < h; ++i) {
+        const uint8_t *yrow = Y + (size_t)i * sy;
+        const unsigned ci = ss_ver ? (i >> 1) : i;
+        const uint8_t *urow = U + (size_t)ci * su;
+        const uint8_t *vrow = V + (size_t)ci * sv;
+        uint8_t *rrow = dst_r + (size_t)i * w;
+        uint8_t *grow = dst_g + (size_t)i * w;
+        uint8_t *brow = dst_b + (size_t)i * w;
+        for (unsigned j = 0; j < w; ++j) {
+            const unsigned cj = ss_hor ? (j >> 1) : j;
+            const uint16_t y = (uint16_t)yrow[j * 2u] | ((uint16_t)yrow[j * 2u + 1u] << 8u);
+            const uint16_t u = (uint16_t)urow[cj * 2u] | ((uint16_t)urow[cj * 2u + 1u] << 8u);
+            const uint16_t v = (uint16_t)vrow[cj * 2u] | ((uint16_t)vrow[cj * 2u + 1u] << 8u);
+            const int y8 = vmaf_tiny_ai_sample_to_8bit(y, pic->bpc);
+            const int u8 = vmaf_tiny_ai_sample_to_8bit(u, pic->bpc);
+            const int v8 = vmaf_tiny_ai_sample_to_8bit(v, pic->bpc);
+            if (y8 < 0 || u8 < 0 || v8 < 0) {
+                return -EINVAL;
+            }
+            vmaf_tiny_ai_yuv_bt709_to_rgb8_pixel(y8, u8, v8, rrow + j, grow + j, brow + j);
         }
     }
     return 0;

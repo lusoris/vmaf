@@ -30,7 +30,7 @@ the placeholder values for codec tuning decisions or MOS-style claims.
 vmaf \
     --reference ref.yuv \
     --distorted dist.yuv \
-    --width 1920 --height 1080 --pixel_format 420 --bitdepth 8 \
+    --width 1920 --height 1080 --pixel_format 420 --bitdepth 10 \
     --feature dists_sq \
     --feature_params dists_sq:model_path=model/tiny/dists_sq.onnx \
     --output score.json
@@ -41,7 +41,7 @@ The extractor can also resolve the model path from the environment:
 ```bash
 export VMAF_DISTS_SQ_MODEL_PATH=model/tiny/dists_sq.onnx
 vmaf --reference ref.yuv --distorted dist.yuv \
-     --width 1920 --height 1080 --pixel_format 420 --bitdepth 8 \
+     --width 1920 --height 1080 --pixel_format 420 --bitdepth 10 \
      --feature dists_sq --output score.json
 ```
 
@@ -63,7 +63,8 @@ After frames are processed, pooled scores are available under the
 ## Inputs And Runtime
 
 - Pixel formats: YUV 4:2:0, 4:2:2, and 4:4:4.
-- Bit depth: 8 bpc only.
+- Bit depth: 8, 10, 12, or 16 bpc. High-bit-depth planar inputs are
+  rounded into the same 8-bit RGB tensor contract used by LPIPS.
 - Chroma: required; YUV400 is rejected because the extractor converts to RGB.
 - Tensor contract: `ref` and `dist` float32 tensors shaped
   `[1, 3, H, W]`, ImageNet-normalised RGB, NCHW.
@@ -76,8 +77,8 @@ After frames are processed, pooled scores are available under the
 The current checkpoint is smoke-only. It does not implement DISTS' learned
 texture/structure feature stack and should not be compared to published DISTS
 numbers. Real upstream-derived weights remain the follow-up. The host
-extractor is also 8-bit only today and uses the same BT.709 limited-range RGB
-conversion helper as the LPIPS extractor.
+extractor uses the same BT.709 limited-range RGB conversion helper as the
+LPIPS extractor.
 
 ## See Also
 

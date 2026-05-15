@@ -6,8 +6,9 @@
  *  extractor. Backed by a two-input ONNX model that accepts
  *  ImageNet-normalised RGB planes and emits a scalar distance:
  *
- *    YUV420P/422P/444P 8-bit
+ *    YUV420P/422P/444P 8/10/12/16-bit
  *       -> upsample chroma to 4:4:4
+ *       -> normalise high-bit-depth samples to the 8-bit domain
  *       -> BT.709 limited-range YUV->RGB (float) -> round to uint8 planes
  *       -> vmaf_tensor_from_rgb_imagenet()  (ref and dist)
  *       -> vmaf_dnn_session_run() with named bindings "ref" / "dist"
@@ -83,9 +84,8 @@ static int dists_sq_init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
 
     if (pix_fmt == VMAF_PIX_FMT_YUV400P)
         return -EINVAL;
-    if (bpc != 8) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "dists_sq: bpc=%u not supported yet (8-bit only in this build)\n", bpc);
+    if (bpc != 8 && bpc != 10 && bpc != 12 && bpc != 16) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "dists_sq: bpc=%u not supported\n", bpc);
         return -ENOTSUP;
     }
 
@@ -138,11 +138,11 @@ static int dists_sq_extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
         return -ERANGE;
 
     int rc =
-        vmaf_tiny_ai_yuv8_to_rgb8_planes(ref_pic, s->rgb8_ref[0], s->rgb8_ref[1], s->rgb8_ref[2]);
+        vmaf_tiny_ai_yuv_to_rgb8_planes(ref_pic, s->rgb8_ref[0], s->rgb8_ref[1], s->rgb8_ref[2]);
     if (rc < 0)
         return rc;
-    rc = vmaf_tiny_ai_yuv8_to_rgb8_planes(dist_pic, s->rgb8_dist[0], s->rgb8_dist[1],
-                                          s->rgb8_dist[2]);
+    rc = vmaf_tiny_ai_yuv_to_rgb8_planes(dist_pic, s->rgb8_dist[0], s->rgb8_dist[1],
+                                         s->rgb8_dist[2]);
     if (rc < 0)
         return rc;
 

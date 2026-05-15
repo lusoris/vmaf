@@ -642,6 +642,11 @@ after a port-upstream of any of these files.
   `VMAF_DISTS_SQ_MODEL_PATH`, `model_path`, registry id
   `dists_sq_placeholder_v0`, and the `score` scalar output aligned until
   the real DISTS weights replace the smoke checkpoint.
+- **LPIPS / DISTS high-bit-depth input invariant** — both extractors
+  accept planar 8/10/12/16-bit YUV but keep the ONNX tensor ABI as
+  ImageNet-normalised RGB8. High-bit-depth samples are little-endian
+  16-bit containers rounded into the 8-bit domain before the shared
+  BT.709 limited-range RGB conversion.
 - [ADR-0125](../../../docs/adr/0125-ms-ssim-decimate-simd.md) —
   MS-SSIM decimate separable SIMD + bit-exactness contract.
 - [ADR-0126](../../../docs/adr/0126-ssimulacra2-feature-extractor.md) +

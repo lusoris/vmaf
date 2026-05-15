@@ -119,8 +119,10 @@ print("mean LPIPS:", ListStats.nonemean(per_frame))
 
 ## Known limitations
 
-- **8-bit only.** The shipped checkpoint expects 8-bit YUV input. 10-bit
-  sources are rejected at `init()`. A 10-bit model is a follow-up item.
+- **High-bit-depth input is RGB8-normalised.** The shipped checkpoint
+  still consumes ImageNet-normalised RGB tensors, so 10/12/16-bit planar
+  YUV inputs are rounded into the same 8-bit RGB tensor contract before
+  ONNX inference.
 - **BT.709 limited range.** Internal YUV→RGB conversion assumes BT.709
   studio-swing (`Y ∈ [16, 235]`, `UV ∈ [16, 240]`). BT.2020 / full-range
   sources will produce biased scores.
