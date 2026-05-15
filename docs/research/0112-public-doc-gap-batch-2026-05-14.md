@@ -1,4 +1,4 @@
-# Research-0112: Public Doc Gap Batch
+# Research-0112 — Public Doc Gap Batch
 
 | Field | Value |
 | --- | --- |

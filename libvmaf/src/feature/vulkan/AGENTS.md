@@ -59,20 +59,7 @@ ADR-0234) catches drift but only after a full GPU run.
 
 ## Rebase-sensitive invariants
 
-- **Compute shaders MUST declare a workgroup size that is a multiple of 32 (or 64)
-  — never `layout(local_size_x=1,local_size_y=1,local_size_z=1)`**, which leaves
-  31 of 32 lanes idle per warp on NVIDIA and 63 of 64 idle per wavefront on AMD.
-  Per-row (or per-column) sequential work uses `local_size_x=WG_X` with the grid
-  sized to `ceil(rows/WG_X)`; each invocation handles one row/column and
-  bounds-checks against the actual row/column count. This pattern was established
-  as the fork standard by the VK-1 (blur shaders) and VK-2 (cambi SAT) fixes.
-  The host-side constant names follow the pattern `WG_X` / `WG_Y` so dispatch
-  math is consistent with the shader's `local_size_*` declaration. Do not revert
-  a shader to `local_size_x=1` without an ADR that justifies the exception.
-
-- **`psnr_vulkan.c` chroma plane loop and `enable_chroma` option**
-  ([ADR-0216](../../../../docs/adr/0216-vulkan-chroma-psnr.md) /
-  [ADR-0453](../../../../docs/adr/0453-psnr-enable-chroma-gpu-parity.md)).
+- **`psnr_vulkan.c` chroma plane loop** ([ADR-0216](../../../../docs/adr/0216-vulkan-chroma-psnr.md)).
   Carries `ref_in[3] / dis_in[3] / se_partials[3]` arrays in
   `PsnrVulkanState` (Y / Cb / Cr) and dispatches the same
   `psnr.comp` shader once per active plane in a single command
@@ -81,27 +68,12 @@ ADR-0234) catches drift but only after a full GPU run.
   fall-through and break the cross-backend parity gate. The
   descriptor pool is sized for 12 sets (4 frames in flight × 3
   planes) — do **not** shrink without re-checking lavapipe
-  behaviour under `frames-in-flight > 1`. `n_planes` is clamped to
-  1 in two cases: (1) `pix_fmt == YUV400P` (chroma absent); (2)
-  `enable_chroma == false` (caller opted out). The latter is the
-  ADR-0453 addition. The `enable_chroma` option carries
-  `default_val.b = true`; do **not** flip the default. See
-  [`../../AGENTS.md §"Vulkan PSNR chroma contract"`](../../AGENTS.md).
-
-- **`psnr_vulkan.c` chroma plane geometry must use ceiling division**
-  (Research-0094; dedup-audit-c-feature-twins-2026-05-16 finding #5).
-  `init()` computes chroma width/height with
-  `(w + (unsigned)ss_hor) >> ss_hor` and
-  `(h + (unsigned)ss_ver) >> ss_ver` — the ceiling form that matches
-  `integer_psnr.c::init` (CPU) and `cuda/integer_psnr_cuda.c:132`
-  (CUDA). **Do not** replace this with `w / 2U` or `h / 2U` (floor).
-  Floor division underestimates chroma plane size by 1 pixel on
-  odd-dimension YUV420 inputs (e.g., 1921×1080), producing a different
-  sample count and diverging PSNR scores that break the cross-backend
-  `places=4` parity gate silently. Even-width/height inputs are
-  unaffected. The regression test
-  `test_psnr_vulkan_chroma_geom.c::test_odd_yuv420_chroma_dims` pins
-  this for 1921×1081 and 999×540.
+  behaviour under `frames-in-flight > 1`. YUV400 is the only
+  supported `n_planes = 1` path; the `pix_fmt` branch in `init`
+  mirrors the `enable_chroma = false` clamp in CPU
+  `integer_psnr.c::init` and must follow it on any future
+  divergence. See [`../../AGENTS.md §"Vulkan PSNR chroma
+  contract"`](../../AGENTS.md).
 
 - **`ms_ssim_vulkan.c` honours the `enable_lcs` GPU contract**
   (ADR-0243). Emits 15 extra metrics
@@ -157,13 +129,6 @@ ADR-0234) catches drift but only after a full GPU run.
   adds or renames these parameters, the Vulkan twins must be updated in
   the same PR.
 
-- **`motion_fps_weight` cross-backend parity** — see the canonical
-  invariant note in [`../cuda/AGENTS.md`](../cuda/AGENTS.md).
-  `motion_v2_vulkan.c` and `float_motion_vulkan.c` both carry the
-  `motion_fps_weight` option and apply it in `flush()` / `extract()`
-  exactly as documented there. Any future change to the weight
-  application math must span all motion-family GPU twins in the same PR.
-
 - **`adm_vulkan.c` integer fast-path gated on CSF-scale defaults.**
   The hard-coded `i_rfactor` fast-path for `3.0 * 1080` default
   viewing geometry is gated by:
@@ -202,30 +167,6 @@ ADR-0234) catches drift but only after a full GPU run.
   - The `MAX_SUBGROUPS = 256` constant in the reducer shaders matches
     `local_size_x = 256`. Changing the WG size requires updating both.
 
-## Barrier and descriptor-set lifecycle invariants (VK-5 + VK-6 / perf-audit 2026-05-16)
-
-- **`dstAccessMask` must be the minimum required by the consumer.** Barriers
-  between a write dispatch and a subsequent *read-only* consumer dispatch must
-  use `dstAccessMask = VK_ACCESS_SHADER_READ_BIT` only.  The wider mask
-  `VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT` is **only correct**
-  when the consuming dispatch also writes (e.g., reducer shaders that use
-  `atomicAdd` into `reduced_accum` / `reduced_sad`).  Overbroad masks
-  suppress valid driver optimisations (e.g., cache-bypass on read-only
-  paths) and were flagged in VK-5.  Extractors that keep `SHADER_WRITE` in
-  `dstAccess`: `vif_vulkan.c` reduce_barrier, `adm_vulkan.c` reduce_barrier,
-  `motion_vulkan.c` reduce_barrier — all because the reducer uses `atomicAdd`.
-  Inter-stage barriers in `adm`, `float_adm`, `float_vif`, `cambi`, and
-  `ssimulacra2` are tightened to read-only.
-
-- **Descriptor sets that are stable across frames MUST be written in
-  `init()`, not `extract()`.** Once `alloc_buffers()` assigns the VkBuffer
-  handles they never change.  Calling `vkUpdateDescriptorSets` per frame for
-  stable bindings is a hot-path overhead — flagged in VK-6 for
-  `psnr_hvs_vulkan.c`.  Pattern reference: `psnr_vulkan.c` writes descriptor
-  sets once at `init()` after `vmaf_vulkan_kernel_descriptor_sets_alloc()`
-  and adds a forward declaration so the write function is visible from
-  `init()`.  All extractors that pre-allocate sets must follow this pattern.
-
 ## Build
 
 Vulkan feature TUs compile only when `meson setup -Denable_vulkan=true`.
@@ -241,7 +182,7 @@ The umbrella flag pulls in `dependency('vulkan')` + volk + glslc + VMA.
   behaviour. The invariant applies to all 13 migrated extractors (PR-A,
   PR-B, PR-C). Extractors in scope for PR-C:
   `cambi_vulkan.c`, `ssimulacra2_vulkan.c`, `float_ansnr_vulkan.c`,
-  `float_moment_vulkan.c`.
+  `moment_vulkan.c`.
 
 ## Governing ADRs
 
