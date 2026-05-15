@@ -10,3 +10,12 @@ test('test_vmaf_per_shot', test_vmaf_per_shot,
          'MESON_BUILD_ROOT=' + meson.project_build_root(),
          'MESON_SOURCE_ROOT=' + meson.project_source_root(),
      ])
+
+# T6-2b / ADR-0247 — vmaf-roi accepts high-bit-depth planar YUV by
+# downscaling luma to the existing 8-bit saliency-model contract.
+test_vmaf_roi_high_bitdepth = find_program('test_vmaf_roi_high_bitdepth.sh')
+test('test_vmaf_roi_high_bitdepth', test_vmaf_roi_high_bitdepth,
+     env: [
+         'MESON_BUILD_ROOT=' + meson.project_build_root(),
+         'MESON_SOURCE_ROOT=' + meson.project_source_root(),
+     ])

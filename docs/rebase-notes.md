@@ -34483,3 +34483,26 @@ per-shot CRF aggregation, and true RGB / bilinear TransNet thumbnails.
 rg -n "real upstream weights are tracked|ADR-0246|0253-fastdvdnet" \
   docs/ai docs/metrics libvmaf/src/dnn/AGENTS.md libvmaf/src/feature/AGENTS.md
 ```
+
+## 2026-05-15 — `vmaf-roi` High-Bit-Depth Input
+
+**Files touched**: `libvmaf/tools/vmaf_roi.c`,
+`libvmaf/tools/test/meson.build`,
+`libvmaf/tools/test/test_vmaf_roi_high_bitdepth.sh`,
+`libvmaf/tools/AGENTS.md`, `docs/usage/vmaf-roi.md`,
+`docs/research/0123-vmaf-roi-high-bitdepth-2026-05-15.md`.
+
+**Rebase impact**: low. This extends an existing CLI flag and does not
+change libvmaf public APIs, encoder sidecar schemas, or FFmpeg patches.
+
+**Invariant to preserve on rebase**: `vmaf-roi --bitdepth 10|12|16`
+must seek using full planar YUV frame bytes, including chroma planes
+and 16-bit sample containers, then downscale luma to the existing
+luma8 saliency-model contract. Unsupported depths such as 9-bit remain
+rejected.
+
+**Smoke-test after rebase**:
+
+```bash
+meson test -C libvmaf/build-roi-hbd test_vmaf_roi_high_bitdepth --print-errorlogs
+```
