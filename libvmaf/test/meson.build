@@ -794,6 +794,18 @@ test_vulkan_pipeline_cache = executable('test_vulkan_pipeline_cache',
     c_args: ['-DHAVE_VULKAN=1']
 )
 test('test_vulkan_pipeline_cache', test_vulkan_pipeline_cache)
+
+# Research-0094 / dedup-audit-c-feature-twins-2026-05-16 finding #5:
+# Vulkan PSNR chroma-plane ceiling-division regression guard.
+# Pure-C geometry test — no Vulkan device required; runs on every host.
+test_psnr_vulkan_chroma_geom = executable('test_psnr_vulkan_chroma_geom',
+    ['test.c', 'test_psnr_vulkan_chroma_geom.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency],
+)
+test('test_psnr_vulkan_chroma_geom', test_psnr_vulkan_chroma_geom,
+     suite: 'fast')
 endif
 
 # ADR-0209 / T5-2: embedded MCP scaffold smoke. Pins the -ENOSYS
