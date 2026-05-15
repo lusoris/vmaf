@@ -1,9 +1,6 @@
 # ADR-0318: `fr_regressor_v2` ensemble retrain harness — wrapper-trainer interface fix + Phase A pre-step doc
 
-- **Status**: Accepted
-- **Status update 2026-05-15**: implemented;
-  `ai/scripts/run_ensemble_v2_real_corpus_loso.sh` present on master;
-  Phase A runbook + wrapper landed.
+- **Status**: Proposed
 - **Date**: 2026-05-06
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: `ai`, `fr-regressor`, `ensemble`, `loso`, `runbook`, `fork-local`

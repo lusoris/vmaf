@@ -1,4 +1,4 @@
-# Research-0089: HDR VMAF model: source / train / placeholder
+# Research-0089 — HDR VMAF model: source / train / placeholder
 
 - **Status**: digest closed; Path C selected (no model file shipped)
 - **Date**: 2026-05-09

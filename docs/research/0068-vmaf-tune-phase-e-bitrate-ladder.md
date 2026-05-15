@@ -1,4 +1,4 @@
-# Research-0068: vmaf-tune Phase E — per-title bitrate-ladder algorithm survey
+# Research-0054: vmaf-tune Phase E — per-title bitrate-ladder algorithm survey
 
 - **Date**: 2026-05-03
 - **Author**: Lusoris (with Claude assistance)

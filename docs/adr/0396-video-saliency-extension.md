@@ -1,6 +1,6 @@
 # ADR-0396: Video-temporal saliency extension to `saliency_student_v1`
 
-- **Status**: Accepted
+- **Status**: Proposed
 - **Date**: 2026-05-08
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: ai, dnn, saliency, video-saliency, vmaf-tune, roi, fork-local, design
@@ -57,12 +57,6 @@ We will extend the fork's saliency stack with a video-temporal
 surface in three independently-mergeable phases, each gated on the
 prior phase's measured lift:
 
-Status update 2026-05-15: Phase 1 is implemented in
-`vmaftune.saliency.compute_saliency_map()` and exposed through
-`vmaf-tune recommend-saliency --saliency-aggregator`. The default
-remains `mean` for compatibility; `ema`, `max`, and
-`motion-weighted` are opt-in baselines.
-
 ### Phase 1 — Temporal-pooling baseline (`saliency.py` aggregator)
 
 Add a configurable temporal aggregator to
@@ -72,15 +66,15 @@ function:
 | Mode | Formula |
 | --- | --- |
 | `mean` (today's behaviour) | `m = mean(sal_t for t in sampled_frames)` |
-| `ema` | `m_t = α · sal_t + (1 − α) · m_{t−1}`, with α exposed by `--saliency-ema-alpha` |
-| `max` | `m = max(sal_t for t in sampled_frames)` |
+| `ema` (Phase 1 default) | `m_t = α · sal_t + (1 − α) · m_{t−1}`, α tuned per SalEMA recipe (default α = 0.3) |
 | `motion-weighted` | `m = Σ w_t · sal_t / Σ w_t`, with `w_t = mean(abs(Y_t − Y_{t−1}))` (per-frame inter-frame difference as a motion proxy) |
 
-Selectable via `SaliencyConfig.temporal_aggregator` and a
-`vmaf-tune recommend-saliency --saliency-aggregator` CLI flag. The
-default remains `mean` (status-quo-preserving); any future default
-flip is a follow-up PR after a BD-rate sweep on the existing corpus.
-No new model, no new ONNX, no new training script.
+Selectable via `SaliencyConfig.aggregator: Literal["mean", "ema", "motion"]`
+and a `vmaf-tune recommend --saliency-aggregator` CLI flag. The default
+in v1 of this PR remains `mean` (status-quo-preserving); the default
+flips to `ema` in a follow-up PR after a BD-rate sweep on the existing
+corpus. No new model, no new ONNX, no new training script. Estimated
+~80 LOC + tests + a `docs/usage/vmaf-tune.md` entry.
 
 ### Phase 2 — `video_saliency_student_v1` via UNISAL distillation
 

@@ -23,7 +23,7 @@ calibration loop: replace the placeholders with empirically-derived
 values from a real corpus.
 
 The corpus available at calibration time is K150K
-(`.corpus/konvid-150k/konvid_150k.jsonl`, ingestion ~96.6 %
+(`.workingdir2/konvid-150k/konvid_150k.jsonl`, ingestion ~96.6 %
 complete, no per-row `content_class` column — PR #477's TransNet
 shot-metadata columns are still in flight). Question: how do we
 calibrate four content classes from a UGC-only, label-free corpus

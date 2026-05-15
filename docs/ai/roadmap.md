@@ -114,21 +114,14 @@ two-input DNN session and emits `dists_sq` per frame.
   planar YUV input and remains one-frame-per-invocation. See
   [`docs/usage/vmaf-roi.md`](../usage/vmaf-roi.md). Wave-2
   follow-ups: multi-frame batch mode and `--blend edge-density`.
-- The saliency evaluation side now has
-  [`eval_saliency_per_mb.py`](saliency-per-mb-eval.md), which reports
-  IoU after reducing masks to the same block grids the encoder ROI
-  paths consume. Use this before promoting a temporal or video-saliency
-  model.
 
 **ONNX notes.** The upstream MobileSal swap is no longer the production
 path: ADR-0257 records the CC BY-NC-SA / Google-Drive / RGB-D blockers.
-The production path is the fork-trained DUTS saliency student,
+The shipped production path is the fork-trained DUTS saliency student,
 which keeps the same `input` / `saliency_map` tensor contract as the
-placeholder. **`saliency_student_v2` is the production default since
-2026-05-15** (IoU 0.7105 vs v1's 0.6558, +8.3%;
-[ADR-0444](../adr/0444-saliency-student-v2-production-promotion.md)).
-Use `model/tiny/saliency_student_v2.onnx` for new encodes.
-`saliency_student_v1` is retained for regression baselines.
+placeholder and can be selected with
+`model/tiny/saliency_student_v1.onnx`. `saliency_student_v2` is staged
+as a higher-IoU ablation pending ROI A/B validation.
 
 ### 2.4 Per-shot CRF predictor + TransNet V2 shot boundaries
 

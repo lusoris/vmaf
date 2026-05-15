@@ -1,4 +1,4 @@
-# Research-0123: `vmaf-roi` High-Bit-Depth Input
+# Research 0123: `vmaf-roi` High-Bit-Depth Input
 
 Date: 2026-05-15
 

@@ -1,4 +1,4 @@
-# Research-0065: NVENC codec adapters for `vmaf-tune` — option-space digest
+# Research-0054: NVENC codec adapters for `vmaf-tune` — option-space digest
 
 - **Date**: 2026-05-03
 - **Companion ADR**: [ADR-0290](../adr/0290-vmaf-tune-nvenc-adapters.md)

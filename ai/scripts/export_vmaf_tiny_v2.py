@@ -37,13 +37,12 @@ opset_version is pinned to 17 to match the sister tiny-AI models
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
 
 import numpy as np
-
-from aiutils.file_utils import sha256
 
 OPSET = 17
 
@@ -87,6 +86,17 @@ class _BundledScalerMLP:
                 return out.squeeze(-1)
 
         return _Wrap().eval()
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        while True:
+            chunk = fh.read(1 << 20)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def main() -> int:
@@ -154,7 +164,7 @@ def main() -> int:
     if sidecar_data.exists():
         sidecar_data.unlink()
 
-    digest = sha256(args.out_onnx)
+    digest = _sha256(args.out_onnx)
     print(f"[export-v2] sha256={digest}")
     print(f"[export-v2] size  ={args.out_onnx.stat().st_size} bytes")
 

@@ -1,5 +1,4 @@
-# Research-0088: Docs cleanup punch list (2026-05-08)
-# Research-0088
+# Docs cleanup punch list (2026-05-08)
 
 Scope: `docs/{usage,api,metrics,backends,development,ai,mcp,architecture}/`,
 `docs/state.md`, `docs/rebase-notes.md`, `README.md`, `CHANGELOG.md`,
