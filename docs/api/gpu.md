@@ -256,22 +256,27 @@ int vmaf_sycl_preallocate_pictures(VmafContext *ctx, VmafSyclPictureConfiguratio
 int vmaf_sycl_picture_fetch(VmafContext *ctx, VmafPicture *pic);
 ```
 
-**Known bug — do not rely on this API.** Unlike the CUDA flavour, the SYCL
-simple path does **not** currently honor its preallocation enum.
-`vmaf_sycl_preallocate_pictures` is a no-op stub and
-`vmaf_sycl_picture_fetch` allocates via the regular host
-`vmaf_picture_alloc()` — the `DEVICE` / `HOST` enum values are declared for
-symmetry with CUDA but are silently ignored
-([`libvmaf/src/libvmaf.c`](../../libvmaf/src/libvmaf.c)). Tracked as
-[issue #26](https://github.com/lusoris/vmaf/issues/26). Use the frame-buffer
-API below — that is the real GPU-resident path on SYCL today.
+`vmaf_sycl_preallocate_pictures` now honors the enum and creates a 2-deep
+SYCL picture pool when `DEVICE` or `HOST` is selected:
+
+| Method | Backing | Use case |
+| --- | --- | --- |
+| `VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_NONE` | no pool; `vmaf_sycl_picture_fetch` falls back to `vmaf_picture_alloc()` | CPU-fed callers and test harnesses |
+| `VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_DEVICE` | `sycl::malloc_device` USM | decoder / uploader writes directly into GPU-resident planes |
+| `VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_HOST` | `sycl::malloc_host` USM | CPU-visible pooled planes with SYCL-friendly lifetime semantics |
+
+The caller owns each `VmafPicture` reference returned by
+`vmaf_sycl_picture_fetch()` and must release it with `vmaf_picture_unref()`
+after submitting it through `vmaf_read_pictures()`. The pool keeps its own
+references until `vmaf_close()` tears down the context.
 
 ### Zero-copy frame-buffer path
 
 For callers that own a GPU-resident decode pipeline (Intel VPL, VA-API,
-D3D11), the simple preallocation path forces an unnecessary copy. The
-zero-copy API exposes two shared Y-plane buffers (ref + dis) and
-alternative ingest entry points that skip `vmaf_picture_alloc` entirely.
+D3D11), the frame-buffer API exposes two shared Y-plane buffers (ref + dis)
+and alternative ingest entry points. Use it when the pipeline wants the
+SYCL backend's built-in double-buffered Y-plane upload path instead of
+managing whole `VmafPicture` instances from the preallocation pool.
 
 ```c
 int vmaf_sycl_init_frame_buffers (VmafContext *ctx, unsigned w, unsigned h, unsigned bpc);
