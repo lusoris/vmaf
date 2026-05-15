@@ -815,7 +815,86 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_fast_args(fast)
 
+    sidecar = sub.add_parser(
+        "sidecar",
+        help=(
+            "train and inspect the local on-host predictor sidecar "
+            "(ADR-0394 bias-correction model)"
+        ),
+    )
+    _add_sidecar_args(sidecar)
+
     return parser
+
+
+def _add_sidecar_common_args(p: argparse.ArgumentParser) -> None:
+    """Wire the shared local-sidecar configuration flags."""
+    from .sidecar import DEFAULT_PREDICTOR_VERSION
+
+    p.add_argument(
+        "--codec",
+        default="libx264",
+        choices=list(known_codecs()),
+        help="codec bucket for the sidecar state (default libx264)",
+    )
+    p.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=None,
+        help="sidecar cache root (default ${XDG_CACHE_HOME:-~/.cache}/vmaf-tune/sidecar)",
+    )
+    p.add_argument(
+        "--predictor-version",
+        default=DEFAULT_PREDICTOR_VERSION,
+        help=f"predictor version namespace (default {DEFAULT_PREDICTOR_VERSION})",
+    )
+    p.add_argument(
+        "--model",
+        type=Path,
+        default=None,
+        help="optional predictor_<codec>.onnx path; default uses analytical fallback",
+    )
+
+
+def _add_sidecar_args(p: argparse.ArgumentParser) -> None:
+    """Wire ``vmaf-tune sidecar`` nested subcommands."""
+    sub = p.add_subparsers(dest="sidecar_cmd", required=True)
+
+    status = sub.add_parser("status", help="print sidecar state metadata")
+    _add_sidecar_common_args(status)
+    status.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+
+    predict = sub.add_parser(
+        "predict",
+        help="predict VMAF with the sidecar correction folded in",
+    )
+    _add_sidecar_common_args(predict)
+    predict.add_argument("--features-json", type=Path, required=True)
+    predict.add_argument("--crf", type=int, required=True)
+    predict.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+
+    record = sub.add_parser(
+        "record",
+        help="record one observed encode result into the sidecar fit",
+    )
+    _add_sidecar_common_args(record)
+    record.add_argument("--features-json", type=Path, required=True)
+    record.add_argument("--crf", type=int, required=True)
+    record.add_argument("--observed-vmaf", type=float, required=True)
+    record.add_argument(
+        "--no-persist",
+        action="store_true",
+        help="update in memory only; mainly useful for tests",
+    )
+    record.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+
+    batch = sub.add_parser(
+        "batch-record",
+        help="record a JSONL capture file with one encode observation per row",
+    )
+    _add_sidecar_common_args(batch)
+    batch.add_argument("--captures-jsonl", type=Path, required=True)
+    batch.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
 
 def _add_coarse_to_fine_flags(p: argparse.ArgumentParser) -> None:
@@ -2406,6 +2485,223 @@ def _run_fast(args: argparse.Namespace) -> int:
     return 0
 
 
+_SIDECAR_REQUIRED_FEATURE_KEYS: tuple[str, ...] = (
+    "probe_bitrate_kbps",
+    "probe_i_frame_avg_bytes",
+    "probe_p_frame_avg_bytes",
+    "probe_b_frame_avg_bytes",
+)
+
+
+def _read_json_object(path: Path) -> dict[str, object]:
+    """Read a JSON object from ``path`` or raise ``ValueError``."""
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"cannot read {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path} is not valid JSON: {exc}") from exc
+    if not isinstance(doc, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return doc
+
+
+def _sidecar_features_from_mapping(row: dict[str, object]):
+    """Build ``ShotFeatures`` from a JSON object or a ``features`` wrapper."""
+    from .predictor import ShotFeatures
+
+    raw = row.get("features", row)
+    if not isinstance(raw, dict):
+        raise ValueError("'features' must be a JSON object")
+    missing = [key for key in _SIDECAR_REQUIRED_FEATURE_KEYS if key not in raw]
+    if missing:
+        raise ValueError(f"features missing required keys: {', '.join(missing)}")
+
+    kwargs: dict[str, object] = {}
+    for field in dataclasses.fields(ShotFeatures):
+        if field.name in raw:
+            kwargs[field.name] = raw[field.name]
+    try:
+        return ShotFeatures(
+            probe_bitrate_kbps=float(kwargs["probe_bitrate_kbps"]),
+            probe_i_frame_avg_bytes=float(kwargs["probe_i_frame_avg_bytes"]),
+            probe_p_frame_avg_bytes=float(kwargs["probe_p_frame_avg_bytes"]),
+            probe_b_frame_avg_bytes=float(kwargs["probe_b_frame_avg_bytes"]),
+            saliency_mean=float(kwargs.get("saliency_mean", 0.0)),
+            saliency_var=float(kwargs.get("saliency_var", 0.0)),
+            frame_diff_mean=float(kwargs.get("frame_diff_mean", 0.0)),
+            y_avg=float(kwargs.get("y_avg", 0.0)),
+            y_var=float(kwargs.get("y_var", 0.0)),
+            shot_length_frames=int(kwargs.get("shot_length_frames", 0)),
+            fps=float(kwargs.get("fps", 0.0)),
+            width=int(kwargs.get("width", 0)),
+            height=int(kwargs.get("height", 0)),
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ValueError(f"invalid sidecar feature value: {exc}") from exc
+
+
+def _build_sidecar_predictor(args: argparse.Namespace):
+    """Construct the configured ``SidecarPredictor`` for CLI handlers."""
+    from .predictor import Predictor
+    from .sidecar import SidecarConfig, SidecarPredictor
+
+    cfg_kwargs: dict[str, object] = {
+        "predictor_version": args.predictor_version,
+    }
+    if args.cache_dir is not None:
+        cfg_kwargs["cache_dir"] = args.cache_dir
+    cfg = SidecarConfig(**cfg_kwargs)
+    predictor = Predictor(model_path=args.model)
+    return SidecarPredictor.for_codec(predictor, codec=args.codec, config=cfg)
+
+
+def _sidecar_status_payload(sp) -> dict[str, object]:
+    """Return the machine-readable status payload for a sidecar."""
+    return {
+        "schema": "vmaf-tune-sidecar-status/v1",
+        "codec": sp.codec,
+        "host_uuid": sp.host_uuid,
+        "state_path": str(sp.state_path),
+        "predictor_version": sp.model.config.predictor_version,
+        "schema_version": sp.model.to_dict()["schema_version"],
+        "n_updates": sp.model.n_updates,
+        "recent_residual_rms": sp.model.recent_residual_rms,
+    }
+
+
+def _emit_sidecar_status(payload: dict[str, object], as_json: bool) -> None:
+    """Write a sidecar status payload to stdout."""
+    if as_json:
+        sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        return
+    sys.stdout.write(
+        "codec={codec} predictor_version={predictor_version} "
+        "updates={n_updates} residual_rms={recent_residual_rms:.6f} "
+        "state={state_path}\n".format(**payload)
+    )
+
+
+def _run_sidecar(args: argparse.Namespace) -> int:
+    """Run the ``vmaf-tune sidecar`` operator surface."""
+    try:
+        sp = _build_sidecar_predictor(args)
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        sys.stderr.write(f"vmaf-tune sidecar: {exc}\n")
+        return 2
+
+    if args.sidecar_cmd == "status":
+        _emit_sidecar_status(_sidecar_status_payload(sp), args.json)
+        return 0
+
+    if args.sidecar_cmd == "predict":
+        try:
+            features = _sidecar_features_from_mapping(_read_json_object(args.features_json))
+        except ValueError as exc:
+            sys.stderr.write(f"vmaf-tune sidecar predict: {exc}\n")
+            return 2
+        base = sp.predictor.predict_vmaf(features, args.crf, args.codec)
+        correction = sp.model.predict_correction(features, args.crf)
+        payload = {
+            "schema": "vmaf-tune-sidecar-predict/v1",
+            "codec": args.codec,
+            "crf": args.crf,
+            "base_vmaf": base,
+            "correction": correction,
+            "sidecar_vmaf": sp.predict_vmaf(features, args.crf),
+            "n_updates": sp.model.n_updates,
+        }
+        if args.json:
+            sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        else:
+            sys.stdout.write(
+                "base={base_vmaf:.6f} correction={correction:.6f} "
+                "sidecar={sidecar_vmaf:.6f} updates={n_updates}\n".format(**payload)
+            )
+        return 0
+
+    if args.sidecar_cmd == "record":
+        try:
+            features = _sidecar_features_from_mapping(_read_json_object(args.features_json))
+        except ValueError as exc:
+            sys.stderr.write(f"vmaf-tune sidecar record: {exc}\n")
+            return 2
+        base = sp.predictor.predict_vmaf(features, args.crf, args.codec)
+        sp.record_capture(
+            features,
+            crf=args.crf,
+            observed_vmaf=args.observed_vmaf,
+            persist=not args.no_persist,
+        )
+        payload = _sidecar_status_payload(sp)
+        payload.update(
+            {
+                "schema": "vmaf-tune-sidecar-record/v1",
+                "crf": args.crf,
+                "observed_vmaf": args.observed_vmaf,
+                "base_vmaf": base,
+                "residual": args.observed_vmaf - base,
+            }
+        )
+        if args.json:
+            sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        else:
+            sys.stdout.write(
+                "recorded updates={n_updates} residual={residual:.6f} "
+                "state={state_path}\n".format(**payload)
+            )
+        return 0
+
+    if args.sidecar_cmd == "batch-record":
+        rows = 0
+        skipped = 0
+        try:
+            with args.captures_jsonl.open(encoding="utf-8") as fh:
+                for lineno, line in enumerate(fh, start=1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                        if not isinstance(row, dict):
+                            raise ValueError("row is not an object")
+                        features = _sidecar_features_from_mapping(row)
+                        crf = int(row["crf"])
+                        observed = float(row["observed_vmaf"])
+                    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                        skipped += 1
+                        sys.stderr.write(
+                            f"vmaf-tune sidecar batch-record: skip line {lineno}: {exc}\n"
+                        )
+                        continue
+                    sp.record_capture(features, crf=crf, observed_vmaf=observed, persist=False)
+                    rows += 1
+        except OSError as exc:
+            sys.stderr.write(f"vmaf-tune sidecar batch-record: cannot read input: {exc}\n")
+            return 2
+        if rows:
+            sp.save()
+        payload = _sidecar_status_payload(sp)
+        payload.update(
+            {
+                "schema": "vmaf-tune-sidecar-batch-record/v1",
+                "rows_recorded": rows,
+                "rows_skipped": skipped,
+            }
+        )
+        if args.json:
+            sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        else:
+            sys.stdout.write(
+                "recorded={rows_recorded} skipped={rows_skipped} "
+                "updates={n_updates} state={state_path}\n".format(**payload)
+            )
+        return 0
+
+    sys.stderr.write(f"vmaf-tune sidecar: unknown subcommand {args.sidecar_cmd!r}\n")
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -2429,6 +2725,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_auto(args)
     if args.cmd == "fast":
         return _run_fast(args)
+    if args.cmd == "sidecar":
+        return _run_sidecar(args)
     parser.print_help()
     return 2
 
