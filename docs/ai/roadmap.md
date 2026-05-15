@@ -114,6 +114,11 @@ two-input DNN session and emits `dists_sq` per frame.
   planar YUV input and remains one-frame-per-invocation. See
   [`docs/usage/vmaf-roi.md`](../usage/vmaf-roi.md). Wave-2
   follow-ups: multi-frame batch mode and `--blend edge-density`.
+- The saliency evaluation side now has
+  [`eval_saliency_per_mb.py`](saliency-per-mb-eval.md), which reports
+  IoU after reducing masks to the same block grids the encoder ROI
+  paths consume. Use this before promoting a temporal or video-saliency
+  model.
 
 **ONNX notes.** The upstream MobileSal swap is no longer the production
 path: ADR-0257 records the CC BY-NC-SA / Google-Drive / RGB-D blockers.
