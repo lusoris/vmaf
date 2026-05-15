@@ -447,7 +447,5 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0437](0437-metal-public-header-install-and-import-state-declaration.md) | Metal public-header install and `vmaf_metal_import_state` declaration | Accepted | metal, build, c-api, install, apple-silicon, fork-local |
 | [ADR-0435](0435-pr-body-pre-push-validation.md) | PR-body pre-push validation hook | Accepted | ci, agents, hooks, docs |
 | [ADR-0438](0438-cli-parse-short-opt-handler-coverage.md) | CLI parser short-option handler coverage invariant — every short option in `short_opts[]` must have a `case` arm; adds missing `case 'c':` for `--cpumask` | Accepted | cli, lint, testing, correctness |
-<<<<<<< HEAD
 | [ADR-0444](0444-saliency-student-v2-production-promotion.md) | Promote `saliency_student_v2` to production default (IoU 0.7105 vs v1 0.6558, +8.3 %) | Accepted | ai, dnn, saliency, tiny-ai, fork-local |
-=======
->>>>>>> 9df670e00 (docs(adr): flip 15 ADRs from Proposed to Accepted (2026-05-15 audit))
+| [ADR-0451](0451-local-dev-mcp-container.md) | Local dev-MCP container for live probing — Docker, all 4 GPU backends (CUDA/SYCL/Vulkan/HIP), continuous 15-min smoke probe | Accepted | infra, docker, mcp, gpu, hip, cuda, sycl, vulkan, dev, fork-local |
