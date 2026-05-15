@@ -128,6 +128,7 @@ CUDA_EXTRACTOR_NAMES: tuple[str, ...] = (
     "motion_v2_cuda",
     "psnr_cuda",
     "ciede_cuda",
+    "float_ssim_cuda",
     "float_ms_ssim_cuda",
     "psnr_hvs_cuda",
 )
@@ -136,10 +137,14 @@ CUDA_EXTRACTOR_NAMES: tuple[str, ...] = (
 # ~30-50% of GPU time per clip. Use CPU ssimulacra2 extractor for FR pairs where it
 # remains informative (ADR-0431).
 
-CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = (
-    "float_ssim",
-    "cambi",
-)
+# 2026-05-15: float_ssim and cambi promoted from the CPU residual
+# pass to the CUDA primary pass. Both have shipped CUDA
+# implementations (libvmaf/src/feature/cuda/integer_cambi_cuda.c +
+# float_ssim_cuda.c) for some time; the residual-pass routing was
+# historical from before they landed. Empty residual tuple kept as
+# the type so the residual-pass code path can stay structurally
+# present for future feature additions.
+CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = ()
 
 # Canonical 21-feature output columns (Research-0026, parquet schema v2).
 # WARNING: column order is locked — do not reorder without incrementing the
@@ -412,18 +417,26 @@ def _run_feature_passes(
             CUDA_EXTRACTOR_NAMES,
             ["--backend", "cuda", *_MODEL_ARGS],
         )
-        cpu_frames = _run_vmaf_json(
-            cpu_vmaf_bin,
-            yuv_path,
-            width,
-            height,
-            pix_fmt,
-            cpu_json,
-            threads,
-            CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES,
-            ["--no_cuda", "--no_sycl", "--no_vulkan"],
-        )
-        frames = _merge_frame_metrics(cuda_frames, cpu_frames)
+        # CPU residual pass — kept structurally for future feature
+        # additions that lack a CUDA implementation. As of 2026-05-15
+        # the residual is empty (CAMBI + float_ssim got promoted to
+        # the CUDA pass); the call short-circuits to an empty frames
+        # list without spawning a subprocess.
+        if CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES:
+            cpu_frames = _run_vmaf_json(
+                cpu_vmaf_bin,
+                yuv_path,
+                width,
+                height,
+                pix_fmt,
+                cpu_json,
+                threads,
+                CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES,
+                ["--no_cuda", "--no_sycl", "--no_vulkan"],
+            )
+            frames = _merge_frame_metrics(cuda_frames, cpu_frames)
+        else:
+            frames = cuda_frames
         out_json.write_text(
             json.dumps({"frames": [{"metrics": row} for row in frames]}),
             encoding="utf-8",
