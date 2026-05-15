@@ -16,6 +16,7 @@ feature/
   vif.c / adm.c / …          # scalar CPU reference implementations
   integer_*.c                # integer-math reference implementations
   feature_lpips.c            # DNN-backed extractor (opens vmaf_dnn_session_*)
+  feature_dists.c            # DISTS-Sq DNN-backed extractor (LPIPS-shaped ABI)
   x86/                       # AVX2 / AVX-512 SIMD paths — must match scalar bit-for-bit
   arm64/                     # NEON SIMD paths — must match scalar bit-for-bit
   cuda/                      # CUDA kernels + launchers
@@ -638,6 +639,11 @@ after a port-upstream of any of these files.
   extractor registration pattern.
 - [ADR-0042](../../../docs/adr/0042-tinyai-docs-required-per-pr.md) —
   DNN-backed extractors ship docs under `docs/ai/`.
+- [ADR-0236](../../../docs/adr/0236-dists-extractor.md) — `dists_sq`
+  mirrors LPIPS' two-input tiny-AI extractor shape. Keep
+  `VMAF_DISTS_SQ_MODEL_PATH`, `model_path`, registry id
+  `dists_sq_placeholder_v0`, and the `score` scalar output aligned until
+  the real DISTS weights replace the smoke checkpoint.
 - [ADR-0125](../../../docs/adr/0125-ms-ssim-decimate-simd.md) —
   MS-SSIM decimate separable SIMD + bit-exactness contract.
 - [ADR-0126](../../../docs/adr/0126-ssimulacra2-feature-extractor.md) +

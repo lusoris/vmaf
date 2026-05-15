@@ -60,6 +60,21 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Re-test**:
   `PYTHONPATH=ai/src .venv/bin/python -m pytest ai/tests/test_frame_loader.py -q`
 
+### fix/dists-extractor-2026-05-14 — DISTS-Sq extractor smoke surface
+
+- **Touches**: `libvmaf/src/feature/feature_extractor.c`,
+  `libvmaf/src/feature/feature_dists.c`, `libvmaf/src/meson.build`,
+  `libvmaf/test/meson.build`, `.gitattributes`,
+  `model/tiny/registry.json`, and `docs/metrics/dists.md`.
+- **Invariant**: `dists_sq` is a registered tiny-AI full-reference
+  extractor that mirrors LPIPS' two-input ABI: `model_path` option,
+  `VMAF_DISTS_SQ_MODEL_PATH` environment fallback, ONNX inputs `ref` /
+  `dist`, scalar output `score`, and emitted feature key `dists_sq`.
+  `model/tiny/dists_sq.onnx` is a smoke placeholder marked
+  `dists_sq_placeholder_v0`; do not present it as production DISTS weights.
+- **Re-test**:
+  `meson test -C build-dists test_dists && .venv/bin/python ai/scripts/validate_model_registry.py model/tiny/registry.json`
+
 ### fix/backlog-gap-pass-10-2026-05-14 — KonViD-150k split score ingestion
 
 - **Touches**: `ai/scripts/konvid_150k_to_corpus_jsonl.py`,

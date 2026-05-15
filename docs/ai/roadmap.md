@@ -26,10 +26,11 @@ Shipped and wired:
 
 Shipped since the original "not shipped" list was written:
 
-- **Checkpoints shipped.** `model/tiny/` now contains 19 registry entries
+- **Checkpoints shipped.** `model/tiny/` now contains 24 registry entries
   (fr_regressor_v1/v2, vmaf_tiny_v2/v3/v4, nr_metric_v1, learned_filter_v1,
-  lpips_sq_v1, mobilesal_placeholder_v0, transnet_v2, fastdvdnet_pre, and
-  smoke/ensemble variants). See [model-registry.md](model-registry.md).
+  lpips_sq_v1, dists_sq_placeholder_v0, mobilesal_placeholder_v0,
+  transnet_v2, fastdvdnet_pre, and smoke/ensemble variants). See
+  [model-registry.md](model-registry.md).
 - **Model signing verification shipped** (ADR-0211 / T6-9). The
   `--tiny-model-verify` flag is wired to `cosign verify-blob`; `registry.json`
   carries SHA-256 pins and Sigstore bundle paths.
@@ -76,6 +77,15 @@ own composite features.
 **ONNX notes.** Stock convs + global pooling, static input shape.
 Exports cleanly at opset 17. No custom ops. Upstream reference:
 [`richzhang/PerceptualSimilarity`](https://github.com/richzhang/PerceptualSimilarity).
+
+### 2.3 DISTS-Sq as the LPIPS companion
+
+**Why.** Bristol VI-Lab's NVC audit flags DISTS as the deep-feature FR
+companion to LPIPS. The extractor surface is now shipped with a smoke
+checkpoint; production weights remain `T7-DISTS-followup`.
+
+**Integration.** `libvmaf/src/feature/feature_dists.c` mirrors LPIPS'
+two-input DNN session and emits `dists_sq` per frame.
 
 ### 2.3 MobileSal → saliency-weighted VMAF *and* encoder ROI
 

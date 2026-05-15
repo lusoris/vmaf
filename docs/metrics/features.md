@@ -45,6 +45,7 @@ limitations in the same PR as the code.
 | SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | Float moment       | `float_moment`  | No            | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd`    | AVX2, NEON          | CUDA, SYCL, Vulkan |
 | LPIPS (tiny-AI)    | `lpips`         | No            | `lpips`                                                                                       | —                   | via ORT EP³        |
+| DISTS-Sq (tiny-AI) | `dists_sq`      | No            | `dists_sq`                                                                                    | —                   | via ORT EP³        |
 | FastDVDnet pre     | `fastdvdnet_pre`| No            | `fastdvdnet_pre_l1_residual`                                                                  | —                   | —                  |
 | TransNet V2        | `transnet_v2`   | No            | `shot_boundary_probability`, `shot_boundary`                                                  | —                   | —                  |
 | Speed (chroma)     | `speed_chroma`  | No            | `speed_chroma_y/u/v_score`, `speed_chroma_uv_score` (only when `VMAF_FLOAT_FEATURES` enabled) | —                   | —                  |
@@ -749,6 +750,47 @@ init if no model path is provided (neither the option nor the
 environment variable); the registry under
 [`model/tiny/registry.json`](../../model/tiny/registry.json) tracks
 the canonical LPIPS ONNX checkpoint.
+
+### DISTS-Sq — deep image structure and texture similarity (tiny-AI)
+
+A DISTS-shaped full-reference perceptual-distance extractor backed by a
+two-input ONNX model. It shares the LPIPS host pipeline: YUV frame pairs are
+converted to ImageNet-normalised RGB tensors, passed to ONNX Runtime via the
+tiny-AI DNN surface, and collected as one scalar per frame.
+
+The shipped `model/tiny/dists_sq.onnx` checkpoint is a smoke placeholder. It
+computes mean squared distance between the two normalised RGB tensors so the
+extractor ABI and runtime path are testable before the real DISTS weights land.
+
+#### Invocation
+
+- CLI: `--feature dists_sq=model_path=/path/to/dists_sq.onnx`.
+- ffmpeg: `libvmaf=feature=name=dists_sq:model_path=...`.
+- C API: `vmaf_use_feature(ctx, "dists_sq", opts)` with
+  `model_path` set on the dictionary.
+
+**Output metrics** — `dists_sq` (one scalar per frame). Lower is more
+similar.
+
+**Output range** — placeholder-defined non-negative distance. It is not
+calibrated to published DISTS values.
+
+**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 bpc only. 4:0:0 is
+rejected because chroma is required for RGB conversion.
+
+#### Options
+
+| Option       | Type   | Default | Effect                                                                                                                             |
+|--------------|--------|---------|------------------------------------------------------------------------------------------------------------------------------------|
+| `model_path` | string | unset   | Filesystem path to the DISTS-Sq ONNX model (two-input). If unset, falls back to the `VMAF_DISTS_SQ_MODEL_PATH` environment variable. |
+
+**Backends** — scalar only on the libvmaf side. ONNX execution follows the
+configured tiny-AI provider selected via `--tiny-device`.
+
+**Limitations** — depends on the [tiny-AI runtime](../ai/overview.md) and
+fails init if no model path is provided. The committed checkpoint is marked
+`smoke: true` in the model registry and should be used only for smoke tests
+until the real DISTS weights replace it.
 
 ### FastDVDnet pre — temporal denoising pre-filter (tiny-AI)
 

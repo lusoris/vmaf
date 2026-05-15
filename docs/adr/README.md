@@ -368,7 +368,7 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0222](0222-vmaf-per-shot-tool.md) | `vmaf-perShot` per-shot CRF predictor sidecar | Accepted | ai, tools, encoder-hint, fork-local, t6-3b |
 | [ADR-0223](0223-transnet-v2-shot-detector.md) |  | Accepted | `ai`, `dnn`, `feature-extractor`, `wave-1`, `shot-detection`, `fork-local` |
 | [ADR-0235](0235-codec-aware-fr-regressor.md) | Codec-aware FR regressor (`fr_regressor_v2`) | Proposed | `ai`, `dnn`, `tiny-ai`, `fr-regressor`, `fork-local` |
-| [ADR-0236](0236-dists-extractor.md) |  | Proposed | ai, fr, dnn, tiny-ai, fork-local, perceptual |
+| [ADR-0236](0236-dists-extractor.md) | DISTS extractor as LPIPS companion | Accepted | ai, fr, dnn, tiny-ai, fork-local, perceptual |
 | [ADR-0237](0237-quality-aware-encode-automation.md) | Quality-aware encode automation surface (`vmaf-tune`) | Accepted (Phase A only; Phases B–F remain Proposed) | tooling, ai, ffmpeg, codec, automation, fork-local |
 | [ADR-0238](0238-vulkan-picture-preallocation.md) | Vulkan VmafPicture preallocation surface (API parity with CUDA / SYCL) | Proposed | vulkan, api, preallocation, fork-local, parity |
 | [ADR-0239](0239-gpu-picture-pool-dedup.md) | Backend-agnostic GPU picture pool (`gpu_picture_pool.{h,c}`) | Proposed | refactor, gpu, cuda, sycl, vulkan, dedup, fork-local |
