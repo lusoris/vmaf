@@ -1,5 +1,4 @@
-# Research-0126: saliency docs status sweep
-# Research-0126
+# Research 0126: saliency docs status sweep
 
 ## Scope
 

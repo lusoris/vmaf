@@ -227,7 +227,8 @@ guarantee at negligible inference-time cost.
 - Romano, Patterson, Candès (2019), _Conformalized Quantile
   Regression_ — the "normalised residual" scheme used here.
 - [ADR-0272](../../adr/0272-fr-regressor-v2-codec-aware-scaffold.md) —
-  parent v2 deterministic scaffold.
+  parent v2 deterministic scaffold (placeholder ID; renumber if PR #347
+  lands at a different ID).
 - [ADR-0279](../../adr/0279-fr-regressor-v2-probabilistic.md) — this
   ADR (probabilistic head + conformal calibration).
 - [ADR-0237](../../adr/0237-quality-aware-encode-automation.md) —
