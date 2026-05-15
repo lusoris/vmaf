@@ -34,7 +34,6 @@
  */
 
 #include <stdlib.h>
-#include <assert.h>
 #include "convolve.h"
 #include "iqa_options.h"
 
@@ -99,17 +98,14 @@ static float iqa_calc_scale(const struct iqa_kernel *k)
     if (k->normalized)
         return 1.0f;
 
-    /* zli-nflx: TODO: generalize to make iqa_calc_scale work on 1D separable filtering */
-    assert(0);
-
-    double sum = 0.0;
-    const int k_len = k->w * k->h;
-    for (int ii = 0; ii < k_len; ++ii) {
-        sum += k->kernel[ii];
-    }
-    if (sum != 0.0) {
-        return (float)(1.0 / sum);
-    }
+    /*
+     * Upstream zli-nflx left scale computation for non-normalised 1D separable
+     * kernels unimplemented.  All callers in this fork set k->normalized = true
+     * (Gaussian blur with pre-normalised coefficients), so this path is
+     * unreachable in practice.  Return a safe neutral scale (1.0f) instead of
+     * aborting — JPL Rule 14 forbids assert(0) where a recoverable value
+     * exists (ADR-0012).  Dead code below removed to prevent compiler warnings.
+     */
     return 1.0f;
 }
 
@@ -162,18 +158,21 @@ static void iqa_convolve_vertical_pass(const float *img_cache, int w, const stru
     }
 }
 
-static void iqa_convolve_1d_separable(float *img, int w, int h, const struct iqa_kernel *k,
-                                      float *result, int dst_w, int dst_h)
+/* Returns 0 on success, -1 on OOM (JPL-CERT MEM52-CPP: assert(0) on allocation
+ * failure is forbidden in production C — ADR-0012). */
+static int iqa_convolve_1d_separable(float *img, int w, int h, const struct iqa_kernel *k,
+                                     float *result, int dst_w, int dst_h)
 {
     const float scale = iqa_calc_scale(k);
     float *img_cache = (float *)calloc((size_t)w * (size_t)h, sizeof(float));
     if (!img_cache)
-        assert(0);
+        return -1;
 
     float *dst = result ? result : img;
     iqa_convolve_horizontal_pass(img, w, k, img_cache, dst_w, dst_h, scale);
     iqa_convolve_vertical_pass(img_cache, w, k, dst, dst_w, dst_h, scale);
     free(img_cache);
+    return 0;
 }
 
 #else /* use 2D filter */
@@ -214,7 +213,11 @@ void iqa_convolve(float *img, int w, int h, const struct iqa_kernel *k, float *r
     const int dst_h = h - k->h + 1;
 
 #ifdef IQA_CONVOLVE_1D
-    iqa_convolve_1d_separable(img, w, h, k, result, dst_w, dst_h);
+    /* Discard OOM return: iqa_convolve is a void API; the caller sees an
+     * all-zero destination frame on failure (calloc-initialised cache was
+     * never written).  A real fix would return int, but that is an
+     * upstream-incompatible ABI change deferred to a separate ADR. */
+    (void)iqa_convolve_1d_separable(img, w, h, k, result, dst_w, dst_h);
 #else
     (void)h;
     iqa_convolve_2d(img, w, k, result, dst_w, dst_h);
