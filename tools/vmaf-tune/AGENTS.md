@@ -165,6 +165,12 @@ for the option-space digest.
   use the active `wide_interval_min_width` as the conservative centred
   fallback interval so point-only corpora still participate in midpoint
   insertion.
+- **Saliency inference consumes RGB, not luma-replicated input
+  (ADR-0430).** `saliency.compute_saliency_map()` reads yuv420p Y/U/V,
+  nearest-neighbour upsamples chroma, converts BT.709 limited-range
+  YUV to RGB, and only then applies ImageNet normalisation for
+  `saliency_student_v1`. Do not reintroduce the old luma-only tensor
+  path unless the model card and operator docs explicitly change.
 - **`auto` non-smoke source probing is a real planning path.**
   `run_auto(smoke=False, meta_override=None)` must route source
   metadata through `_probe_source_meta`: ffprobe geometry, ffprobe

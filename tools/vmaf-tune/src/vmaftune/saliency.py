@@ -10,7 +10,7 @@ encoders a per-MB QP-offset map that biases bits toward salient regions
 
 Pipeline:
 
-    raw YUV ── sample N frames ── YUV->RGB ── ImageNet-normalise
+    raw yuv420p ── sample N frames ── YUV->RGB ── ImageNet-normalise
             ── onnxruntime(saliency_student_v1) ── mean saliency mask [0, 1]
             ── per-block reduce ── linear map to QP offsets [-12, +12]
             ── codec ROI sidecar/argv ── ffmpeg
@@ -123,38 +123,49 @@ def _yuv420p_frame_size(width: int, height: int) -> int:
     return width * height * 3 // 2
 
 
-def _read_yuv420p_y_plane(path: Path, frame_index: int, width: int, height: int) -> "np.ndarray":
-    """Read the luma plane of one yuv420p frame as ``uint8 [H, W]``.
-
-    Saliency inference uses RGB derived from luma replicated across
-    channels — sufficient quality for foreground-vs-background
-    discrimination and avoids a chroma upsample on the hot path.
-    """
+def _read_yuv420p_planes(
+    path: Path, frame_index: int, width: int, height: int
+) -> tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
+    """Read one yuv420p frame as ``uint8`` Y, U, V planes."""
     np = _import_numpy()
     frame_bytes = _yuv420p_frame_size(width, height)
     luma_bytes = width * height
+    chroma_width = width // 2
+    chroma_height = height // 2
+    chroma_bytes = chroma_width * chroma_height
     with path.open("rb") as fh:
         fh.seek(frame_index * frame_bytes)
-        buf = fh.read(luma_bytes)
-    if len(buf) != luma_bytes:
+        buf = fh.read(frame_bytes)
+    if len(buf) != frame_bytes:
         raise ValueError(
-            f"short read on {path}: wanted {luma_bytes} bytes at "
-            f"frame {frame_index}, got {len(buf)}"
+            f"short read on {path}: wanted {frame_bytes} bytes at frame {frame_index}, got {len(buf)}"
         )
-    return np.frombuffer(buf, dtype=np.uint8).reshape(height, width)
+    y_end = luma_bytes
+    u_end = y_end + chroma_bytes
+    y = np.frombuffer(buf[:y_end], dtype=np.uint8).reshape(height, width)
+    u = np.frombuffer(buf[y_end:u_end], dtype=np.uint8).reshape(chroma_height, chroma_width)
+    v = np.frombuffer(buf[u_end:], dtype=np.uint8).reshape(chroma_height, chroma_width)
+    return y, u, v
 
 
-def _luma_to_rgb_imagenet(luma: "np.ndarray") -> "np.ndarray":
-    """Replicate luma into 3 channels and ImageNet-normalise.
+def _yuv420p_to_rgb_imagenet(y: "np.ndarray", u: "np.ndarray", v: "np.ndarray") -> "np.ndarray":
+    """Convert yuv420p BT.709-limited planes to ImageNet-normalised RGB.
 
     Returns ``float32 [1, 3, H, W]`` — the NCHW tensor
     `saliency_student_v1` expects.
     """
     np = _import_numpy()
-    # uint8 [H, W] -> float32 [H, W] in [0, 1]
-    f = luma.astype(np.float32) / 255.0
-    # Replicate to 3 channels.
-    rgb = np.stack([f, f, f], axis=0)  # [3, H, W]
+    y_f = (y.astype(np.float32) - 16.0) / 219.0
+    u_f = (u.astype(np.float32) - 128.0) / 224.0
+    v_f = (v.astype(np.float32) - 128.0) / 224.0
+    u_full = np.repeat(np.repeat(u_f, 2, axis=0), 2, axis=1)[: y.shape[0], : y.shape[1]]
+    v_full = np.repeat(np.repeat(v_f, 2, axis=0), 2, axis=1)[: y.shape[0], : y.shape[1]]
+
+    r = y_f + (1.5748 * v_full)
+    g = y_f - (0.1873 * u_full) - (0.4681 * v_full)
+    b = y_f + (1.8556 * u_full)
+    rgb = np.stack([r, g, b], axis=0)
+    rgb = np.clip(rgb, 0.0, 1.0)
     mean = np.asarray(_IMAGENET_MEAN, dtype=np.float32).reshape(3, 1, 1)
     std = np.asarray(_IMAGENET_STD, dtype=np.float32).reshape(3, 1, 1)
     rgb = (rgb - mean) / std
@@ -224,8 +235,8 @@ def compute_saliency_map(
 
     accum = np.zeros((height, width), dtype=np.float32)
     for fi in indices:
-        luma = _read_yuv420p_y_plane(video_path, fi, width, height)
-        tensor = _luma_to_rgb_imagenet(luma)
+        y, u, v = _read_yuv420p_planes(video_path, fi, width, height)
+        tensor = _yuv420p_to_rgb_imagenet(y, u, v)
         outputs = session.run(None, {"input": tensor})
         # saliency_student_v1 returns NCHW [1, 1, H, W] in [0, 1].
         mask = np.asarray(outputs[0]).reshape(height, width)

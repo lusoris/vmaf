@@ -1,50 +1,83 @@
-# SSIMULACRA 2 extractor (stub)
+# SSIMULACRA 2 Extractor
 
-> **Stub** — placeholder per
-> [Research-0086](../research/0086-usage-doc-coverage-audit-2026-05-08.md).
-> The bulk of the SSIMULACRA 2 documentation already lives in
-> [`features.md`](features.md) (§SSIMULACRA 2) and the
-> per-backend overview pages; this stub is the discoverable
-> entry point.
+SSIMULACRA 2 is a full-reference perceptual similarity metric from the JPEG XL
+ecosystem. It compares reference and distorted frames in an XYB-inspired colour
+space, combines multi-scale SSIM-style structural terms, and applies an
+asymmetric penalty for lost texture energy. The fork ships it as a normal
+libvmaf feature extractor named `ssimulacra2`.
 
-SSIMULACRA 2 (*Structural SIMilarity Unveiling Local And Compression
-Related Artifacts*, version 2; Jyrki Alakuijala / Cloudinary /
-libjxl) is a fork-added feature extractor that closes the modern-
-codec quality-metric gap left by traditional SSIM and PSNR. It
-combines a multi-scale SSIM-like structural comparison with an
-**asymmetric** penalty that punishes lost texture energy more
-heavily than added noise, and is the de-facto modern-codec quality
-metric in the JPEG XL and AV1 image-compression communities.
+## Output
 
-## Invocation
+| Field | Value |
+| --- | --- |
+| Feature name | `ssimulacra2` |
+| Output metric | `ssimulacra2` |
+| Direction | Higher is better |
+| Range | `[0, 100]`; identical frames return `100` |
+| Snapshot gate | `python/test/ssimulacra2_test.py` |
 
-```shell
-vmaf --feature ssimulacra2 --reference ref.yuv --distorted dist.yuv ...
+Practical score bands:
+
+| Score | Meaning |
+| --- | --- |
+| `90-100` | Visually lossless |
+| `70-90` | High quality |
+| `50-70` | Medium quality, clearly lossy |
+| `30-50` | Low quality |
+| `0-30` | Very low quality |
+
+## Usage
+
+```bash
+vmaf \
+    --reference ref.yuv \
+    --distorted dist.yuv \
+    --width 1920 --height 1080 --pixel_format 420 --bitdepth 8 \
+    --feature ssimulacra2 \
+    --output score.json
 ```
 
-Output: one scalar per frame (`ssimulacra2`).
+The per-frame JSON metric key is `ssimulacra2`; pooled values appear under the
+same key in `pooled_metrics`.
 
-## Status and coverage
+## Options
 
-- **Design**: [ADR-0126](../adr/0126-ssimulacra2-extractor.md)
-  (Status: Proposed — the C scalar implementation has shipped per
-  [ADR-0130](../adr/0130-ssimulacra2-scalar-implementation.md); the
-  ADR remains in Proposed state pending the per-feature parity
-  matrix lock).
-- **SIMD bit-exactness**: AVX2 / AVX-512 / NEON paths (see
-  ADR-0161, ADR-0162, ADR-0163) and SVE2 ([ADR-0213](../adr/0213-ssimulacra2-sve2.md)).
-- **GPU coverage**: CUDA, SYCL ([ADR-0206](../adr/0206-ssimulacra2-cuda-sycl.md)),
-  Vulkan ([ADR-0201](../adr/0201-ssimulacra2-vulkan-kernel.md)).
-- **Snapshot regression gate**:
-  [ADR-0164](../adr/0164-ssimulacra2-snapshot-gate.md).
+| Option | Type | Default | Values | Effect |
+| --- | --- | --- | --- | --- |
+| `yuv_matrix` | int | `0` | `0..3` | `0`: BT.709 limited, `1`: BT.601 limited, `2`: BT.709 full, `3`: BT.601 full |
 
-## See also
+Example:
 
-- [`features.md`](features.md) — full feature-extractor matrix
-  (already carries the SSIMULACRA 2 row).
-- [`docs/backends/vulkan/overview.md`](../backends/vulkan/overview.md),
-  [`cuda/overview.md`](../backends/cuda/overview.md),
-  [`sycl/overview.md`](../backends/sycl/overview.md) — per-backend
-  kernel-coverage lists that include SSIMULACRA 2.
-- [ADR-0126](../adr/0126-ssimulacra2-extractor.md) — design
-  decision.
+```bash
+vmaf ... --feature ssimulacra2=yuv_matrix=2
+```
+
+## Inputs And Backends
+
+- Pixel formats: YUV 4:2:0, 4:2:2, and 4:4:4.
+- Bit depths: 8, 10, and 12 bpc.
+- CPU SIMD: AVX2, AVX-512, NEON, and SVE2 when the host advertises it.
+- GPU twins: `ssimulacra2_vulkan`, `ssimulacra2_cuda`, and
+  `ssimulacra2_sycl`.
+
+The CPU scalar/SIMD path is bit-exact across the fork's host matrix. The GPU
+twins offload the pyramid blur and per-pixel multiply stages while keeping the
+XYB conversion and final combine on the host.
+
+## Limitations
+
+- Chroma is nearest-neighbour upsampled to luma resolution before colour
+  conversion.
+- The recursive Gaussian coefficient derivation is pinned to the shipped
+  sigma used by the libjxl reference path; arbitrary sigma values are not a
+  user option.
+- Scores are useful as a perceptual ranking signal, not as an MOS-calibrated
+  VMAF replacement.
+
+## See Also
+
+- [Feature extractor matrix](features.md#ssimulacra-2--perceptual-similarity-in-xyb-space)
+- [ADR-0130](../adr/0130-ssimulacra2-scalar-implementation.md)
+- [ADR-0164](../adr/0164-ssimulacra2-snapshot-gate.md)
+- [ADR-0201](../adr/0201-ssimulacra2-vulkan-kernel.md)
+- [ADR-0206](../adr/0206-ssimulacra2-cuda-sycl.md)
