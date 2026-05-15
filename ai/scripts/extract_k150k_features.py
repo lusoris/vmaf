@@ -26,12 +26,13 @@ lets interrupted runs resume without re-processing already-extracted clips.  The
 parquet is flushed atomically (via a ``.tmp`` sibling) every ``--flush-every`` clips
 and once more at the end.
 
-Parallelism (ADR-0382): clips are dispatched to a ``concurrent.futures.ProcessPoolExecutor``
-with ``--threads-cuda`` workers (default 8).  Each worker independently decodes one
-clip to a worker-private YUV scratch file, scores it via the CUDA binary, aggregates
-frames, removes the YUV immediately, and returns the row dict.  The main process
-collects results, writes the ``.done`` checkpoint, and flushes the parquet.  Worker
-isolation ensures no shared mutable state and avoids CUDA context conflicts.
+Parallelism (ADR-0382): clips are dispatched to a
+``concurrent.futures.ProcessPoolExecutor`` with ``--threads-cuda`` workers
+(default 8).  Each worker independently decodes one clip to a worker-private YUV
+scratch file, scores it via the selected fork binary, aggregates frames, removes
+the YUV immediately, and returns the row dict.  The main process collects
+results, writes the ``.done`` checkpoint, and flushes the parquet.  Worker
+isolation ensures no shared mutable state and avoids backend context conflicts.
 
 Usage::
 
@@ -48,13 +49,13 @@ Resume command (same invocation; already-done clips are skipped)::
 
     python ai/scripts/extract_k150k_features.py
 
-Hardware: throughput is achieved via parallel CPU workers (``ProcessPoolExecutor``,
-``--threads-cuda`` flag).  Benchmarking showed that 540p 5s clips are CPU-bound —
-the CUDA binary provides no per-clip speedup over CPU (GPU init overhead dominates
-for short clips at 540p).  At 8 parallel workers, the CPU path achieves ~0.5-0.9
-clip/s (vs 0.14 clip/s baseline), comfortably exceeding the 5× target (ADR-0382).
-The system ``/usr/local/bin/vmaf`` v3.0.0 lacks ssimulacra2 and motion_v2 — it must
-NOT be used for this pipeline.
+Hardware: the default path remains CPU-oriented because K150K-A 540p 5s clips are
+CPU-bound in aggregate and the CUDA binary provides no per-clip speedup for that
+geometry (ADR-0382).  Larger local corpora such as CHUG can opt into a CUDA-capable
+``--vmaf-bin``; in that mode the script uses explicit CUDA feature names for the
+stable GPU pass and ``--cpu-vmaf-bin`` for residual CPU-only extractors.  The
+system ``/usr/local/bin/vmaf`` v3.0.0 lacks ssimulacra2 and motion_v2 — it must NOT
+be used for this pipeline.
 """
 
 from __future__ import annotations
@@ -92,6 +93,23 @@ EXTRACTOR_NAMES: tuple[str, ...] = (
     "ciede",
     "psnr_hvs",
     "ssimulacra2",
+)
+
+CUDA_EXTRACTOR_NAMES: tuple[str, ...] = (
+    "adm_cuda",
+    "vif_cuda",
+    "motion_cuda",
+    "motion_v2_cuda",
+    "psnr_cuda",
+    "ciede_cuda",
+    "float_ms_ssim_cuda",
+    "psnr_hvs_cuda",
+    "ssimulacra2_cuda",
+)
+
+CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = (
+    "float_ssim",
+    "cambi",
 )
 
 # Canonical 22-feature output columns (Research-0026).
@@ -219,18 +237,13 @@ def _build_vmaf_cmd(
     pix_fmt: str,
     out_json: Path,
     threads: int,
-    use_cuda: bool,
+    extractor_names: tuple[str, ...],
+    backend_args: list[str],
 ) -> list[str]:
     bitdepth = "10" if "10" in pix_fmt else "8"
     feat_args: list[str] = []
-    for ex in EXTRACTOR_NAMES:
+    for ex in extractor_names:
         feat_args += ["--feature", ex]
-
-    backend_args: list[str] = []
-    if use_cuda:
-        backend_args += ["--backend", "cuda"]
-    else:
-        backend_args += ["--no_cuda", "--no_sycl", "--no_vulkan"]
 
     return [
         str(vmaf_bin),
@@ -265,14 +278,97 @@ def _run_vmaf_json(
     pix_fmt: str,
     out_json: Path,
     threads: int,
-    use_cuda: bool,
+    extractor_names: tuple[str, ...],
+    backend_args: list[str],
 ) -> list[dict]:
-    """Run vmaf and return a list of per-frame metric dicts."""
-    cmd = _build_vmaf_cmd(vmaf_bin, yuv_path, width, height, pix_fmt, out_json, threads, use_cuda)
+    """Run vmaf once and return a list of per-frame metric dicts."""
+    cmd = _build_vmaf_cmd(
+        vmaf_bin,
+        yuv_path,
+        width,
+        height,
+        pix_fmt,
+        out_json,
+        threads,
+        extractor_names,
+        backend_args,
+    )
     subprocess.run(cmd, check=True, capture_output=True)
     with out_json.open() as f:
         data = json.load(f)
     return [fr["metrics"] for fr in data.get("frames", [])]
+
+
+def _merge_frame_metrics(primary: list[dict], residual: list[dict]) -> list[dict]:
+    """Merge per-frame metric dictionaries from two vmaf invocations."""
+    frame_count = min(len(primary), len(residual))
+    merged: list[dict] = []
+    for idx in range(frame_count):
+        row = dict(primary[idx])
+        row.update(residual[idx])
+        merged.append(row)
+    return merged
+
+
+def _run_feature_passes(
+    vmaf_bin: Path,
+    cpu_vmaf_bin: Path,
+    yuv_path: Path,
+    width: int,
+    height: int,
+    pix_fmt: str,
+    out_json: Path,
+    threads: int,
+    use_cuda: bool,
+) -> list[dict]:
+    """Run vmaf feature extraction, splitting CUDA mode where required."""
+    if not use_cuda:
+        return _run_vmaf_json(
+            vmaf_bin,
+            yuv_path,
+            width,
+            height,
+            pix_fmt,
+            out_json,
+            threads,
+            EXTRACTOR_NAMES,
+            ["--no_cuda", "--no_sycl", "--no_vulkan"],
+        )
+
+    cuda_json = out_json.with_name(out_json.stem + ".cuda.json")
+    cpu_json = out_json.with_name(out_json.stem + ".cpu.json")
+    try:
+        cuda_frames = _run_vmaf_json(
+            vmaf_bin,
+            yuv_path,
+            width,
+            height,
+            pix_fmt,
+            cuda_json,
+            threads,
+            CUDA_EXTRACTOR_NAMES,
+            ["--backend", "cuda"],
+        )
+        cpu_frames = _run_vmaf_json(
+            cpu_vmaf_bin,
+            yuv_path,
+            width,
+            height,
+            pix_fmt,
+            cpu_json,
+            threads,
+            CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES,
+            ["--no_cuda", "--no_sycl", "--no_vulkan"],
+        )
+        frames = _merge_frame_metrics(cuda_frames, cpu_frames)
+        out_json.write_text(
+            json.dumps({"frames": [{"metrics": row} for row in frames]}),
+            encoding="utf-8",
+        )
+        return frames
+    finally:
+        cuda_json.unlink(missing_ok=True)
+        cpu_json.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +464,7 @@ def _process_clip(
     mp4_str: str,
     mos: float,
     vmaf_bin_str: str,
+    cpu_vmaf_bin_str: str,
     scratch_dir_str: str,
     vmaf_threads: int,
     use_cuda: bool,
@@ -384,6 +481,7 @@ def _process_clip(
     """
     mp4 = Path(mp4_str)
     vmaf_bin = Path(vmaf_bin_str)
+    cpu_vmaf_bin = Path(cpu_vmaf_bin_str)
     scratch_dir = Path(scratch_dir_str)
 
     # Worker-private paths — include PID + worker_id for full isolation.
@@ -394,8 +492,9 @@ def _process_clip(
     try:
         width, height, pix_fmt, _fps = _probe_geometry(mp4)
         _decode_to_yuv(mp4, yuv_path, pix_fmt)
-        frames = _run_vmaf_json(
+        frames = _run_feature_passes(
             vmaf_bin,
+            cpu_vmaf_bin,
             yuv_path,
             width,
             height,
@@ -445,9 +544,19 @@ def main() -> int:
         default=REPO_ROOT / "libvmaf" / "build-cpu" / "tools" / "vmaf",
         help=(
             "Path to the fork vmaf binary (built with ssimulacra2 + motion_v2).  "
-            "Default: libvmaf/build-cpu/tools/vmaf.  Throughput is achieved via "
-            "parallel workers (--threads-cuda), not GPU acceleration — benchmarking "
-            "showed CUDA provides no per-clip speedup for 540p 5s clips (ADR-0382)."
+            "Default: libvmaf/build-cpu/tools/vmaf.  Passing a CUDA-capable binary "
+            "enables the split CUDA-safe feature pass plus CPU residual pass "
+            "(ADR-0431)."
+        ),
+    )
+    ap.add_argument(
+        "--cpu-vmaf-bin",
+        type=Path,
+        default=REPO_ROOT / "libvmaf" / "build-cpu" / "tools" / "vmaf",
+        help=(
+            "CPU vmaf binary used for residual CPU-only feature passes when "
+            "--vmaf-bin points at a CUDA-capable binary. Default: "
+            "libvmaf/build-cpu/tools/vmaf."
         ),
     )
     ap.add_argument(
@@ -470,8 +579,8 @@ def main() -> int:
             "Number of parallel worker processes (outer parallelism).  Each "
             "worker runs one vmaf invocation concurrently.  Default 8 is tuned "
             "for a 32-thread Zen5 CPU; reduce on machines with fewer cores.  "
-            "Named --threads-cuda for historical reasons (ADR-0382); the workers "
-            "run on CPU regardless of backend."
+            "Named --threads-cuda for historical reasons (ADR-0382); it controls "
+            "outer process parallelism for both CPU and split CUDA modes."
         ),
     )
     ap.add_argument(
@@ -523,6 +632,9 @@ def main() -> int:
             "Then re-run with --vmaf-bin libvmaf/build-cpu/tools/vmaf",
             file=sys.stderr,
         )
+        return 2
+    if use_cuda and not args.cpu_vmaf_bin.is_file():
+        print(f"error: cpu-vmaf-bin not found: {args.cpu_vmaf_bin}", file=sys.stderr)
         return 2
 
     # ------------------------------------------------------------------
@@ -580,6 +692,7 @@ def main() -> int:
                 str(mp4),
                 mos,
                 str(args.vmaf_bin),
+                str(args.cpu_vmaf_bin),
                 str(args.scratch_dir),
                 args.threads,
                 use_cuda,

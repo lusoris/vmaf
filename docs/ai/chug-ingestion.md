@@ -115,3 +115,25 @@ python ai/scripts/train_konvid_mos_head.py \
 This is a baseline unlock, not a final HDR model. The CHUG feature rows
 carry full-reference libvmaf features, but future production HDR claims
 still need the HDR teacher/model decision to land.
+
+## Local FULL_FEATURES Experiments
+
+For local CHUG sweeps that use the generic FR-from-NR FULL_FEATURES
+extractor, point `ai/scripts/extract_k150k_features.py` at CHUG clips and
+labels:
+
+```bash
+PYTHONPATH=ai/src python ai/scripts/extract_k150k_features.py \
+  --clips-dir .workingdir2/chug/clips \
+  --scores .workingdir2/chug/chug_scores.csv \
+  --vmaf-bin libvmaf/build-cuda/tools/vmaf \
+  --cpu-vmaf-bin build-cpu/tools/vmaf \
+  --out .workingdir2/chug/training/full_features_chug.parquet \
+  --scratch-dir .workingdir2/chug/feature_scratch_cuda
+```
+
+When a CUDA binary is used, the extractor splits the pass: explicit CUDA
+feature names for the stable CUDA twins, then a CPU residual pass for
+`float_ssim` and `cambi`. This avoids the mixed all-feature
+`--backend cuda` CLI path that can fail with duplicate feature-key writes
+while preserving the same parquet columns for training.

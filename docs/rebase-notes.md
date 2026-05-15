@@ -32,6 +32,20 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/chug-cuda-feature-split-2026-05-15 — FR-from-NR CUDA feature split
+
+- **Touches**: `ai/scripts/extract_k150k_features.py`,
+  `ai/tests/test_extract_k150k_features.py`, `ai/AGENTS.md`,
+  `docs/ai/datasets/k150k.md`, and `docs/ai/chug-ingestion.md`.
+- **Invariant**: CUDA mode in the FR-from-NR extractor uses explicit CUDA
+  feature names for the stable CUDA pass and `--cpu-vmaf-bin` for the
+  residual CPU feature pass (`float_ssim`, `cambi`). Do not collapse this
+  back into one generic all-feature `--backend cuda` invocation; local CHUG
+  10-bit clips reproduced duplicate feature-key writes and CUDA context
+  synchronization failures on that path.
+- **Re-test**:
+  `PYTHONPATH=ai/src .venv/bin/python -m pytest ai/tests/test_extract_k150k_features.py -q`
+
 ### fix/vmaf-tune-libvpx-adapter-2026-05-14 — vmaf-tune libvpx-vp9 adapter
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py`,
