@@ -315,13 +315,13 @@ static int submit_fex_hip(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafP
     hipError_t rc =
         hipMemcpy2DAsync(s->ref_in, (size_t)plane_pitch, ref_pic->data[0],
                          (size_t)ref_pic->stride[0], (size_t)plane_pitch, (size_t)s->frame_h,
-                         hipMemcpyHostToDevice, (hipStream_t)pic_stream_handle);
+                         hipMemcpyDeviceToDevice, (hipStream_t)pic_stream_handle);
     if (rc != hipSuccess)
         return -EIO;
 
     rc = hipMemcpy2DAsync(s->dis_in, (size_t)plane_pitch, dist_pic->data[0],
                           (size_t)dist_pic->stride[0], (size_t)plane_pitch, (size_t)s->frame_h,
-                          hipMemcpyHostToDevice, (hipStream_t)pic_stream_handle);
+                          hipMemcpyDeviceToDevice, (hipStream_t)pic_stream_handle);
     if (rc != hipSuccess)
         return -EIO;
 

@@ -47,9 +47,9 @@ vulkan_shader_sources = [
     'shaders/motion_v2.comp',
     'shaders/adm.comp',
     'shaders/psnr.comp',
-    'shaders/float_moment.comp',
+    'shaders/moment.comp',
     'shaders/ciede.comp',
-    'shaders/float_ssim.comp',
+    'shaders/ssim.comp',
     'shaders/ms_ssim.comp',
     'shaders/ms_ssim_decimate.comp',
     'shaders/psnr_hvs.comp',
@@ -72,8 +72,6 @@ vulkan_shader_sources = [
     'shaders/cambi_filter_mode.comp',
     'shaders/cambi_decimate.comp',
     'shaders/cambi_mask_dp.comp',
-    # integer_ssim Vulkan twin — reads raw uint8/uint16 samples inline.
-    'shaders/integer_ssim.comp',
 ]
 
 vulkan_shader_headers = []
@@ -159,13 +157,13 @@ vulkan_sources += files(
     'picture_vulkan.c',
     'picture_vulkan_pool.c',
     '../feature/vulkan/adm_vulkan.c',
-    '../feature/vulkan/integer_vif_vulkan.c',
+    '../feature/vulkan/vif_vulkan.c',
     '../feature/vulkan/motion_vulkan.c',
     '../feature/vulkan/motion_v2_vulkan.c',
     '../feature/vulkan/psnr_vulkan.c',
-    '../feature/vulkan/float_moment_vulkan.c',
+    '../feature/vulkan/moment_vulkan.c',
     '../feature/vulkan/ciede_vulkan.c',
-    '../feature/vulkan/float_ssim_vulkan.c',
+    '../feature/vulkan/ssim_vulkan.c',
     '../feature/vulkan/ms_ssim_vulkan.c',
     '../feature/vulkan/psnr_hvs_vulkan.c',
     '../feature/vulkan/float_ansnr_vulkan.c',
@@ -175,7 +173,6 @@ vulkan_sources += files(
     '../feature/vulkan/float_adm_vulkan.c',
     '../feature/vulkan/ssimulacra2_vulkan.c',
     '../feature/vulkan/cambi_vulkan.c',
-    '../feature/vulkan/integer_ssim_vulkan.c',
 )
 
 vulkan_sources += vulkan_shader_headers
