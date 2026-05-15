@@ -148,11 +148,21 @@ CUDA_EXTRACTOR_NAMES: tuple[str, ...] = (
 # CUDA primary pass (it has shipped a CUDA implementation since
 # libvmaf/src/feature/cuda/float_ssim_cuda.c landed). cambi stays
 # on this CPU residual pass — its CUDA twin segfaults (Issue #857).
-CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = ("cambi",)
+CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = (
+    "cambi",
+    # speed_temporal + speed_chroma added 2026-05-15. Lawrence's HDR
+    # recipe (`hdr_custom_features.py`, Slack) called for both signals
+    # in the K150K/CHUG feature set; they are CPU-only extractors
+    # (no CUDA twin yet) so they ride the residual pass.
+    "speed_temporal",
+    "speed_chroma",
+)
 
-# Canonical 21-feature output columns (Research-0026, parquet schema v2).
+# Canonical 25-feature output columns (Research-0026, parquet schema v2 +
+# 2026-05-15 speed-feature addition).
 # WARNING: column order is locked — do not reorder without incrementing the
-# parquet schema version and updating ai/AGENTS.md.
+# parquet schema version and updating ai/AGENTS.md. New columns may only be
+# appended at the END of the tuple, never inserted.
 # ssimulacra2 dropped: in self-vs-self (FR-from-NR) mode it returns ~100 for every
 # frame regardless of input (zero training signal); see ADR-0431 and the docstring
 # near CUDA_EXTRACTOR_NAMES above.
@@ -178,6 +188,12 @@ FEATURE_NAMES: tuple[str, ...] = (
     "ciede2000",
     "psnr_hvs",
     "vmaf",
+    # 2026-05-15 additions — appended at end to preserve column order.
+    # Source: lawrence's hdr_custom_features.py recipe (Slack).
+    "speed_temporal",
+    "speed_chroma_u",
+    "speed_chroma_v",
+    "speed_chroma_uv",
 )
 
 # Map feature names to their JSON key(s) in libvmaf output.  libvmaf may emit
@@ -204,6 +220,24 @@ _METRIC_ALIASES: dict[str, tuple[str, ...]] = {
     "ciede2000": ("ciede2000",),
     "psnr_hvs": ("psnr_hvs",),
     "vmaf": ("vmaf",),
+    # 2026-05-15 additions — short aliases registered in
+    # libvmaf/src/feature/alias.c.
+    "speed_temporal": (
+        "speed_temporal",
+        "Speed_temporal_feature_speed_temporal_score",
+    ),
+    "speed_chroma_u": (
+        "speed_chroma_u",
+        "Speed_chroma_feature_speed_chroma_u_score",
+    ),
+    "speed_chroma_v": (
+        "speed_chroma_v",
+        "Speed_chroma_feature_speed_chroma_v_score",
+    ),
+    "speed_chroma_uv": (
+        "speed_chroma_uv",
+        "Speed_chroma_feature_speed_chroma_uv_score",
+    ),
 }
 
 # ---------------------------------------------------------------------------
