@@ -10,8 +10,8 @@ the encode side via codec-specific flag families. This module:
 1. probes a video file with ``ffprobe -show_streams -of json`` and
    classifies the first video stream as PQ HDR / HLG HDR / SDR;
 2. emits the codec-appropriate ffmpeg flag list per detected adapter
-   (Phase A: x264 has no HDR flags, x265/SVT-AV1/NVENC stubs land with
-   the corresponding adapter PRs);
+   (global color tags for every HDR-capable row, codec-private HDR SEI
+   where FFmpeg exposes a stable flag family);
 3. resolves a fork-local HDR VMAF model JSON if one is shipped, else
    returns ``None`` so callers fall back to the SDR model with a
    logged warning.
@@ -260,16 +260,22 @@ def hdr_codec_args(encoder: str, info: HdrInfo) -> tuple[str, ...]:
     wired for this codec adapter. Callers append the result to the
     base ffmpeg command after the ``-c:v`` argument.
 
-    Phase A wires ``libx264`` (no-op: x264 doesn't carry HDR signaling
-    in-stream the way x265 does). The other entries are the reference
-    flag families used by the in-flight codec-adapter PRs (x265,
-    SVT-AV1, NVENC HEVC, libvvenc); the dispatch table is the contract.
+    The dispatch table is the central contract. Codec adapters own
+    quality/preset argv; this function owns HDR color signaling so the
+    corpus and auto planner stay consistent across encoders.
     """
     dispatch = {
+        "libaom-av1": _hdr_args_global_only,
         "libx264": _hdr_args_x264,
         "libx265": _hdr_args_x265,
         "libsvtav1": _hdr_args_svtav1,
+        "av1_nvenc": _hdr_args_av1_10bit_global,
         "hevc_nvenc": _hdr_args_nvenc_hevc,
+        "hevc_qsv": _hdr_args_hevc_main10_global,
+        "av1_qsv": _hdr_args_av1_10bit_global,
+        "hevc_amf": _hdr_args_hevc_main10_global,
+        "av1_amf": _hdr_args_av1_10bit_global,
+        "hevc_videotoolbox": _hdr_args_hevc_main10_global,
         "libvvenc": _hdr_args_vvenc,
     }
     fn = dispatch.get(encoder)
@@ -292,6 +298,25 @@ def _global_color_args(info: HdrInfo) -> list[str]:
         "-color_range",
         info.color_range or "tv",
     ]
+
+
+def _hdr_args_global_only(info: HdrInfo) -> tuple[str, ...]:
+    """Codec supports ffmpeg-level color tagging but no stable private HDR SEI knobs."""
+    return tuple(_global_color_args(info))
+
+
+def _hdr_args_hevc_main10_global(info: HdrInfo) -> tuple[str, ...]:
+    """HEVC hardware-family baseline: force 10-bit output and global color tags."""
+    args = ["-pix_fmt", "p010le", "-profile:v", "main10"]
+    args.extend(_global_color_args(info))
+    return tuple(args)
+
+
+def _hdr_args_av1_10bit_global(info: HdrInfo) -> tuple[str, ...]:
+    """AV1 hardware-family baseline: force 10-bit 4:2:0 output and global color tags."""
+    args = ["-pix_fmt", "p010le"]
+    args.extend(_global_color_args(info))
+    return tuple(args)
 
 
 def _hdr_args_x264(info: HdrInfo) -> tuple[str, ...]:
@@ -348,8 +373,7 @@ def _hdr_args_nvenc_hevc(info: HdrInfo) -> tuple[str, ...]:
     """NVENC HEVC: relies on ``-pix_fmt p010le -profile:v main10`` plus
     the ffmpeg-global ``-color_*`` flags for SEI propagation.
     """
-    args = ["-pix_fmt", "p010le", "-profile:v", "main10"]
-    args.extend(_global_color_args(info))
+    args = list(_hdr_args_hevc_main10_global(info))
     if info.master_display:
         args.extend(["-master_display", info.master_display])
     if info.max_cll:

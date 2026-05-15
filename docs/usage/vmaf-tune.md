@@ -1428,7 +1428,8 @@ A source is classified as HDR iff its first video stream carries
 Mismatched signaling (e.g. PQ transfer with BT.709 primaries) is
 treated as SDR — misclassifying SDR as HDR is the dangerous failure
 mode. Mastering-display + max-CLL SEI side data is read when present
-and propagated to encoders that accept it (x265, SVT-AV1, NVENC).
+and propagated to encoders that expose stable FFmpeg SEI flags (x265,
+SVT-AV1, HEVC NVENC).
 
 ### Detection modes
 
@@ -1446,9 +1447,13 @@ The four flags are mutually exclusive.
 | Encoder | HDR signaling carrier |
 | --- | --- |
 | `libx264` | Container-level `-color_*` flags only (x264 has no in-stream HDR SEI). |
+| `libaom-av1` | Global `-color_*` tags only; no fork-owned private SEI mapping yet. |
 | `libx265` | Global `-color_*` + `-x265-params colorprim=bt2020:transfer=...:colormatrix=bt2020nc[:master-display=...:max-cll=...:hdr10-opt=1]`. |
 | `libsvtav1` | Global `-color_*` + `-svtav1-params color-primaries=9:transfer-characteristics=16` (PQ) or `=18` (HLG) `:matrix-coefficients=9`. |
 | `hevc_nvenc` | `-pix_fmt p010le -profile:v main10` + global `-color_*` + `-master_display` / `-max_cll` (when ffmpeg supports them). |
+| `av1_nvenc` | `-pix_fmt p010le` + global `-color_*` tags. |
+| `hevc_qsv` / `hevc_amf` / `hevc_videotoolbox` | `-pix_fmt p010le -profile:v main10` + global `-color_*` tags. |
+| `av1_qsv` / `av1_amf` | `-pix_fmt p010le` + global `-color_*` tags. |
 | `libvvenc` | Global `-color_*` only (SEI options live behind `--vvenc-params` in newer ffmpeg builds). |
 
 Encoders not in the dispatch table emit no HDR flags and the corpus

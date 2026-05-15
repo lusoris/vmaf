@@ -34616,3 +34616,30 @@ ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:abort_on_error=1:print_summary=1 ./l
 UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 ./libvmaf/build-ubsan-predict/test/test_predict
 TSAN_OPTIONS=halt_on_error=1 ./libvmaf/build-tsan-predict/test/test_predict
 ```
+
+## 2026-05-15 — `vmaf-tune` HDR Dispatch Coverage
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/hdr.py`,
+`tools/vmaf-tune/tests/test_hdr.py`,
+`tools/vmaf-tune/tests/test_auto_short_circuits.py`,
+`tools/vmaf-tune/AGENTS.md`, `docs/usage/vmaf-tune.md`,
+`docs/usage/vmaf-tune-hdr-and-sampling.md`,
+`docs/research/0126-vmaf-tune-hdr-dispatch-coverage-2026-05-15.md`.
+
+**Rebase impact**: low. This extends the existing ADR-0300 dispatch
+table only; it does not change corpus schema, codec-adapter quality
+knobs, or HDR model lookup.
+
+**Invariant to preserve on rebase**: `hdr_codec_args()` remains the
+single HDR argv contract. Hardware HEVC rows should emit `p010le` +
+`main10` plus global color tags; hardware AV1 rows should emit
+`p010le` plus global color tags; codec-private mastering-display /
+MaxCLL flags stay limited to verified families.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_hdr.py \
+  tools/vmaf-tune/tests/test_auto_short_circuits.py -q
+```
