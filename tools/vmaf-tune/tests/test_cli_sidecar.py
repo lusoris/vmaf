@@ -62,7 +62,9 @@ def test_sidecar_help_lists_operator_commands() -> None:
         assert command in help_text
 
 
-def test_sidecar_status_json_uses_requested_cache(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_sidecar_status_json_uses_requested_cache(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     cache_dir = tmp_path / "cache"
     rc = main(
         [
