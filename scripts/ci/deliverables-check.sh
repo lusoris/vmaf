@@ -78,6 +78,30 @@ git diff --name-only "${diff_base}..${diff_head}" >"$tmp_diff"
 echo "deliverables-check: PR body from ${body_src}, diff from ${diff_src}"
 echo ""
 
+# ---------- 2b. Anti-pattern detection (prose bullet form) ----------
+#
+# Agents occasionally write deliverable lines as prose bullets:
+#   "- Research digest: docs/research/0435-foo.md"
+# instead of the required checkbox form:
+#   "- [x] **Research digest** — docs/research/0435-foo.md"
+#
+# This does NOT trigger a failure on its own — the six-deliverable parse
+# below is authoritative. The warning here surfaces the probable root cause
+# before the error line so contributors (and agents) understand why the gate
+# is failing, rather than seeing only "Research digest is neither ticked nor
+# opted-out" with no hint about the format mismatch.
+#
+# The patterns mirror the six deliverable names exactly (case-insensitive).
+_prose_re='^[[:space:]]*[-*][[:space:]]+(Research digest|Decision matrix|AGENTS\.md invariant|Reproducer|CHANGELOG fragment|Rebase note)[[:space:]]*:'
+if grep -qiEm1 "${_prose_re}" "${tmp_body}"; then
+  echo "::warning title=ADR-0108 prose-bullet format::One or more deliverables appear to be in prose bullet"
+  echo "  format (e.g. '- Research digest: docs/research/...'). The parser requires"
+  echo "  the checkbox form: '- [x] **Research digest** — docs/research/NNNN-*.md'"
+  echo "  or the opt-out form: '- [ ] **Research digest** — no digest needed: REASON'."
+  echo "  See docs/development/pr-body-sentinel-guide.md for the exact syntax."
+  echo ""
+fi
+
 # ---------- 3. Six-deliverable parse ----------
 
 # The six deliverables, as named in .github/PULL_REQUEST_TEMPLATE.md
