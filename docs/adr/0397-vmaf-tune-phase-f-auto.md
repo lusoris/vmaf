@@ -1,6 +1,6 @@
 # ADR-0397: `vmaf-tune` Phase F — `auto` adaptive recipe-aware tuning
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-08
 - **Deciders**: Lusoris
 - **Tags**: tooling, automation, vmaf-tune, ffmpeg, codec, fork-local

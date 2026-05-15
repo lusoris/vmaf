@@ -1,6 +1,6 @@
 # ADR-0396: Video-temporal saliency extension to `saliency_student_v1`
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-08
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: ai, dnn, saliency, video-saliency, vmaf-tune, roi, fork-local, design
