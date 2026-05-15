@@ -252,6 +252,28 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Re-test**:
   `PYTHONPATH=ai/src .venv/bin/python -m pytest ai/tests/test_frame_loader.py -q`
 
+### fix/mkdocs-strict-pre-push-2026-05-15 — mkdocs strict-mode pre-push hook
+
+- **Touches**: `scripts/git-hooks/pre-push-mkdocs-strict.sh` (new),
+  `scripts/git-hooks/pre-push` (delegation call appended),
+  `.pre-commit-config.yaml` (new `mkdocs-strict` local hook entry),
+  `docs/adr/0457-mkdocs-strict-pre-push-hook.md` (new ADR).
+- **Invariant**: The hook gate mirrors the CI `docs.yml` lane (ADR-0403):
+  `mkdocs build --strict --quiet` with the repo-root `mkdocs.yml`. Keeping
+  the hook's config-file flag pointed at `mkdocs.yml` in the repo root is
+  load-bearing — if `mkdocs.yml` is ever moved, update
+  `pre-push-mkdocs-strict.sh` in the same PR. The `SKIP=mkdocs-strict`
+  bypass token is the per-hook escape hatch; preserve it across rebases so
+  the CI-gate-mirror contract (which also respects `SKIP`) stays coherent.
+- **Re-test**:
+
+  ```shell
+  # Touch a docs file with a known-good anchor, push — hook should pass:
+  touch docs/index.md && git push
+  # Touch docs/index.md, add a broken anchor ref, push — hook should block:
+  echo "[bad](#nonexistent)" >> docs/index.md && git push
+  ```
+
 ### fix/dists-extractor-2026-05-14 — DISTS-Sq extractor smoke surface
 
 - **Touches**: `libvmaf/src/feature/feature_extractor.c`,
