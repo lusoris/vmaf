@@ -50,9 +50,9 @@
  * should use the libvmaf CLI, not the MCP tool surface. */
 #define VMAF_MCP_COMPUTE_MAX_FRAMES 4096u
 
-/* Allowed pixel formats — the v2 surface only accepts 4:2:0 8-bit
- * (the default Netflix corpus shape). Other shapes are a -EINVAL.
- * v3 may widen this. */
+/* Allowed pixel formats — the v2 surface accepts planar 4:2:0 with
+ * 8/10/12/16-bit samples. Other chroma layouts remain -EINVAL until
+ * the tool schema grows an explicit pixel_format field. */
 
 /* Set *err_owned to a heap-allocated copy of `msg`. Returns 0 on
  * success, -ENOMEM if allocation fails. */
@@ -88,14 +88,22 @@ static int read_exact(int fd, void *buf, size_t want)
     return 0;
 }
 
-/* Fill `pic` with the next frame from `fd`. Plane sizes for 4:2:0
- * 8-bit: Y = w*h, U = V = (w/2)*(h/2). */
-static int read_yuv420p8_frame(int fd, VmafPicture *pic)
+static size_t sample_bytes_for_bpc(unsigned bpc)
 {
+    return bpc > 8u ? 2u : 1u;
+}
+
+/* Fill `pic` with the next frame from `fd`. Plane sizes for 4:2:0:
+ * Y = w*h, U = V = (w/2)*(h/2). High-bit-depth samples are read as
+ * little-endian 16-bit payloads into libvmaf's native 16-bit picture
+ * storage; the host is little-endian in all supported CI/runtime lanes. */
+static int read_yuv420p_frame(int fd, VmafPicture *pic)
+{
+    const size_t sample_bytes = sample_bytes_for_bpc(pic->bpc);
     /* Y plane. */
     for (unsigned y = 0u; y < pic->h[0]; ++y) {
         unsigned char *row = (unsigned char *)pic->data[0] + (ptrdiff_t)y * pic->stride[0];
-        int rc = read_exact(fd, row, pic->w[0]);
+        int rc = read_exact(fd, row, (size_t)pic->w[0] * sample_bytes);
         if (rc != 0)
             return rc;
     }
@@ -103,7 +111,7 @@ static int read_yuv420p8_frame(int fd, VmafPicture *pic)
     for (unsigned p = 1u; p < 3u; ++p) {
         for (unsigned y = 0u; y < pic->h[p]; ++y) {
             unsigned char *row = (unsigned char *)pic->data[p] + (ptrdiff_t)y * pic->stride[p];
-            int rc = read_exact(fd, row, pic->w[p]);
+            int rc = read_exact(fd, row, (size_t)pic->w[p] * sample_bytes);
             if (rc != 0)
                 return rc;
         }
@@ -128,6 +136,7 @@ typedef struct ComputeArgs {
     const char *distorted_path;
     unsigned width;
     unsigned height;
+    unsigned bitdepth;
     const char *model_version; /* e.g. "vmaf_v0.6.1" */
 } ComputeArgs;
 
@@ -145,6 +154,7 @@ static int parse_arguments(const cJSON *arguments, ComputeArgs *out, char **err_
     const cJSON *dis = cJSON_GetObjectItemCaseSensitive(arguments, "distorted_path");
     const cJSON *w = cJSON_GetObjectItemCaseSensitive(arguments, "width");
     const cJSON *h = cJSON_GetObjectItemCaseSensitive(arguments, "height");
+    const cJSON *bd = cJSON_GetObjectItemCaseSensitive(arguments, "bitdepth");
     const cJSON *mv = cJSON_GetObjectItemCaseSensitive(arguments, "model_version");
 
     if (!cJSON_IsString(ref) || !cJSON_IsString(dis))
@@ -154,7 +164,7 @@ static int parse_arguments(const cJSON *arguments, ComputeArgs *out, char **err_
                    -ENOMEM;
     if (!cJSON_IsNumber(w) || !cJSON_IsNumber(h))
         return set_err(err_owned, "compute_vmaf requires positive integer fields "
-                                  "'width' and 'height' (YUV420p 8-bit)") == 0 ?
+                                  "'width' and 'height' (YUV420p)") == 0 ?
                    -EINVAL :
                    -ENOMEM;
     double wv = w->valuedouble;
@@ -170,6 +180,16 @@ static int parse_arguments(const cJSON *arguments, ComputeArgs *out, char **err_
     out->distorted_path = dis->valuestring;
     out->width = (unsigned)wv;
     out->height = (unsigned)hv;
+    out->bitdepth = 8u;
+    if (bd != NULL) {
+        if (!cJSON_IsNumber(bd))
+            return set_err(err_owned, "bitdepth must be one of 8, 10, 12, 16") == 0 ? -EINVAL :
+                                                                                      -ENOMEM;
+        double bdv = bd->valuedouble;
+        out->bitdepth = (unsigned)bdv;
+    }
+    if (out->bitdepth != 8u && out->bitdepth != 10u && out->bitdepth != 12u && out->bitdepth != 16u)
+        return set_err(err_owned, "bitdepth must be one of 8, 10, 12, 16") == 0 ? -EINVAL : -ENOMEM;
     out->model_version = (cJSON_IsString(mv) ? mv->valuestring : "vmaf_v0.6.1");
     return 0;
 }
@@ -185,8 +205,11 @@ static int score_yuv_pair(const ComputeArgs *args, double *score_out, unsigned *
     VmafContext *vmaf = NULL;
     VmafModel *model = NULL;
 
-    /* Per-frame YUV420p8 byte count. */
-    const uint64_t bytes_per_frame = (uint64_t)args->width * (uint64_t)args->height * 3u / 2u;
+    /* Per-frame YUV420p byte count. High-bit-depth content is stored
+     * as 16-bit little-endian samples. */
+    const uint64_t bytes_per_sample = (uint64_t)sample_bytes_for_bpc(args->bitdepth);
+    const uint64_t bytes_per_frame =
+        (uint64_t)args->width * (uint64_t)args->height * 3u / 2u * bytes_per_sample;
     if (bytes_per_frame == 0u) {
         rc = set_err(err_owned, "computed frame size is zero") == 0 ? -EINVAL : -ENOMEM;
         goto cleanup;
@@ -258,19 +281,21 @@ static int score_yuv_pair(const ComputeArgs *args, double *score_out, unsigned *
     for (uint64_t i = 0u; i < frame_count && i < VMAF_MCP_COMPUTE_MAX_FRAMES; ++i) {
         VmafPicture rpic = {0};
         VmafPicture dpic = {0};
-        int prc = vmaf_picture_alloc(&rpic, VMAF_PIX_FMT_YUV420P, 8u, args->width, args->height);
+        int prc = vmaf_picture_alloc(&rpic, VMAF_PIX_FMT_YUV420P, args->bitdepth, args->width,
+                                     args->height);
         if (prc != 0) {
             rc = set_err(err_owned, "vmaf_picture_alloc(ref) failed") == 0 ? prc : -ENOMEM;
             goto cleanup;
         }
-        int qrc = vmaf_picture_alloc(&dpic, VMAF_PIX_FMT_YUV420P, 8u, args->width, args->height);
+        int qrc = vmaf_picture_alloc(&dpic, VMAF_PIX_FMT_YUV420P, args->bitdepth, args->width,
+                                     args->height);
         if (qrc != 0) {
             (void)vmaf_picture_unref(&rpic);
             rc = set_err(err_owned, "vmaf_picture_alloc(dis) failed") == 0 ? qrc : -ENOMEM;
             goto cleanup;
         }
-        int rrc = read_yuv420p8_frame(rfd, &rpic);
-        int drc = read_yuv420p8_frame(dfd, &dpic);
+        int rrc = read_yuv420p_frame(rfd, &rpic);
+        int drc = read_yuv420p_frame(dfd, &dpic);
         if (rrc != 0 || drc != 0) {
             (void)vmaf_picture_unref(&rpic);
             (void)vmaf_picture_unref(&dpic);
@@ -336,6 +361,7 @@ int vmaf_mcp_compute_vmaf(const void *arguments_cjson, void **result_out_cjson, 
     cJSON_AddNumberToObject(result, "score", score);
     cJSON_AddNumberToObject(result, "frames_scored", (double)frames);
     cJSON_AddStringToObject(result, "model_version", args.model_version);
+    cJSON_AddNumberToObject(result, "bitdepth", (double)args.bitdepth);
     cJSON_AddStringToObject(result, "reference_path", args.reference_path);
     cJSON_AddStringToObject(result, "distorted_path", args.distorted_path);
     cJSON_AddStringToObject(result, "pool_method", "mean");

@@ -6,7 +6,7 @@
 > wired and respond to JSON-RPC 2.0 requests (`tools/list`,
 > `tools/call`, `resources/list`, `initialize`). Tools shipped:
 > `list_features` (real) and `compute_vmaf` (real — pooled mean
-> VMAF over a YUV420p 8-bit pair via `vmaf_model_load` +
+> VMAF over a YUV420p 8/10/12/16-bit pair via `vmaf_model_load` +
 > `vmaf_read_pictures` + `vmaf_score_pooled`). UDS transport
 > listens on a mode-0700 socket file. SSE transport listens on
 > 127.0.0.1 only and serves a minimal HTTP/1.1 surface (no
@@ -220,7 +220,7 @@ These invariants are documented in the public header
 | UDS transport body | Landed (line-delimited JSON-RPC; mode-0700 socket file) | T5-2c / [ADR-0332](../adr/0332-mcp-runtime-v2.md) |
 | SSE transport body | Landed (loopback HTTP/1.1 + `text/event-stream`; no third-party HTTP library — see ADR-0332 § "v3 SSE" for the license-driven mongoose pivot) | T5-2d / [ADR-0332](../adr/0332-mcp-runtime-v2.md) § "Status update 2026-05-09 (v3 SSE)" |
 | Tool: `list_features` (read-only) | Landed | T5-2b |
-| Tool: `compute_vmaf` (real libvmaf scoring binding, YUV420p 8-bit) | Landed | T5-2c |
+| Tool: `compute_vmaf` (real libvmaf scoring binding, YUV420p 8/10/12/16-bit) | Landed | T5-2c + high-bit-depth follow-up |
 | Tool: `vmaf.request_model_swap` (mutating, separate ADR) | Future | post-v3 |
 | `enable_mcp` default flip from `false` → `auto` | Future | post all transports stable |
 
@@ -235,9 +235,9 @@ T5-2d v3 (this PR) shipped the SSE transport. The remaining work:
   marked `__attribute__((unused))`.
 - **LSP-framed stdio** (`Content-Length:` headers) — v1–v3 ship
   line-delimited JSON-RPC only.
-- **10/12-bit YUV** support in `compute_vmaf` — v2 only accepts
-  YUV420p 8-bit; YUV422P / YUV444P / 10-bit are rejected with
-  `-EINVAL`.
+- **Broader YUV layouts in `compute_vmaf`** — the tool accepts
+  YUV420p at 8/10/12/16 bpc. YUV422P / YUV444P remain future schema
+  work because the tool does not expose a `pixel_format` argument yet.
 - **SPSC ring drain at frame boundaries** — v1–v3 dispatcher
   runs to completion on the transport thread; the measurement-
   thread hot path is not yet bridged. Tools that mutate
