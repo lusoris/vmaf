@@ -48,6 +48,22 @@ cover several PRs in one workstream; cross-link from the ID heading.
   PYTHONPATH=tools/vmaf-tune/src pytest tools/vmaf-tune/tests/test_saliency.py -q
   ```
 
+### fix/saliency-per-mb-eval-2026-05-15 — saliency per-block IoU evaluator
+
+- **Touches**: `ai/scripts/eval_saliency_per_mb.py`,
+  `ai/tests/test_eval_saliency_per_mb.py`, `ai/AGENTS.md`,
+  `docs/ai/saliency-per-mb-eval.md`, `docs/ai/index.md`,
+  `docs/ai/roadmap.md`, and `mkdocs.yml`.
+- **Invariant**: video-saliency model promotion should be measured at
+  the encoder ROI block grid, not only full-resolution pixel IoU. Keep
+  the evaluator dependency-light (`numpy` plus `.npy` / PGM loaders) so
+  training sandboxes can run it without Pillow or OpenCV.
+- **Re-test**:
+
+  ```shell
+  PYTHONPATH=. pytest ai/tests/test_eval_saliency_per_mb.py -q
+  ```
+
 ### fix/chug-hdr-audit-splits-2026-05-15 — CHUG HDR audit and content-safe splits
 
 - **Touches**: `ai/scripts/chug_extract_features.py`,
