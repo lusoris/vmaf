@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-
 from extract_k150k_features import DEFAULT_CHUG_SPLIT_SEED, _load_jsonl_metadata
 
 
@@ -59,8 +58,8 @@ def enrich_frame(
                 updated += 1
 
     return out, {
-        "rows": int(len(out)),
-        "metadata_rows": int(len(metadata)),
+        "rows": len(out),
+        "metadata_rows": len(metadata),
         "matched_rows": matched,
         "missing_rows": missing,
         "updated_cells": updated,
