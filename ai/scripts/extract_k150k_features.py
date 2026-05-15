@@ -128,23 +128,27 @@ CUDA_EXTRACTOR_NAMES: tuple[str, ...] = (
     "motion_v2_cuda",
     "psnr_cuda",
     "ciede_cuda",
-    "float_ssim_cuda",
+    "float_ssim_cuda=scale=1",
     "float_ms_ssim_cuda",
     "psnr_hvs_cuda",
+    # cambi_cuda intentionally not promoted: the CUDA extractor
+    # segfaults on every input on the rebuilt 2026-05-15 binary
+    # (Issue #857). cambi stays on the CPU residual pass below
+    # until that's fixed.
+    # float_ssim_cuda needs an explicit scale=1: libvmaf v1 supports
+    # scale=1 only and refuses on auto-detected scale=4 at 1080p
+    # ("libvmaf ERROR ssim_cuda: v1 supports scale=1 only").
 )
 # ssimulacra2 omitted from K150K/CHUG self-vs-self extraction — produces ~100 constant
 # for identity pairs (ref == distorted), yielding zero training signal while consuming
 # ~30-50% of GPU time per clip. Use CPU ssimulacra2 extractor for FR pairs where it
 # remains informative (ADR-0431).
 
-# 2026-05-15: float_ssim and cambi promoted from the CPU residual
-# pass to the CUDA primary pass. Both have shipped CUDA
-# implementations (libvmaf/src/feature/cuda/integer_cambi_cuda.c +
-# float_ssim_cuda.c) for some time; the residual-pass routing was
-# historical from before they landed. Empty residual tuple kept as
-# the type so the residual-pass code path can stay structurally
-# present for future feature additions.
-CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = ()
+# 2026-05-15: float_ssim promoted from the CPU residual pass to the
+# CUDA primary pass (it has shipped a CUDA implementation since
+# libvmaf/src/feature/cuda/float_ssim_cuda.c landed). cambi stays
+# on this CPU residual pass — its CUDA twin segfaults (Issue #857).
+CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = ("cambi",)
 
 # Canonical 21-feature output columns (Research-0026, parquet schema v2).
 # WARNING: column order is locked — do not reorder without incrementing the

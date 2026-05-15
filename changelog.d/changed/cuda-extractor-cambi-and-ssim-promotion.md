@@ -1,10 +1,8 @@
-- The K150K/CHUG feature extractor now routes `cambi` and
-  `float_ssim` through the CUDA pass instead of the CPU residual
-  pass. Both have shipped CUDA implementations
-  (`libvmaf/src/feature/cuda/integer_cambi_cuda.c` +
-  `float_ssim_cuda.c`) for some time; the residual-pass routing was
-  historical from before they landed. Per-clip wall time on CUDA
-  workers should improve by roughly the CPU CAMBI cost (the long
-  pole on the existing CUDA pass + CPU-residual sequence). The CPU
-  residual path stays structurally present in the script for future
-  feature additions that may not have CUDA implementations.
+- The K150K/CHUG feature extractor now routes `float_ssim` through
+  the CUDA primary pass (with explicit `scale=1` per the
+  `float_ssim_cuda` v1 contract) instead of the CPU residual pass.
+  `cambi` was originally also planned for promotion but stays on the
+  CPU residual: `cambi_cuda` segfaults on every input on the
+  rebuilt 2026-05-15 binary (Issue #857). Per-clip wall time on CUDA
+  workers improves by roughly the CPU SSIM cost; CAMBI remains on
+  the CPU residual until the CUDA-side bug is fixed.
