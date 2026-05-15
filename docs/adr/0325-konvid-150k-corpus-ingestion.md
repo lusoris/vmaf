@@ -1,9 +1,28 @@
 # ADR-0325: KonViD-150k corpus ingestion
 
-- **Status**: Proposed
+- **Status**: Accepted (2026-05-15 — corpus materialized at
+  `.workingdir2/konvid-150k/`)
 - **Date**: 2026-05-07
 - **Deciders**: @Lusoris
 - **Tags**: ai, training, corpus, license, fork-local
+
+## Status update (2026-05-15)
+
+Corpus is materialized locally. `.workingdir2/konvid-150k/` contains:
+
+- `clips/` — 307 682 extracted MP4 files (~150 GB)
+- `k150ka_scores.csv` (4.9 MB) — k150k-A score-drop
+- `k150kb_scores.csv` (59 KB) — k150k-B score-drop
+- `k150ka_votes.csv` (94 MB) + `k150kb_votes.csv` (28 MB) — per-vote
+  raw data
+- `konvid_150k.jsonl` (64 MB) — corpus JSONL
+- `manifest.csv` (4.9 MB) — manifest
+
+Phase 2 (JSONL adapter) was already shipped via
+`ai/scripts/konvid_150k_to_corpus_jsonl.py`. Phase 3 (real-corpus MOS
+head training) becomes the next gate; tracked in
+[ADR-0336](0336-konvid-mos-head-v1.md). Status flipped from Proposed
+→ Accepted as the corpus-availability blocker is removed.
 
 ## Context
 

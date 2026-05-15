@@ -11,6 +11,30 @@ needs three things the Phase 1 path does not — resumable downloads,
 attrition tolerance, and an `"ugc-mixed"` encoder slot — all detailed
 below.
 
+## Corpus availability (status 2026-05-15)
+
+The corpus is **materialized locally** at `.workingdir2/konvid-150k/`
+(gitignored, ~179 GB). Inventory:
+
+| Artefact | Size | Purpose |
+| --- | --- | --- |
+| `clips/` | ~150 GB | 307 682 extracted MP4 files |
+| `k150ka_scores.csv` | 4.9 MB | k150k-A score-drop |
+| `k150kb_scores.csv` | 59 KB | k150k-B score-drop |
+| `k150ka_votes.csv` | 94 MB | per-vote raw data (A) |
+| `k150kb_votes.csv` | 28 MB | per-vote raw data (B) |
+| `konvid_150k.jsonl` | 64 MB | corpus JSONL (Phase 2 adapter output) |
+| `manifest.csv` | 4.9 MB | corpus manifest |
+| `k150ka_extracted/` + `k150kb_extracted/` | ~8 GB | extracted-frame fixtures |
+
+[ADR-0325](../adr/0325-konvid-150k-corpus-ingestion.md) flipped to
+`Accepted` on 2026-05-15 once availability was confirmed. Phase 3
+(real-corpus MOS head training) is the next gate; tracked under
+[ADR-0336](../adr/0336-konvid-mos-head-v1.md). `train_konvid_mos_head.py`
+is unblocked and queued behind the in-flight CHUG feature extraction's
+GPU usage; once the GPU frees up, the production-flip gate (`PLCC ≥ 0.85`
+mean, `SROCC ≥ 0.82`, `RMSE ≤ 0.45`) gets run.
+
 See [ADR-0325](../adr/0325-konvid-150k-corpus-ingestion.md) for the
 two-phase decision and
 [Research-0086](../research/0086-konvid-150k-corpus-feasibility.md)
