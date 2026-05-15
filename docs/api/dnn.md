@@ -292,6 +292,52 @@ cc filter.c -o filter $(pkg-config --cflags --libs libvmaf)
 
 Only works when libvmaf was built with `-Denable_dnn=true`.
 
+## Sigstore signature verification — `vmaf_dnn_verify_signature`
+
+The fork ships a Sigstore-keyless verification primitive for tiny-AI
+ONNX bundles, surfaced by both the C API
+(`vmaf_dnn_verify_signature` in `libvmaf/include/libvmaf/dnn.h`) and
+the CLI flag `--tiny-model-verify` on the `vmaf` binary
+(see [`docs/usage/cli.md`](../usage/cli.md)).
+
+```c
+int vmaf_dnn_verify_signature(const char *model_path,
+                              const char *bundle_path,
+                              char **err);
+```
+
+**Behaviour.** When invoked with the path to an ONNX file and a path
+to its sibling Sigstore bundle (`.sigstore` or `.sig`/`.cert` pair),
+the function shells out to the system `cosign` binary in offline
+verification mode and returns 0 on a passing signature, a negative
+errno on failure, and the cosign stderr text via `*err` (caller frees).
+
+**Build / platform requirements.**
+
+- Requires `enable_dnn=enabled` at meson configure (no-op on
+  `enable_dnn=disabled` builds — returns `-ENOSYS`).
+- Requires `cosign` on `$PATH` at runtime. The function looks up
+  `cosign` via `posix_spawnp`; absence is reported as a clear
+  `cosign not found` error message rather than silently passing.
+- Windows is **not supported**: the function returns `-ENOSYS`
+  unconditionally on Windows builds (`libvmaf/src/dnn/model_loader.c`
+  short-circuits on `_WIN32`). The Sigstore offline-verify path
+  depends on `posix_spawnp` and a few sibling POSIX primitives that
+  do not have a clean Windows equivalent in our build matrix.
+
+**CLI coupling.** The `--tiny-model-verify` flag on the `vmaf` CLI
+sets a context-level boolean that triggers the verification call
+inside `vmaf_use_tiny_model` after the ONNX bundle path is resolved.
+A failing verification aborts model load with a clear error; passing
+verification logs an info-level confirmation including the cosign
+identity / issuer that was matched.
+
+**Provenance contract.** The Sigstore bundle is produced by the
+fork's release-please / Sigstore signing pipeline (per ADR-0010 +
+the model-registry policy in `docs/ai/model-registry.md`). Bundles
+shipped under `model/tiny/*.sig` + `*.cert` carry a keyless OIDC
+identity tied to the GitHub Actions workflow that built the model.
+
 ## Known limitations
 
 - Operator allowlist covers the set required by tiny FR / NR / filter models
