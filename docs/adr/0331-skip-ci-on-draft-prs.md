@@ -1,6 +1,6 @@
 # ADR-0331: Skip CI on draft pull requests
 
-- **Status**: Accepted
+- **Status**: Proposed
 - **Date**: 2026-05-08
 - **Deciders**: lusoris
 - **Tags**: ci, build, fork-local

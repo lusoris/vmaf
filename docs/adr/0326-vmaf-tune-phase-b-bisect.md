@@ -1,9 +1,6 @@
 # ADR-0326: vmaf-tune Phase B — target-VMAF bisect
 
-- **Status**: Accepted
-- **Status update 2026-05-15**: implemented;
-  `tools/vmaf-tune/src/vmaftune/bisect.py` present on master;
-  `BisectResult` + `bisect_target_vmaf()` exported; Phase B released.
+- **Status**: Proposed
 - **Date**: 2026-05-08
 - **Deciders**: lusoris
 - **Tags**: tooling, vmaf-tune, fork-local

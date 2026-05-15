@@ -71,11 +71,11 @@ External binaries required at runtime:
 by the fast, per-shot, ladder, and auto paths. `--corpus` accepts either
 a single Phase-A JSONL file or a directory of JSONL shards; directory
 inputs are scanned recursively in sorted order so the trainer can consume
-`.corpus/corpus_run/` directly:
+`.workingdir2/corpus_run/` directly:
 
 ```shell
 python -m vmaftune.predictor_train \
-    --corpus .corpus/corpus_run \
+    --corpus .workingdir2/corpus_run \
     --codec libx264 \
     --output-dir .workingdir2/predictor-real
 ```
@@ -221,7 +221,7 @@ The mapping is closed and order-stable; see
 | `--preset P` | — | Required. Repeatable. Preset name (see codec table below). |
 | `--crf N` | — | Required. Repeatable. CRF integer (range varies by codec). |
 | `--output PATH` | `corpus.jsonl` | JSONL destination. |
-| `--encode-dir PATH` | `.corpus/encodes` | Scratch dir; gitignored by convention. |
+| `--encode-dir PATH` | `.workingdir2/encodes` | Scratch dir; gitignored by convention. |
 | `--keep-encodes` | off | Retain encoded files after scoring. |
 | `--vmaf-model NAME` | `vmaf_v0.6.1` | Forwarded to `vmaf --model`. Only used when `--no-resolution-aware` is set; otherwise auto-picked per encode resolution (see "Resolution-aware mode" below). |
 | `--resolution-aware` / `--no-resolution-aware` | on | Auto-pick the VMAF model per encode resolution. Default on. |
@@ -1152,7 +1152,6 @@ vmaf-tune recommend-saliency \
     --saliency-aware \
     [--saliency-offset -4] \
     [--saliency-model model/tiny/saliency_student_v1.onnx] \
-    [--saliency-aggregator mean|ema|max|motion-weighted] \
     --output out.mp4
 ```
 
@@ -1161,8 +1160,8 @@ vmaf-tune recommend-saliency \
 1. `compute_saliency_map()` samples the requested frame window from
    the source YUV, runs those frames through
    `saliency_student_v1.onnx` (ImageNet-normalised RGB derived from
-   YUV, NCHW `[1, 3, H, W]`), and reduces the per-frame saliency
-   outputs into one mask in `[0, 1]`.
+   luma, NCHW `[1, 3, H, W]`), and averages the per-pixel
+   saliency outputs into one mask in `[0, 1]`.
 2. `saliency_to_qp_map()` linearly maps the mask to per-pixel QP
    deltas — `--saliency-offset` is the QP delta at peak saliency
    (negative means **better** quality on salient regions). Background
@@ -1190,22 +1189,6 @@ Numbers are indicative. Today's `recommend-saliency` subcommand is a
 one-shot encode at `--crf` (or the adapter default); target-VMAF
 selection remains the job of `recommend`, `compare`, or a
 caller-provided bisect loop.
-
-### Temporal aggregation
-
-`--saliency-aggregator` controls how sampled frame masks become the
-single ROI pattern applied to the encode:
-
-| Aggregator | Behaviour | Use when |
-| --- | --- | --- |
-| `mean` | Per-pixel arithmetic mean; preserves the original implementation. | Default, stable clips, and baseline comparisons. |
-| `ema` | Exponential moving average with `--saliency-ema-alpha` as the current-frame weight. | Motion or cuts make the latest sampled frames more representative. |
-| `max` | Per-pixel maximum over sampled masks. | Missing a brief salient object is worse than over-protecting background. |
-| `motion-weighted` | Weighted mean where each sampled frame is weighted by luma delta from the previous sampled frame. | Motion-heavy clips where changing frames should dominate the aggregate. |
-
-All four reducers use the same `saliency_student_v1` weights and the
-same downstream QP mapping, so changing the reducer does not change the
-model contract or encoder sidecar format.
 
 ### Graceful fallback
 
@@ -1243,8 +1226,9 @@ Per-adapter helpers in `vmaftune.saliency`:
 ### Caveats
 
 - **Aggregate mask, not per-frame ROI.** The current implementation
-  reduces saliency across the sampled frames and applies one delta
-  pattern across the whole clip. Per-frame ROI is on the roadmap.
+  averages saliency across the sampled frames and applies one
+  delta pattern across the whole clip. Per-frame ROI is on
+  the roadmap.
 - **x265 zones: spatial mean only.** x265's `--zones` has temporal
   granularity but not per-block spatial granularity. The zone carries
   the mean QP delta across all blocks. Per-block x265 ROI requires a
@@ -2293,7 +2277,7 @@ are the **F.5-calibrated** thresholds emitted by
 `ai/scripts/calibrate_phase_f_recipes.py` and shipped in
 `ai/data/phase_f_recipes_calibrated.json`. The calibration was run on
 2026-05-09 against the K150K corpus
-(`.corpus/konvid-150k/konvid_150k.jsonl`, 148 543 rows out of an
+(`.workingdir2/konvid-150k/konvid_150k.jsonl`, 148 543 rows out of an
 expected 153 841 — the ingestion was ~96.6 % complete; a re-run on the
 full corpus is a follow-up PR). Threshold rationale and the per-class
 proxy-vs-corpus provenance break-down live in
@@ -2331,7 +2315,7 @@ run:
 
 ```shell
 python ai/scripts/calibrate_phase_f_recipes.py \
-    --corpus .corpus/konvid-150k/konvid_150k.jsonl \
+    --corpus .workingdir2/konvid-150k/konvid_150k.jsonl \
     --out ai/data/phase_f_recipes_calibrated.json
 ```
 

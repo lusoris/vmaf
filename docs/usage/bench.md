@@ -33,10 +33,8 @@ with `--data-dir` or `VMAF_TEST_DATA`):
 
 ```
 /tmp/vmaf_test/
-├── ref_576x324.yuv      # 48 frames of YUV420P-8
-├── dis_576x324.yuv
-├── ref_640x480.yuv
-├── dis_640x480.yuv
+├── ref_480x270.yuv      # 48 frames of YUV420P-8
+├── dis_480x270.yuv
 ├── ref_1280x720.yuv
 ├── dis_1280x720.yuv
 ├── ref_1920x1080.yuv
@@ -129,10 +127,9 @@ psnr             max |Δ| = 1e-9    max |Δ| = 1e-9     OK
 ## Limitations
 
 - Test data must be pre-staged. `vmaf_bench` does not download anything.
-- Resolution list is hard-coded to `576x324`, `640x480`, `1280x720`,
-  `1920x1080`, `3840x2160` (per `libvmaf/tools/vmaf_bench.c:291-293`).
-  Pass `--resolution WxH` to restrict to a single size; adding new
-  resolutions requires source changes.
+- Resolution list is hard-coded to `480x270`, `1280x720`, `1920x1080`,
+  `3840x2160`. Pass `--resolution` for a subset; adding new resolutions
+  requires source changes.
 - `--gpu-profile` requires a SYCL build (not wired for CUDA).
 - 10 / 12 / 16 bpc (`--bpc`) requires matching test data — staged 8-bit YUVs
   are not auto-converted.
