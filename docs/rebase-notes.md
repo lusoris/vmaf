@@ -34768,3 +34768,34 @@ PYTHONPATH=ai/src .venv/bin/python -m pytest \
   ai/tests/test_enrich_k150k_parquet_metadata.py \
   ai/tests/test_extract_k150k_features.py -q
 ```
+
+---
+
+## `fix/saliency-per-mb-eval-2026-05-15` — CLI short-opt + bench atoi fix (Batch 5)
+
+**Branch**: `fix/saliency-per-mb-eval-2026-05-15`
+
+**Files touched**: `libvmaf/tools/cli_parse.c`,
+`libvmaf/tools/vmaf_bench.c`,
+`libvmaf/test/test_cli_parse.c`,
+`docs/usage/cli.md`.
+
+**Rebase impact**: low. `cli_parse.c` and `vmaf_bench.c` are
+upstream-shared files; if Netflix/vmaf ever adds a new short option or
+touches the same switch block, the `case 'c':` fall-through arm may need
+to be re-applied. The invariant comment (`INVARIANT (ADR-0438)`) marks
+the intent clearly. `vmaf_bench.c` changes are in the SYCL-gated
+`#if defined(HAVE_SYCL)` block; upstream is unlikely to add `atoi` back.
+
+**Invariant to preserve on rebase**: every entry in `short_opts[]` in
+`libvmaf/tools/cli_parse.c` must have a matching `case` arm in the
+`switch (o)` block inside `cli_parse()`. If Netflix adds a new short
+option upstream without a `case`, the same silent-drop bug recurs.
+
+**Smoke-test after rebase**:
+
+```bash
+meson setup build -Denable_cuda=false -Denable_sycl=false
+ninja -C build test/test_cli_parse
+./build/test/test_cli_parse   # expect: 18 tests run, 18 passed
+```
