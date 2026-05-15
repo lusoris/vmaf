@@ -1152,6 +1152,7 @@ vmaf-tune recommend-saliency \
     --saliency-aware \
     [--saliency-offset -4] \
     [--saliency-model model/tiny/saliency_student_v1.onnx] \
+    [--saliency-aggregator mean|ema|max|motion-weighted] \
     --output out.mp4
 ```
 
@@ -1160,8 +1161,8 @@ vmaf-tune recommend-saliency \
 1. `compute_saliency_map()` samples the requested frame window from
    the source YUV, runs those frames through
    `saliency_student_v1.onnx` (ImageNet-normalised RGB derived from
-   luma, NCHW `[1, 3, H, W]`), and averages the per-pixel
-   saliency outputs into one mask in `[0, 1]`.
+   YUV, NCHW `[1, 3, H, W]`), and reduces the per-frame saliency
+   outputs into one mask in `[0, 1]`.
 2. `saliency_to_qp_map()` linearly maps the mask to per-pixel QP
    deltas — `--saliency-offset` is the QP delta at peak saliency
    (negative means **better** quality on salient regions). Background
@@ -1189,6 +1190,22 @@ Numbers are indicative. Today's `recommend-saliency` subcommand is a
 one-shot encode at `--crf` (or the adapter default); target-VMAF
 selection remains the job of `recommend`, `compare`, or a
 caller-provided bisect loop.
+
+### Temporal aggregation
+
+`--saliency-aggregator` controls how sampled frame masks become the
+single ROI pattern applied to the encode:
+
+| Aggregator | Behaviour | Use when |
+| --- | --- | --- |
+| `mean` | Per-pixel arithmetic mean; preserves the original implementation. | Default, stable clips, and baseline comparisons. |
+| `ema` | Exponential moving average with `--saliency-ema-alpha` as the current-frame weight. | Motion or cuts make the latest sampled frames more representative. |
+| `max` | Per-pixel maximum over sampled masks. | Missing a brief salient object is worse than over-protecting background. |
+| `motion-weighted` | Weighted mean where each sampled frame is weighted by luma delta from the previous sampled frame. | Motion-heavy clips where changing frames should dominate the aggregate. |
+
+All four reducers use the same `saliency_student_v1` weights and the
+same downstream QP mapping, so changing the reducer does not change the
+model contract or encoder sidecar format.
 
 ### Graceful fallback
 
@@ -1226,9 +1243,8 @@ Per-adapter helpers in `vmaftune.saliency`:
 ### Caveats
 
 - **Aggregate mask, not per-frame ROI.** The current implementation
-  averages saliency across the sampled frames and applies one
-  delta pattern across the whole clip. Per-frame ROI is on
-  the roadmap.
+  reduces saliency across the sampled frames and applies one delta
+  pattern across the whole clip. Per-frame ROI is on the roadmap.
 - **x265 zones: spatial mean only.** x265's `--zones` has temporal
   granularity but not per-block spatial granularity. The zone carries
   the mean QP delta across all blocks. Per-block x265 ROI requires a
