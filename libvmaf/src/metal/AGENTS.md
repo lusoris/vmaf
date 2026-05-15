@@ -72,6 +72,20 @@ metal/
   follow as their own PRs gated by the `places=4` cross-backend-diff
   lane (per [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md)).
 
+## Dispatch-registry invariant
+
+**Every `vmaf_fex_*_metal` extractor registered in `feature_extractor_list[]`
+must also appear (by extractor `.name` and by every `provided_features[]`
+key) in `g_metal_features[]` inside `dispatch_strategy.c`.**
+The build does not enforce this.  Check on every kernel addition: add
+all relevant strings to `g_metal_features[]` in the same PR as the
+kernel registration, cross-referencing `feature/metal/<extractor>.mm`
+for the exact `provided_features[]` values.
+
+The wrong-name defects in the original table were found during the
+2026-05-15 dispatch-registry audit (see
+`docs/research/0135-dispatch-strategy-registry-audit-2026-05-15.md`).
+
 ## Ground rules
 
 - **Parent rules** apply in full (see [../../AGENTS.md](../../AGENTS.md)).
