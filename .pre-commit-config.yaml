@@ -216,3 +216,15 @@ repos:
         # Script self-discovers via series.txt; passing per-file paths
         # would re-check each patch once per file in the diff.
         pass_filenames: false
+
+      - id: validate-pr-body
+        name: Validate PR body deliverables (ADR-0108 pre-push)
+        entry: scripts/git-hooks/pre-push-pr-body-lint.sh
+        language: script
+        stages: [pre-push]
+        # Always runs regardless of which files changed — the check is
+        # about the PR description, not the code under review. Skip if
+        # gh CLI is absent or no open PR exists (both handled gracefully
+        # inside the script). See docs/development/pr-body-sentinel-guide.md.
+        always_run: true
+        pass_filenames: false
