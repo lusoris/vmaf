@@ -103,11 +103,15 @@ RUN curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu24
     && dpkg -i /tmp/cuda-keyring.deb \
     && rm /tmp/cuda-keyring.deb
 
+# `cuda-toolkit` is the meta-package that pulls in nvcc + headers + the
+# user-mode library stubs. Do NOT install `libcuda1` (the runtime driver) —
+# that comes from the host via nvidia-container-runtime at run-time;
+# installing it here would shadow the host driver. `cuda-compiler` was a
+# legacy split-out alias that is no longer in the current CUDA channels —
+# `cuda-toolkit` already provides nvcc.
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cuda-toolkit \
-    cuda-compiler \
-    libcuda1 \
     && rm -rf /var/lib/apt/lists/*
 
 # CUDA_HOME is the symlink the meta-package maintains pointing at the
@@ -125,8 +129,13 @@ RUN curl -fsSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-P
         > /etc/apt/sources.list.d/intel-oneapi.list
 
 # hadolint ignore=DL3008
+# `intel-basekit` is the unversioned meta-package; Intel doesn't tag the
+# package name with the year-quarter version. Earlier drafts pinned
+# `intel-basekit-2025.3` which doesn't exist in their apt repo and tripped
+# `E: Unable to locate package`.
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    intel-basekit-2025.3 \
+    intel-basekit \
     && rm -rf /var/lib/apt/lists/*
 
 # oneAPI env — source /opt/intel/oneapi/setvars.sh in interactive shells;
@@ -152,8 +161,15 @@ RUN curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key \
         > /etc/apt/preferences.d/rocm-pin-600
 
 # hadolint ignore=DL3008
+# `rocm-hip-sdk` pulls in `rccl` (multi-GPU collectives) which depends on
+# `libdrm-amdgpu-amdgpu1` + `libdrm2-amdgpu` — packages NOT present in the
+# ROCm 6.4 noble apt repo as of 2026-05-16. We don't need rccl for libvmaf
+# HIP feature kernels (each worker uses one GPU). Use `rocm-hip-runtime-dev`
+# instead, which gives the HIP runtime + headers + hipcc dep without the
+# multi-GPU collective stack.
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    rocm-hip-sdk \
+    rocm-hip-runtime-dev \
     hipcc \
     rocm-cmake \
     && rm -rf /var/lib/apt/lists/*

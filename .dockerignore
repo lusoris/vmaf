@@ -3,6 +3,40 @@ workspace
 python/.tox
 .git
 .venv
+.venv*/
 *.mp4
 *.yuv
 *.mov
+
+# Local-only state directories holding large corpora + per-session scratch.
+# .workingdir2/ alone holds the 179 GB KonViD-150k corpus + 37 GB CHUG +
+# pipeline scratch; without this ignore the dev-mcp build context balloons
+# from <2 GB to ~52 GB on dev hosts that hold the corpora.
+.workingdir2/
+.workingdir/
+.claude/
+
+# Local build trees (libvmaf/build-*, build-cpu, build-cuda, etc.)
+build*/
+build-*/
+libvmaf/build*/
+libvmaf/build-*/
+
+# Caches
+__pycache__/
+*.egg-info/
+.tox/
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+node_modules/
+
+# Backup parquets / bench results that aren't source-of-truth
+*.bak
+*.bak.parquet
+testdata/netflix_benchmark_results.json
+
+# OS junk
+.DS_Store
+Thumbs.db
