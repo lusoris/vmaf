@@ -444,4 +444,8 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0432](0432-roi-score-high-bit-depth-mask.md) | Extend `vmaf-roi-score` saliency-mask materialisation to little-endian planar 8/10/12/16-bit YUV so HDR/CHUG-style inputs preserve native sample depth while saliency inference still consumes 8-bit RGB. | Accepted | roi, tiny-ai, hdr, tooling, fork-local |
 | [ADR-0433](0433-chug-content-splits-and-hdr-audit.md) | CHUG content-safe train/validation/test splits plus an ffprobe-backed HDR metadata audit in the local feature materialiser. | Accepted | ai, hdr, chug, training, fork-local |
 | [ADR-0434](0434-chug-parquet-metadata-enrichment.md) | CHUG Parquet Metadata Enrichment | Accepted | ai, hdr, chug, training, fork-local |
+<<<<<<< HEAD
 | [ADR-0437](0437-metal-public-header-install-and-import-state-declaration.md) | Metal public-header install and `vmaf_metal_import_state` declaration | Accepted | metal, build, c-api, install, apple-silicon, fork-local |
+=======
+| [ADR-0438](0438-cli-parse-short-opt-handler-coverage.md) | CLI parser short-option handler coverage invariant — every short option in `short_opts[]` must have a `case` arm; adds missing `case 'c':` for `--cpumask` | Accepted | cli, lint, testing, correctness |
+>>>>>>> a37c824dc (fix(cli): handle -c short opt for cpumask + replace banned atoi() in vmaf_bench)
