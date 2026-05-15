@@ -172,6 +172,54 @@ WRAPPERS: dict[str, pathlib.Path] = {
 SubprocessRunner = Callable[..., "subprocess.CompletedProcess[Any]"]
 
 
+def _require_number(value: object, *, path: str) -> float:
+    """Return ``value`` as float, rejecting booleans and non-numbers."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{path} must be numeric")
+    return float(value)
+
+
+def validate_wrapper_output(competitor: str, payload: object) -> dict[str, Any]:
+    """Validate and normalise one wrapper JSON payload.
+
+    Wrapper scripts are the licence-boundary seam for this harness, so
+    malformed JSON should fail at the seam with a clear error instead
+    of surfacing later as ``KeyError`` / ``TypeError`` in aggregation.
+    Extra keys are allowed; required keys and numeric fields are
+    checked.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("wrapper output must be a JSON object")
+
+    frames = payload.get("frames")
+    if not isinstance(frames, list):
+        raise ValueError("frames must be a list")
+    for idx, frame in enumerate(frames):
+        if not isinstance(frame, dict):
+            raise ValueError(f"frames[{idx}] must be an object")
+        frame_idx = frame.get("frame_idx")
+        if isinstance(frame_idx, bool) or not isinstance(frame_idx, int):
+            raise ValueError(f"frames[{idx}].frame_idx must be an integer")
+        _require_number(
+            frame.get("predicted_vmaf_or_mos"),
+            path=f"frames[{idx}].predicted_vmaf_or_mos",
+        )
+        _require_number(frame.get("runtime_ms"), path=f"frames[{idx}].runtime_ms")
+
+    summary = payload.get("summary")
+    if not isinstance(summary, dict):
+        raise ValueError("summary must be an object")
+    if summary.get("competitor") != competitor:
+        raise ValueError(
+            "summary.competitor must match wrapper name "
+            f"{competitor!r}, got {summary.get('competitor')!r}"
+        )
+    for key in ("plcc", "srocc", "rmse", "runtime_total_ms", "params", "gflops"):
+        _require_number(summary.get(key), path=f"summary.{key}")
+
+    return payload
+
+
 def run_wrapper(
     competitor: str,
     item: CorpusItem,
@@ -215,7 +263,14 @@ def run_wrapper(
         )
     if not out_path.is_file():
         raise RuntimeError(f"wrapper {competitor} did not produce {out_path}")
-    return json.loads(out_path.read_text())
+    try:
+        payload = json.loads(out_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"wrapper {competitor} produced invalid JSON: {exc}") from exc
+    try:
+        return validate_wrapper_output(competitor, payload)
+    except ValueError as exc:
+        raise RuntimeError(f"wrapper {competitor} produced invalid schema: {exc}") from exc
 
 
 # ---- aggregation ------------------------------------------------------------
