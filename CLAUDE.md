@@ -102,7 +102,8 @@ model/                        # .json / .pkl / .onnx VMAF models
 testdata/                     # YUV fixtures + benchmark JSONs (fork-added)
 docs/                         # all documentation (upstream-mirrored + fork-added)
 .claude/                      # Claude Code config (skills, agents, hooks)
-.workingdir2/                 # planning dossier (read-only at runtime)
+.workingdir/                  # session audit + gap-fill plans (gitignored; read/write)
+.workingdir2/                 # planning dossier — BACKLOG, OPEN, PLAN, decisions (gitignored)
 ```
 
 ## 6. Coding standards
@@ -230,7 +231,9 @@ Use `/prep-release` to dry-run locally before merging a release PR.
     alternatives: only-one-way fix"), (3) `AGENTS.md` invariant note in
     the relevant package (or "no rebase-sensitive invariants"), (4)
     reproducer / smoke-test command in the PR description, (5)
-    `CHANGELOG.md` "lusoris fork" entry, (6) entry in
+    `changelog.d/<section>/<topic>.md` fragment file per ADR-0221
+    (`CHANGELOG.md` itself is rendered by
+    `scripts/release/concat-changelog-fragments.sh`), (6) entry in
     [`docs/rebase-notes.md`](docs/rebase-notes.md) (or `no rebase
     impact: REASON`). *Fork-local* means anything not a verbatim port
     of upstream Netflix/vmaf code; pure upstream syncs and
