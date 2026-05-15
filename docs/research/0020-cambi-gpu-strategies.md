@@ -1,4 +1,4 @@
-# Research-0020: cambi GPU port strategies
+# Research digest 0020 — cambi GPU port strategies
 
 - **Date**: 2026-04-28
 - **Author**: Lusoris + Claude (Anthropic)

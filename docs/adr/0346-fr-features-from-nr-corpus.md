@@ -1,9 +1,6 @@
 # ADR-0346: FR-features-from-NR-corpus adapter pattern
 
-- **Status**: Accepted
-- **Status update 2026-05-15**: implemented; decode-original-as-
-  reference pattern active in K150K extraction pipeline; ADR-0346
-  cited in `ai/scripts/extract_k150k_features.py`.
+- **Status**: Proposed
 - **Date**: 2026-05-09
 - **Deciders**: @Lusoris
 - **Tags**: ai, training, corpus, methodology, fork-local
