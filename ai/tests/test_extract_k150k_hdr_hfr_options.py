@@ -6,7 +6,7 @@ Closes Issue #837 (BBC 50p HFR motion under-prediction) + the parallel
 CAMBI HDR-EOTF gap surfaced by lawrence's 2026-05-15 review of the live
 CHUG extraction. Both gaps share the same root cause: the extractor
 was passing ``--feature <name>`` plain instead of using libvmaf's
-``--feature name=<name>:k=v`` syntax to forward HDR-aware + fps-aware
+``--feature <name>=k=v:k=v`` syntax to forward HDR-aware + fps-aware
 per-feature options."""
 
 from __future__ import annotations
@@ -137,29 +137,42 @@ def test_feature_arg_sdr_30fps_is_bare_name():
 
 
 def test_feature_arg_hdr_cambi_gets_eotf_pq_and_full_ref():
+    """CPU CAMBI accepts both ``eotf`` and ``full_ref``."""
     arg = ek._feature_arg("cambi", is_hdr=True, motion_fps_weight=1.0)
-    assert arg.startswith("name=cambi:")
+    assert arg.startswith("cambi=")
     assert "eotf=pq" in arg
     assert "full_ref=true" in arg
 
 
-def test_feature_arg_hdr_ms_ssim_gets_enable_db_false():
-    for name in ("float_ms_ssim", "float_ms_ssim_cuda"):
-        arg = ek._feature_arg(name, is_hdr=True, motion_fps_weight=1.0)
-        assert arg == f"name={name}:enable_db=false"
+def test_feature_arg_hdr_cambi_cuda_gets_eotf_only():
+    """``cambi_cuda`` exposes ``eotf`` but not ``full_ref`` — the
+    whitelist must drop the unsupported option silently."""
+    arg = ek._feature_arg("cambi_cuda", is_hdr=True, motion_fps_weight=1.0)
+    assert arg == "cambi_cuda=eotf=pq"
+
+
+def test_feature_arg_hdr_ms_ssim_cpu_only_gets_enable_db_false():
+    """CPU ``float_ms_ssim`` accepts ``enable_db``; the CUDA twin
+    doesn't expose it, so the CUDA arg drops back to bare name."""
+    assert (
+        ek._feature_arg("float_ms_ssim", is_hdr=True, motion_fps_weight=1.0)
+        == "float_ms_ssim=enable_db=false"
+    )
+    assert (
+        ek._feature_arg("float_ms_ssim_cuda", is_hdr=True, motion_fps_weight=1.0)
+        == "float_ms_ssim_cuda"
+    )
 
 
 def test_feature_arg_hfr_60fps_motion_gets_fps_weight():
     # 60 fps → motion_fps_weight = 0.5.
     arg = ek._feature_arg("motion", is_hdr=False, motion_fps_weight=0.5)
-    assert arg.startswith("name=motion:")
-    assert "motion_fps_weight=0.5000" in arg
+    assert arg == "motion=motion_fps_weight=0.5000"
 
 
 def test_feature_arg_hfr_60fps_motion_v2_cuda_gets_fps_weight():
     arg = ek._feature_arg("motion_v2_cuda", is_hdr=False, motion_fps_weight=0.5)
-    assert arg.startswith("name=motion_v2_cuda:")
-    assert "motion_fps_weight=0.5000" in arg
+    assert arg == "motion_v2_cuda=motion_fps_weight=0.5000"
 
 
 def test_feature_arg_hdr_hfr_combo_cambi():
@@ -174,7 +187,7 @@ def test_feature_arg_hdr_hfr_combo_cambi():
 def test_feature_arg_hdr_hfr_combo_motion():
     """Motion gets fps_weight; HDR-only options don't apply to motion."""
     arg = ek._feature_arg("motion_v2", is_hdr=True, motion_fps_weight=0.25)
-    assert "motion_fps_weight=0.2500" in arg
+    assert arg == "motion_v2=motion_fps_weight=0.2500"
     assert "eotf=pq" not in arg
 
 

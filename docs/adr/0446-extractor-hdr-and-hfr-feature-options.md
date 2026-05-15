@@ -11,7 +11,13 @@ The shared K150K/CHUG feature-extraction script
 (`ai/scripts/extract_k150k_features.py`) drove the live 2026-05-15
 CHUG MOS-HDR ingest (5 992 clips, ~14 h ETA on RTX 4090). The script
 emitted `--feature <name>` arguments to the libvmaf CLI without ever
-using the `--feature name=<name>:k=v` per-feature options syntax.
+using the `--feature <name>=k=v:k=v` per-feature options grammar.
+
+(libvmaf/tools/cli_parse.c:407-438 implements the parser:
+`strsep(&optarg, "=")` consumes the extractor name first, then `:`
+separates the `key=value` pairs. The `name=<extractor>:k=v` shape is
+NOT part of the grammar and trips
+`problem loading feature extractor: name`.)
 
 Two separate audit findings converged on the same root cause:
 
@@ -54,15 +60,26 @@ Extend `extract_k150k_features.py` to:
 
 4. **Emit per-feature options through libvmaf's grammar.** New
    `_feature_arg(extractor, is_hdr, motion_fps_weight)` returns
-   `name=<extractor>:k=v:k=v` when any HDR or HFR option applies, the
-   bare extractor name otherwise:
+   `<extractor>=k=v:k=v` when any HDR or HFR option applies AND the
+   extractor advertises support for it (per the
+   `_FEATURE_OPTION_SUPPORT` whitelist below), the bare extractor name
+   otherwise:
 
    - **HDR sources only:**
      - `cambi` — `eotf=pq:full_ref=true`
-     - `float_ms_ssim` / `float_ms_ssim_cuda` — `enable_db=false`
+     - `cambi_cuda` — `eotf=pq` (the CUDA twin's option table omits
+       `full_ref`; the whitelist drops it silently rather than tripping
+       `problem loading feature extractor`)
+     - `float_ms_ssim` — `enable_db=false`
+     - `float_ms_ssim_cuda` — bare name (the CUDA twin's option table
+       omits `enable_db`; whitelist drops it)
    - **HFR sources only (motion features):**
      - `motion` / `motion_cuda` / `motion_v2` / `motion_v2_cuda` —
        `motion_fps_weight=<value>` (4 decimal places).
+
+   The whitelist is sourced from each extractor's `static const
+   VmafOption options[]` table in
+   `libvmaf/src/feature/{,cuda/}*.c`.
 
 5. **Surface the per-clip metadata in the parquet.** The output dict
    gains `fps`, `is_hdr`, and `motion_fps_weight` columns so trainers

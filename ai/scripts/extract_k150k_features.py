@@ -334,40 +334,70 @@ def _motion_fps_weight(fps: float) -> float:
     return max(0.25, min(4.0, weight))
 
 
+# Per-extractor option support. CUDA twins ship a reduced VmafOption
+# table vs their CPU counterparts (verified against
+# libvmaf/src/feature/cuda/{integer_cambi_cuda,integer_ms_ssim_cuda,
+# integer_motion_cuda}.c); options not present here are silently
+# dropped from the --feature arg rather than triggering
+# "problem loading feature extractor" at runtime.
+_FEATURE_OPTION_SUPPORT: dict[str, frozenset[str]] = {
+    "cambi": frozenset({"eotf", "cambi_eotf", "full_ref"}),
+    "cambi_cuda": frozenset({"eotf", "cambi_eotf"}),
+    "float_ms_ssim": frozenset({"enable_db", "clip_db", "enable_lcs"}),
+    "float_ms_ssim_cuda": frozenset({"enable_lcs"}),
+    "motion": frozenset({"motion_fps_weight"}),
+    "motion_cuda": frozenset({"motion_fps_weight"}),
+    "motion_v2": frozenset({"motion_fps_weight"}),
+    "motion_v2_cuda": frozenset({"motion_fps_weight"}),
+}
+
+
 def _feature_arg(extractor: str, is_hdr: bool, motion_fps_weight: float) -> str:
     """Build the ``--feature`` argument value for one extractor.
 
-    Returns ``"name=<extractor>:k1=v1:k2=v2"`` when HDR-aware options
-    apply; returns the bare ``<extractor>`` name otherwise (preserving
-    pre-fix behaviour for SDR sources).
+    Per libvmaf/tools/cli_parse.c the CLI grammar is
+    ``EXTRACTOR=key1=val1:key2=val2``: ``strsep(&optarg, "=")`` consumes
+    the extractor name first, then ``:`` separates the ``key=value``
+    pairs.  The leading literal ``name=`` token is NOT part of the
+    grammar — it parses as a feature called "name" with bad options
+    and trips ``problem loading feature extractor: name``.
 
-    The HDR-aware options follow lawrence's 2026-05-15 guidance:
-    - CAMBI: ``eotf=pq`` (use HDR PQ visibility thresholds, not SDR);
-      ``full_ref=true`` (FR-CAMBI is what the script's ref==dis topology
-      runs anyway, but make it explicit).
-    - MS_SSIM: ``enable_db=false`` (keep linear scale for SVR
-      correlation per lawrence's recipe).
-    - motion / motion_v2: ``motion_fps_weight=<value>`` when fps != 30.
+    Returns ``"<extractor>=k1=v1:k2=v2"`` when HDR-aware options apply
+    AND the extractor advertises support for them; returns the bare
+    ``<extractor>`` name otherwise (preserving pre-fix behaviour for
+    SDR sources and silently dropping CUDA-unsupported options).
+
+    HDR-aware options follow lawrence's 2026-05-15 guidance:
+    - CAMBI: ``eotf=pq`` (HDR PQ visibility thresholds, not SDR);
+      ``full_ref=true`` (FR-CAMBI matches the script's ref==dis
+      topology; the CUDA twin doesn't expose this option, so the
+      whitelist drops it for ``cambi_cuda``).
+    - MS_SSIM: ``enable_db=false`` (linear scale per recipe);
+      the CUDA twin doesn't expose this option either.
+    - motion / motion_v2 (both CPU and CUDA): ``motion_fps_weight``
+      when fps != 30.
     """
-    opts: list[str] = []
+    desired: list[tuple[str, str]] = []
     base = extractor
 
-    if is_hdr and base in ("cambi",):
-        opts.append("eotf=pq")
-        opts.append("full_ref=true")
+    if is_hdr and base in ("cambi", "cambi_cuda"):
+        desired.append(("eotf", "pq"))
+        desired.append(("full_ref", "true"))
     if is_hdr and base in ("float_ms_ssim", "float_ms_ssim_cuda"):
-        opts.append("enable_db=false")
+        desired.append(("enable_db", "false"))
     if motion_fps_weight != 1.0 and base in (
         "motion",
         "motion_cuda",
         "motion_v2",
         "motion_v2_cuda",
     ):
-        opts.append(f"motion_fps_weight={motion_fps_weight:.4f}")
+        desired.append(("motion_fps_weight", f"{motion_fps_weight:.4f}"))
 
+    supported = _FEATURE_OPTION_SUPPORT.get(base, frozenset())
+    opts = [f"{k}={v}" for k, v in desired if k in supported]
     if not opts:
         return base
-    return f"name={base}:" + ":".join(opts)
+    return f"{base}=" + ":".join(opts)
 
 
 def _decode_to_yuv(mp4: Path, yuv_path: Path, pix_fmt: str) -> None:
