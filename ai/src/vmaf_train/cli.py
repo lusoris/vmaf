@@ -10,8 +10,9 @@ Subcommands:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich.console import Console
@@ -74,6 +75,141 @@ def fit_cmd(
     cfg = load_config(config, overrides=overrides)
     ckpt = train(cfg)
     console.print(f"[green]Training done. Last checkpoint: {ckpt}[/green]")
+
+
+def _parse_tune_param_specs(specs: list[str]) -> list[tuple[str, str, tuple[str, ...]]]:
+    """Parse ``--param name=kind:...`` sweep specs into validated tuples."""
+    parsed: list[tuple[str, str, tuple[str, ...]]] = []
+    for spec in specs:
+        if "=" not in spec:
+            raise typer.BadParameter(
+                f"{spec!r} must use name=kind:... syntax, e.g. hidden=choice:16,32"
+            )
+        name, body = spec.split("=", 1)
+        name = name.strip()
+        if not name:
+            raise typer.BadParameter(f"{spec!r} has an empty parameter name")
+        parts = tuple(part.strip() for part in body.split(":"))
+        kind = parts[0] if parts else ""
+        if kind == "float":
+            if len(parts) not in (3, 4):
+                raise typer.BadParameter(f"{spec!r} must be name=float:LOW:HIGH[:log]")
+            try:
+                float(parts[1])
+                float(parts[2])
+            except ValueError as exc:
+                raise typer.BadParameter(f"{spec!r} has non-numeric float bounds") from exc
+            if len(parts) == 4 and parts[3] != "log":
+                raise typer.BadParameter(f"{spec!r} only supports the optional ':log' suffix")
+        elif kind == "int":
+            if len(parts) != 3:
+                raise typer.BadParameter(f"{spec!r} must be name=int:LOW:HIGH")
+            try:
+                int(parts[1])
+                int(parts[2])
+            except ValueError as exc:
+                raise typer.BadParameter(f"{spec!r} has non-integer bounds") from exc
+        elif kind == "choice":
+            if len(parts) != 2 or not parts[1]:
+                raise typer.BadParameter(f"{spec!r} must be name=choice:A,B,...")
+            if not [item for item in parts[1].split(",") if item]:
+                raise typer.BadParameter(f"{spec!r} must include at least one choice")
+        else:
+            raise typer.BadParameter(
+                f"{spec!r} has unknown kind {kind!r}; use float, int, or choice"
+            )
+        parsed.append((name, kind, parts[1:]))
+    return parsed
+
+
+def _coerce_choice(value: str) -> object:
+    for caster in (int, float):
+        try:
+            return caster(value)
+        except ValueError:
+            pass
+    if value.lower() == "true":
+        return True
+    if value.lower() == "false":
+        return False
+    return value
+
+
+def _make_tune_suggest(
+    specs: list[tuple[str, str, tuple[str, ...]]],
+) -> Callable[[Any], dict[str, object]]:
+    def suggest(trial: Any) -> dict[str, object]:
+        overrides: dict[str, object] = {}
+        for name, kind, args in specs:
+            if kind == "float":
+                low = float(args[0])
+                high = float(args[1])
+                log = len(args) == 3 and args[2] == "log"
+                overrides[name] = trial.suggest_float(name, low, high, log=log)
+            elif kind == "int":
+                overrides[name] = trial.suggest_int(name, int(args[0]), int(args[1]))
+            elif kind == "choice":
+                choices = [_coerce_choice(item) for item in args[0].split(",") if item]
+                overrides[name] = trial.suggest_categorical(name, choices)
+        return overrides
+
+    return suggest
+
+
+@app.command("tune")
+def tune_cmd(
+    config: Path = typer.Option(..., exists=True, dir_okay=False, help="Base YAML config path"),
+    param: Optional[list[str]] = typer.Option(
+        None,
+        "--param",
+        "-p",
+        help=(
+            "Model-arg search spec. Repeatable. Forms: "
+            "name=float:LOW:HIGH[:log], name=int:LOW:HIGH, name=choice:A,B"
+        ),
+    ),
+    trials: int = typer.Option(20, "--trials", min=1, help="Number of Optuna trials"),
+    study_name: str = typer.Option("vmaf-train-sweep", help="Optuna study name"),
+    storage: Optional[str] = typer.Option(None, help="Optional Optuna storage URL"),
+    cache: Optional[Path] = typer.Option(None, help="Override features cache (.parquet / .npz)"),
+    output: Optional[Path] = typer.Option(None, help="Override sweep output root"),
+    epochs: Optional[int] = typer.Option(None, help="Override epochs per trial"),
+    seed: Optional[int] = typer.Option(None, help="Override base seed"),
+) -> None:
+    """Run an Optuna sweep over model_args from a base YAML config."""
+    from .train import load_config
+    from .tune import sweep
+
+    specs = _parse_tune_param_specs(list(param or []))
+    if not specs:
+        raise typer.BadParameter("at least one --param search spec is required")
+
+    overrides: dict[str, object] = {}
+    if cache is not None:
+        overrides["cache"] = str(cache)
+    if output is not None:
+        overrides["output"] = str(output)
+    if epochs is not None:
+        overrides["epochs"] = epochs
+    if seed is not None:
+        overrides["seed"] = seed
+
+    cfg = load_config(config, overrides=overrides)
+    try:
+        study = sweep(
+            cfg,
+            _make_tune_suggest(specs),
+            n_trials=trials,
+            study_name=study_name,
+            storage=storage,
+        )
+    except ImportError as exc:
+        console.print("[red]vmaf-train tune requires the optional ai[tune] extra[/red]")
+        console.print("[yellow]Install with: pip install -e 'ai[tune]'[/yellow]")
+        raise typer.Exit(code=2) from exc
+
+    console.print(f"[green]Sweep done. Best value: {study.best_value:g}[/green]")
+    console.print(f"[cyan]Best params: {study.best_params}[/cyan]")
 
 
 @app.command("export")
