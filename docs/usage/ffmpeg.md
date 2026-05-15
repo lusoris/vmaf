@@ -89,12 +89,7 @@ below are from patches 0001–0003:
 | `tiny_device=auto\|cpu\|cuda\|openvino\|rocm` | `auto` | ORT device selector for the tiny model. |
 | `tiny_threads=N` | `0` | CPU-EP intra-op thread count (`0` = ORT default). |
 | `tiny_fp16=0\|1` | `0` | Request fp16 I/O when the device supports it. |
-| `sycl_device=N` | `-1` | SYCL device index, `-1` = system default (`ffmpeg-patches/0003-...`). |
 | `sycl_profile=0\|1` | `0` | Enable SYCL queue profiling (`ffmpeg-patches/0003-...`). |
-| `vulkan_device=N` | `-1` | Vulkan device index, `-1` = system default (`ffmpeg-patches/0004-...`). |
-| `cuda=0\|1` | `0` | Enable the CUDA backend on the libvmaf filter (`ffmpeg-patches/0010-...`). |
-| `hip_device=N` | `-1` | HIP device index, `-1` = system default (`ffmpeg-patches/0011-...`). |
-| `metal_device=N` | `-2` | Metal device index, `-2` = disabled, `-1` = system default, `≥0` = explicit (`ffmpeg-patches/0012-...`). The `-2` default is a fork-local convention because Metal is auto-disabled on Linux; an unset value should not enable the backend. |
 
 Backend selectors live alongside in a small dedicated table —
 see "Backend selectors on the libvmaf filter" below.
