@@ -129,6 +129,8 @@ python ai/scripts/measure_quant_drop.py --all
 | --- | --- | --- | --- | --- |
 | `learned_filter_v1` | dynamic | 2.4× (80 KB → 33 KB) | 0.000117 (PLCC 0.999883) | 0.01 |
 | `nr_metric_v1` | dynamic | 2.0× (119 KB → 58 KB) | 0.007674 (PLCC 0.992326) | 0.01 |
+| `vmaf_tiny_v3` | dynamic | 0.95× (4 496 B → 4 267 B) | 0.000120 (PLCC 0.999880) | 0.01 |
+| `vmaf_tiny_v4` | dynamic | 1.8× (14 046 B → 7 769 B) | 0.000145 (PLCC 0.999855) | 0.01 |
 
 The original `nr_metric_v1` ONNX export tripped ORT's internal
 shape inference during `quantize_dynamic` with `Inferred shape and
@@ -140,6 +142,13 @@ survive the dynamic batch axis substitution. The exporter
 point (`ai/scripts/ptq_dynamic.py`) now strip those duplicates —
 same workaround introduced for `vmaf_tiny_v1*.onnx` in PR #174
 (T5-3e). Tracked as T5-3d.
+
+`vmaf_tiny_v3` and `vmaf_tiny_v4` joined the dynamic-PTQ family in
+[ADR-0275](../adr/0275-vmaf-tiny-v3-v4-ptq.md). Their model cards
+carry the per-model reproduction commands and measured PLCC drops:
+[`vmaf_tiny_v3`](models/vmaf_tiny_v3.md#quantisation-dynamic-ptq-int8-sidecar--adr-0275)
+and
+[`vmaf_tiny_v4`](models/vmaf_tiny_v4.md#quantisation-dynamic-ptq-int8-sidecar--adr-0275).
 
 ## Per-model PR template
 
@@ -161,8 +170,9 @@ relax the budget.
 
 ## Caveats
 
-- **No model is currently quantised.** This page documents the
-  harness; per-model decisions follow as separate PRs.
+- **All shipped int8 sidecars are currently dynamic PTQ.** Static PTQ
+  and QAT stay supported by the harness, but no shipped registry row
+  uses `quant_mode: "static"` or `quant_mode: "qat"` yet.
 - **Calibration sets are not redistributable** by default. Operators
   build their own from a parquet feature cache (the
   `ai/scripts/build_calibration_set.py` helper is queued — until it
