@@ -678,7 +678,7 @@ after a port-upstream of any of these files.
   truth. Every new GPU twin needs an entry.
 
 
-## Performance invariants (set by PR / perf/adm-p-norm-fast-path-vif-arm64-malloc-2026-05-16, ADR-0453)
+## Performance invariants (set by PR / perf/adm-p-norm-fast-path-vif-arm64-malloc-2026-05-16, ADR-0463)
 
 - **Loop-invariant branches MUST be split out as fast-paths**: any
   per-pixel `if (param == DEFAULT_VALUE)` branch inside an inner

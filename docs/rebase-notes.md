@@ -34875,7 +34875,7 @@ meson test -C build --suite=fast
 
 ---
 
-## perf/adm-p-norm-fast-path-vif-arm64-malloc-2026-05-16 (ADR-0453)
+## perf/adm-p-norm-fast-path-vif-arm64-malloc-2026-05-16 (ADR-0463)
 
 **What changed**: Added `adm_cm_s_p3`, `adm_csf_den_scale_s_p3`, and
 `adm_sum_cube_s_p3` fast-path variants in `adm_tools.c`; dispatch added in

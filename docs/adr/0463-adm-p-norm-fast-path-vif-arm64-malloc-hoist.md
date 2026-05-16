@@ -1,4 +1,4 @@
-# ADR-0453: ADM p-norm fast-path split and VIF scalar-fallback malloc hoist
+# ADR-0463: ADM p-norm fast-path split and VIF scalar-fallback malloc hoist
 
 - **Status**: Accepted
 - **Date**: 2026-05-16
