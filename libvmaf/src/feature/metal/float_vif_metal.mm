@@ -2,7 +2,7 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  float_vif feature extractor on the Metal backend (T8-1k / ADR-0445).
+ *  float_vif feature extractor on the Metal backend (T8-1k / ADR-0462).
  *  Port pattern mirrors float_ssim_metal.mm (T8-1j / ADR-0421).
  *
  *  VIF is computed across 4 dyadic scales using separable Gaussian

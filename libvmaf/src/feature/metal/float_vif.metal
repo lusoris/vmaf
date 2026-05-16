@@ -2,7 +2,7 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  Metal compute kernels for float_vif (T8-1k / ADR-0445).
+ *  Metal compute kernels for float_vif (T8-1k / ADR-0462).
  *  Port of the CUDA twin at `cuda/float_vif/float_vif_score.cu`.
  *
  *  Algorithm overview
