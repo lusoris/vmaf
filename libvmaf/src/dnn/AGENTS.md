@@ -180,6 +180,16 @@ Runtime directly.
   must accept the new value. End-to-end NPU silicon validation is
   deferred to a contributor with Meteor / Lunar / Arrow Lake hardware.
 
+- **OrtMemoryInfo MUST be cached at session-open; per-frame
+  CreateCpuMemoryInfo is a perf hazard** (perf/ort-memory-info-cached-2026-05-16):
+  the `OrtMemoryInfo *cpu_mem_info` field is allocated once in
+  `vmaf_ort_open` and cached in the `VmafOrtSession` struct.
+  Per-frame inference paths (`vmaf_ort_infer`, `vmaf_ort_run`) reuse
+  the cached descriptor. Never recreate the descriptor per frame —
+  ONNX Runtime recommends caching this handle to avoid repeated
+  allocator round-trips. Released in `vmaf_ort_close`.
+
+
 ## Testing
 
 ```bash
