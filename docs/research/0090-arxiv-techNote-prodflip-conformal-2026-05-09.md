@@ -1,4 +1,4 @@
-# Research-0090: arXiv tech-note draft: production-flip gates and conformal prediction for VMAF predictors
+# Research-0090 — arXiv tech-note draft: production-flip gates and conformal prediction for VMAF predictors
 
 - **Status**: DRAFT — preprint under preparation; not yet submitted to arXiv.
 - **Authors**: Lusoris and Claude (Anthropic) — fork repository

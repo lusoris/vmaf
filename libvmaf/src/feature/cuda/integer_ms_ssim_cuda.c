@@ -88,7 +88,6 @@ typedef struct MsSsimStateCuda {
     CUfunction func_decimate;
     CUfunction func_horiz;
     CUfunction func_vert_lcs;
-    CUmodule module;
 
     unsigned width;
     unsigned height;
@@ -143,11 +142,7 @@ typedef struct MsSsimStateCuda {
     unsigned index;
     VmafDictionary *feature_name_dict;
 
-    bool enable_lcs;    /* T7-35 / ADR-0243: emit per-scale L/C/S triples. */
-    bool enable_chroma; /* mirrors SSIM CUDA PR #950; MS-SSIM is luma-only
-                         * by construction, so n_planes is clamped to 1
-                         * unless a future extension lifts that. */
-    unsigned n_planes;  /* active plane count: always 1 once clamped. */
+    bool enable_lcs; /* T7-35 / ADR-0243: emit per-scale L/C/S triples. */
 } MsSsimStateCuda;
 
 static const VmafOption options[] = {
@@ -158,32 +153,14 @@ static const VmafOption options[] = {
         .type = VMAF_OPT_TYPE_BOOL,
         .default_val.b = false,
     },
-    {
-        .name = "enable_chroma",
-        .help = "enable MS-SSIM calculation for chroma channels (Cb and Cr); "
-                "currently MS-SSIM is luma-only, so this flag is accepted but "
-                "always clamps n_planes to 1 until a chroma extension lands",
-        .offset = offsetof(MsSsimStateCuda, enable_chroma),
-        .type = VMAF_OPT_TYPE_BOOL,
-        .default_val.b = false,
-    },
     {0},
 };
 
 static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
 {
+    (void)pix_fmt;
     MsSsimStateCuda *s = fex->priv;
-
-    /* Clamp n_planes to 1: MS-SSIM is luma-only by construction (Wang et al.
-     * 2003 pyramid is applied to the luma plane only).  Mirror the SSIM CUDA
-     * PR #950 pattern so the option is accepted without error for callers that
-     * set enable_chroma=true for consistency with sister extractors; the guard
-     * also covers YUV400P where chroma planes are absent. */
-    if (pix_fmt == VMAF_PIX_FMT_YUV400P || !s->enable_chroma)
-        s->n_planes = 1U;
-    else
-        s->n_planes = 1U; /* reserved: MS-SSIM chroma extension not yet impl. */
 
     /* ADR-0153 minimum resolution check. */
     const unsigned min_dim = (unsigned)MS_SSIM_GAUSSIAN_LEN << (MS_SSIM_SCALES - 1);
@@ -232,7 +209,8 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
 
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, ms_ssim_score_ptx), fail);
+    CUmodule module;
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, ms_ssim_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_decimate, module, "ms_ssim_decimate"), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_horiz, module, "ms_ssim_horiz"), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_vert_lcs, module, "ms_ssim_vert_lcs"), fail);
@@ -514,8 +492,6 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     MsSsimStateCuda *s = fex->priv;
     int ret = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
-    if (s->module)
-        (void)fex->cu_state->f->cuModuleUnload(s->module);
     for (int i = 0; i < MS_SSIM_SCALES; i++) {
         if (s->pyramid_ref[i]) {
             ret |= vmaf_cuda_buffer_free(fex->cu_state, s->pyramid_ref[i]);
