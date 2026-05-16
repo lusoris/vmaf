@@ -5,12 +5,15 @@
  *  float_moment feature extractor on the Metal backend (T8-1e / ADR-0421).
  *  Dispatches `float_moment_kernel_{8,16}bpc` from float_moment.metal.
  *
- *  Four float partials per WG (interleaved):
- *    base = (bid.y * grid_w + bid.x) * 4
- *    [base+0] = ref_1st_partial, [base+1] = dis_1st_partial,
- *    [base+2] = ref_2nd_partial, [base+3] = dis_2nd_partial
+ *  Reduction layout (integer-exact, mirroring integer_psnr_metal pattern):
+ *    Eight uint32 buffers, two per accumulator (lo+hi):
+ *      r1_lo/r1_hi, d1_lo/d1_hi, r2_lo/r2_hi, d2_lo/d2_hi
+ *    Each buffer holds grid_w × grid_h uint32 WG partials.
+ *    Host reconstructs: val_u64 = ((uint64)hi << 32) | lo, sums, then
+ *    divides by (W * H * scaler) for 1st moment and
+ *    (W * H * scaler^2) for 2nd moment.
+ *    For 8bpc: scaler = 1. For >8bpc: scaler = 1 << (bpc - 8).
  *
- *  Host divides sums by (W * H) to get moment values.
  *  Feature names: float_moment_ref1st, float_moment_dis1st,
  *                 float_moment_ref2nd, float_moment_dis2nd.
  */
@@ -39,9 +42,13 @@ extern const unsigned char libvmaf_metallib_start[] __asm("section$start$__TEXT$
 extern const unsigned char libvmaf_metallib_end[]   __asm("section$end$__TEXT$__metallib");
 }
 
+/* Indices into rb[]: r1_lo=0, r1_hi=1, d1_lo=2, d1_hi=3,
+ *                    r2_lo=4, r2_hi=5, d2_lo=6, d2_hi=7. */
+#define FM_NUM_BUFS 8u
+
 typedef struct FloatMomentStateMetal {
     VmafMetalKernelLifecycle lc;
-    VmafMetalKernelBuffer rb;        /* 4 × grid_w × grid_h float partials */
+    VmafMetalKernelBuffer rb[FM_NUM_BUFS]; /* uint32 lo/hi partials */
     VmafMetalContext *ctx;
     void *pso_8bpc;
     void *pso_16bpc;
@@ -103,14 +110,20 @@ static int init_fex_metal(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fm
     if (err != 0) { goto fail_ctx; }
 
     {
-        const size_t grid_w = (w + 15) / 16;
-        const size_t grid_h = (h + 15) / 16;
-        s->partials_count   = grid_w * grid_h;
-        /* 4 floats per WG: ref1, dis1, ref2, dis2 */
-        err = vmaf_metal_kernel_buffer_alloc(&s->rb, s->ctx,
-                                             s->partials_count * 4u * sizeof(float));
+        const size_t grid_w   = (w + 15) / 16;
+        const size_t grid_h   = (h + 15) / 16;
+        s->partials_count     = grid_w * grid_h;
+        const size_t par_size = s->partials_count * sizeof(uint32_t);
+        for (unsigned b = 0u; b < FM_NUM_BUFS; ++b) {
+            err = vmaf_metal_kernel_buffer_alloc(&s->rb[b], s->ctx, par_size);
+            if (err != 0) {
+                for (unsigned q = 0u; q < b; ++q) {
+                    (void)vmaf_metal_kernel_buffer_free(&s->rb[q], s->ctx);
+                }
+                goto fail_lc;
+            }
+        }
     }
-    if (err != 0) { goto fail_lc; }
 
     {
         void *dh = vmaf_metal_context_device_handle(s->ctx);
@@ -129,7 +142,9 @@ fail_pso:
     if (s->pso_8bpc)  { (void)(__bridge_transfer id<MTLComputePipelineState>)s->pso_8bpc;  s->pso_8bpc  = NULL; }
     if (s->pso_16bpc) { (void)(__bridge_transfer id<MTLComputePipelineState>)s->pso_16bpc; s->pso_16bpc = NULL; }
 fail_rb:
-    (void)vmaf_metal_kernel_buffer_free(&s->rb, s->ctx);
+    for (unsigned b = 0u; b < FM_NUM_BUFS; ++b) {
+        (void)vmaf_metal_kernel_buffer_free(&s->rb[b], s->ctx);
+    }
 fail_lc:
     (void)vmaf_metal_kernel_lifecycle_close(&s->lc, s->ctx);
 fail_ctx:
@@ -155,7 +170,6 @@ static int submit_fex_metal(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
 
     id<MTLDevice>      device = (__bridge id<MTLDevice>)dh;
     id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)qh;
-    id<MTLBuffer>    par_buf  = (__bridge id<MTLBuffer>)(void *)s->rb.buffer;
     id<MTLComputePipelineState> pso = (s->bpc <= 8u)
         ? (__bridge id<MTLComputePipelineState>)s->pso_8bpc
         : (__bridge id<MTLComputePipelineState>)s->pso_16bpc;
@@ -175,24 +189,32 @@ static int submit_fex_metal(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
     id<MTLCommandBuffer> cmd = [queue commandBuffer];
     if (cmd == nil) { return -ENOMEM; }
 
+    /* Zero all partial buffers before dispatch. */
+    const size_t par_size = s->partials_count * sizeof(uint32_t);
     id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
-    [blit fillBuffer:par_buf range:NSMakeRange(0, s->partials_count * 4u * sizeof(float)) value:0];
+    for (unsigned b = 0u; b < FM_NUM_BUFS; ++b) {
+        id<MTLBuffer> buf = (__bridge id<MTLBuffer>)(void *)s->rb[b].buffer;
+        [blit fillBuffer:buf range:NSMakeRange(0, par_size) value:0];
+    }
     [blit endEncoding];
 
     id<MTLComputeCommandEncoder> enc = [cmd computeCommandEncoder];
     [enc setComputePipelineState:pso];
     [enc setBuffer:ref_buf offset:0 atIndex:0];
     [enc setBuffer:dis_buf offset:0 atIndex:1];
-    [enc setBuffer:par_buf offset:0 atIndex:2];
+    for (unsigned b = 0u; b < FM_NUM_BUFS; ++b) {
+        id<MTLBuffer> buf = (__bridge id<MTLBuffer>)(void *)s->rb[b].buffer;
+        [enc setBuffer:buf offset:0 atIndex:(NSUInteger)(b + 2u)];
+    }
     if (s->bpc <= 8u) {
         uint32_t st[2] = {(uint32_t)row_bytes, (uint32_t)row_bytes};
-        [enc setBytes:st length:sizeof(st) atIndex:3];
+        [enc setBytes:st length:sizeof(st) atIndex:10];
     } else {
         uint32_t st[4] = {(uint32_t)row_bytes, (uint32_t)row_bytes, (uint32_t)s->bpc, 0};
-        [enc setBytes:st length:sizeof(st) atIndex:3];
+        [enc setBytes:st length:sizeof(st) atIndex:10];
     }
     uint32_t dim[2] = {(uint32_t)s->frame_w, (uint32_t)s->frame_h};
-    [enc setBytes:dim length:sizeof(dim) atIndex:4];
+    [enc setBytes:dim length:sizeof(dim) atIndex:11];
 
     MTLSize tg   = MTLSizeMake(16, 16, 1);
     MTLSize grid = MTLSizeMake((s->frame_w + 15) / 16, (s->frame_h + 15) / 16, 1);
@@ -209,22 +231,56 @@ static int collect_fex_metal(VmafFeatureExtractor *fex, unsigned index,
 {
     FloatMomentStateMetal *s = (FloatMomentStateMetal *)fex->priv;
 
-    const float *parts = (const float *)s->rb.host_view;
+    /*
+     * Reconstruct uint64 sums from lo/hi partial buffers.
+     * Buffer layout: [r1_lo=0, r1_hi=1, d1_lo=2, d1_hi=3,
+     *                 r2_lo=4, r2_hi=5, d2_lo=6, d2_hi=7].
+     * sum[0]=ref1, sum[1]=dis1, sum[2]=ref2, sum[3]=dis2.
+     */
     double sum[4] = {0.0, 0.0, 0.0, 0.0};
-    if (parts != NULL) {
-        for (size_t i = 0; i < s->partials_count; ++i) {
-            const size_t base = i * 4u;
-            sum[0] += (double)parts[base + 0];
-            sum[1] += (double)parts[base + 1];
-            sum[2] += (double)parts[base + 2];
-            sum[3] += (double)parts[base + 3];
+    {
+        const uint32_t *r1_lo = (const uint32_t *)s->rb[0].host_view;
+        const uint32_t *r1_hi = (const uint32_t *)s->rb[1].host_view;
+        const uint32_t *d1_lo = (const uint32_t *)s->rb[2].host_view;
+        const uint32_t *d1_hi = (const uint32_t *)s->rb[3].host_view;
+        const uint32_t *r2_lo = (const uint32_t *)s->rb[4].host_view;
+        const uint32_t *r2_hi = (const uint32_t *)s->rb[5].host_view;
+        const uint32_t *d2_lo = (const uint32_t *)s->rb[6].host_view;
+        const uint32_t *d2_hi = (const uint32_t *)s->rb[7].host_view;
+
+        if (r1_lo != NULL && r1_hi != NULL &&
+            d1_lo != NULL && d1_hi != NULL &&
+            r2_lo != NULL && r2_hi != NULL &&
+            d2_lo != NULL && d2_hi != NULL) {
+            for (size_t i = 0; i < s->partials_count; ++i) {
+                sum[0] += (double)(((uint64_t)r1_hi[i] << 32u) | (uint64_t)r1_lo[i]);
+                sum[1] += (double)(((uint64_t)d1_hi[i] << 32u) | (uint64_t)d1_lo[i]);
+                sum[2] += (double)(((uint64_t)r2_hi[i] << 32u) | (uint64_t)r2_lo[i]);
+                sum[3] += (double)(((uint64_t)d2_hi[i] << 32u) | (uint64_t)d2_lo[i]);
+            }
         }
     }
-    const double n_pix = (double)s->frame_w * (double)s->frame_h;
-    const double ref1 = (n_pix > 0.0) ? (sum[0] / n_pix) : 0.0;
-    const double dis1 = (n_pix > 0.0) ? (sum[1] / n_pix) : 0.0;
-    const double ref2 = (n_pix > 0.0) ? (sum[2] / n_pix) : 0.0;
-    const double dis2 = (n_pix > 0.0) ? (sum[3] / n_pix) : 0.0;
+
+    /*
+     * Divide by (W * H * scaler) for 1st moment and
+     * (W * H * scaler^2) for 2nd moment.
+     * For 8bpc scaler=1, so both denominators equal W*H.
+     * This matches the CPU float_moment.c behaviour where pixels are
+     * pre-divided by scaler before accumulation; here we defer the
+     * division to the host for integer-exact GPU accumulation.
+     */
+    const double n_pix   = (double)s->frame_w * (double)s->frame_h;
+    double scaler        = 1.0;
+    if (s->bpc > 8u) {
+        scaler = (double)(1u << (s->bpc - 8u));
+    }
+    const double denom1 = n_pix * scaler;
+    const double denom2 = n_pix * scaler * scaler;
+
+    const double ref1 = (denom1 > 0.0) ? (sum[0] / denom1) : 0.0;
+    const double dis1 = (denom1 > 0.0) ? (sum[1] / denom1) : 0.0;
+    const double ref2 = (denom2 > 0.0) ? (sum[2] / denom2) : 0.0;
+    const double dis2 = (denom2 > 0.0) ? (sum[3] / denom2) : 0.0;
 
     int err = vmaf_feature_collector_append_with_dict(
         feature_collector, s->feature_name_dict, "float_moment_ref1st", ref1, index);
@@ -247,8 +303,10 @@ static int close_fex_metal(VmafFeatureExtractor *fex)
     if (s->pso_16bpc) { (void)(__bridge_transfer id<MTLComputePipelineState>)s->pso_16bpc; s->pso_16bpc = NULL; }
     if (s->pso_8bpc)  { (void)(__bridge_transfer id<MTLComputePipelineState>)s->pso_8bpc;  s->pso_8bpc  = NULL; }
 
-    int err = vmaf_metal_kernel_buffer_free(&s->rb, s->ctx);
-    if (err != 0 && rc == 0) { rc = err; }
+    for (unsigned b = 0u; b < FM_NUM_BUFS; ++b) {
+        int err = vmaf_metal_kernel_buffer_free(&s->rb[b], s->ctx);
+        if (err != 0 && rc == 0) { rc = err; }
+    }
     if (s->feature_name_dict) { (void)vmaf_dictionary_free(&s->feature_name_dict); }
     if (s->ctx) { vmaf_metal_context_destroy(s->ctx); s->ctx = NULL; }
     return rc;
