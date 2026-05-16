@@ -13,7 +13,7 @@ informative.  The NaN columns are expected and documented in ADR-0362.
 
 Output: ``runs/full_features_k150k.parquet`` (one row per clip, gitignored).
 
-Schema (46 columns):
+Schema (46 columns, parquet schema version v2):
 
     clip_name, mos,
     <21 features>_mean, <21 features>_std    (42 feature columns)
@@ -121,20 +121,23 @@ CUDA_EXTRACTOR_NAMES: tuple[str, ...] = (
     "ciede_cuda",
     "float_ms_ssim_cuda",
     "psnr_hvs_cuda",
-    "ssimulacra2_cuda",
 )
+# ssimulacra2 omitted from K150K/CHUG self-vs-self extraction — produces ~100 constant
+# for identity pairs (ref == distorted), yielding zero training signal while consuming
+# ~30-50% of GPU time per clip. Use CPU ssimulacra2 extractor for FR pairs where it
+# remains informative (ADR-0431).
 
 CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = (
     "float_ssim",
     "cambi",
 )
 
-# Canonical 21-feature output columns (Research-0026, updated Research-0135).
+# Canonical 21-feature output columns (Research-0026, parquet schema v2).
 # WARNING: column order is locked — do not reorder without incrementing the
 # parquet schema version and updating ai/AGENTS.md.
-# Note: "vmaf" was removed per Research-0135; the CHUG pipeline does not emit
-# a model score (--model is not passed to vmaf CLI) and self-vs-self produces
-# near-constant values. Use raw features only for MOS-head training.
+# ssimulacra2 dropped: in self-vs-self (FR-from-NR) mode it returns ~100 for every
+# frame regardless of input (zero training signal); see ADR-0431 and the docstring
+# near CUDA_EXTRACTOR_NAMES above.
 FEATURE_NAMES: tuple[str, ...] = (
     "adm2",
     "adm_scale0",
@@ -156,7 +159,7 @@ FEATURE_NAMES: tuple[str, ...] = (
     "cambi",
     "ciede2000",
     "psnr_hvs",
-    "ssimulacra2",
+    "vmaf",
 )
 
 # Map feature names to their JSON key(s) in libvmaf output.  libvmaf may emit
@@ -182,7 +185,7 @@ _METRIC_ALIASES: dict[str, tuple[str, ...]] = {
     "cambi": ("cambi",),
     "ciede2000": ("ciede2000",),
     "psnr_hvs": ("psnr_hvs",),
-    "ssimulacra2": ("ssimulacra2",),
+    "vmaf": ("vmaf",),
 }
 
 # ---------------------------------------------------------------------------
