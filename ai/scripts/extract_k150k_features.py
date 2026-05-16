@@ -13,18 +13,32 @@ informative.  The NaN columns are expected and documented in ADR-0362.
 
 Output: ``runs/full_features_k150k.parquet`` (one row per clip, gitignored).
 
-Schema (48 columns):
+Schema (46 columns):
 
     clip_name, mos,
-    <22 features>_mean, <22 features>_std    (44 feature columns)
+    <21 features>_mean, <21 features>_std    (42 feature columns)
 
 Feature columns follow the FEATURE_NAMES tuple order exactly (column-order-locked;
 see ai/AGENTS.md §K150K-A corpus extraction invariants before reordering).
 
 Restartability: a ``.done`` checkpoint file (one clip name per line, append-only)
-lets interrupted runs resume without re-processing already-extracted clips.  The
-parquet is flushed atomically (via a ``.tmp`` sibling) every ``--flush-every`` clips
-and once more at the end.
+lets interrupted runs resume without re-processing already-extracted clips.
+
+I/O strategy (perf win — Research-0135):
+  Rows are accumulated in memory throughout the run and written to a JSONL staging
+  file (``<out>.rows.jsonl``) on every completion.  The parquet is written **once**
+  at the end.  This eliminates the O(N²) read-concat-write pattern that the
+  per-``--flush-every``-clips flush incurred on long runs.  The ``.done`` checkpoint
+  remains the primary restartability signal; the JSONL staging file handles recovery
+  of in-memory rows after an unclean exit.
+
+ffprobe skip (Win 2 — Research-0135):
+  When ``--metadata-jsonl`` is provided and the sidecar contains
+  ``chug_width_manifest``, ``chug_height_manifest``, and
+  ``chug_framerate_manifest`` for a clip, ffprobe is skipped for that clip.
+  The pixel format is inferred from ``chug_bit_depth`` (10 → ``yuv420p10le``,
+  else ``yuv420p``) or defaults to ``yuv420p``.  ffprobe remains necessary for
+  clips not covered by the sidecar.
 
 Parallelism (ADR-0382): clips are dispatched to a
 ``concurrent.futures.ProcessPoolExecutor`` with ``--threads-cuda`` workers
@@ -115,9 +129,12 @@ CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = (
     "cambi",
 )
 
-# Canonical 22-feature output columns (Research-0026).
+# Canonical 21-feature output columns (Research-0026, updated Research-0135).
 # WARNING: column order is locked — do not reorder without incrementing the
 # parquet schema version and updating ai/AGENTS.md.
+# Note: "vmaf" was removed per Research-0135; the CHUG pipeline does not emit
+# a model score (--model is not passed to vmaf CLI) and self-vs-self produces
+# near-constant values. Use raw features only for MOS-head training.
 FEATURE_NAMES: tuple[str, ...] = (
     "adm2",
     "adm_scale0",
@@ -140,7 +157,6 @@ FEATURE_NAMES: tuple[str, ...] = (
     "ciede2000",
     "psnr_hvs",
     "ssimulacra2",
-    "vmaf",
 )
 
 # Map feature names to their JSON key(s) in libvmaf output.  libvmaf may emit
@@ -171,12 +187,32 @@ _METRIC_ALIASES: dict[str, tuple[str, ...]] = {
     "ciede2000": ("ciede2000",),
     "psnr_hvs": ("psnr_hvs",),
     "ssimulacra2": ("ssimulacra2",),
-    "vmaf": ("vmaf",),
 }
 
 # ---------------------------------------------------------------------------
 # YUV decode / geometry helpers
 # ---------------------------------------------------------------------------
+
+
+def _geometry_from_sidecar(meta: dict | None) -> tuple[int, int, str, str] | None:
+    """Extract (width, height, pix_fmt, fps) from a CHUG JSONL sidecar row.
+
+    Returns ``None`` if ``meta`` is ``None`` or if any required geometry field
+    is absent, so the caller can fall back to ffprobe.  Required fields:
+    ``chug_width_manifest``, ``chug_height_manifest``,
+    ``chug_framerate_manifest``.  The pixel format is inferred from
+    ``chug_bit_depth`` (10 → ``yuv420p10le``, else ``yuv420p``).
+    """
+    if meta is None:
+        return None
+    w = meta.get("chug_width_manifest")
+    h = meta.get("chug_height_manifest")
+    fps = meta.get("chug_framerate_manifest")
+    if w is None or h is None or fps is None:
+        return None
+    bit_depth = meta.get("chug_bit_depth")
+    pix_fmt = "yuv420p10le" if bit_depth == 10 else "yuv420p"
+    return int(w), int(h), pix_fmt, str(fps)
 
 
 def _probe_geometry(mp4: Path) -> tuple[int, int, str, str]:
@@ -498,22 +534,57 @@ def _append_done(done_path: Path, clip_name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Parquet flush
+# JSONL staging + at-end parquet write (Win 1, Research-0135)
 # ---------------------------------------------------------------------------
 
 
-def _flush_parquet(rows: list[dict], out_path: Path) -> None:
-    """Merge ``rows`` with any existing parquet and write atomically."""
-    new_df = pd.DataFrame(rows)
-    if out_path.is_file():
-        existing = pd.read_parquet(out_path)
-        combined = pd.concat([existing, new_df], ignore_index=True)
-        combined = combined.drop_duplicates(subset=["clip_name"], keep="last")
-    else:
-        combined = new_df
+def _staging_path(out_path: Path) -> Path:
+    """Return the JSONL staging file path for ``out_path``.
+
+    The staging file accumulates all completed rows during the run so that a
+    crash does not lose rows that are already past the ``.done`` checkpoint.
+    Written in append-only mode; converted to parquet once at the end.
+    """
+    return out_path.with_suffix(".rows.jsonl")
+
+
+def _append_row_to_staging(staging_path: Path, row: dict) -> None:
+    """Append one row to the JSONL staging file (main process only)."""
+    with staging_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row, allow_nan=True) + "\n")
+
+
+def _load_staging_rows(staging_path: Path) -> list[dict]:
+    """Load all rows from the JSONL staging file, skipping malformed lines."""
+    if not staging_path.is_file():
+        return []
+    rows: list[dict] = []
+    with staging_path.open("r", encoding="utf-8") as fh:
+        for raw in fh:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                rows.append(json.loads(raw))
+            except json.JSONDecodeError:
+                continue
+    return rows
+
+
+def _write_parquet_from_rows(rows: list[dict], out_path: Path) -> None:
+    """Write ``rows`` to ``out_path`` atomically, deduplicating by clip_name.
+
+    Parquet writes happen exactly once per run.  The per-clip JSONL staging
+    file is the in-run durability mechanism; this function is called only at
+    the end of ``main()`` (Research-0135 Win 1).
+    """
+    if not rows:
+        return
+    df = pd.DataFrame(rows)
+    df = df.drop_duplicates(subset=["clip_name"], keep="last")
     tmp = out_path.with_suffix(".tmp")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    combined.to_parquet(tmp, index=False)
+    df.to_parquet(tmp, index=False)
     tmp.rename(out_path)
 
 
@@ -531,12 +602,18 @@ def _process_clip(
     vmaf_threads: int,
     use_cuda: bool,
     worker_id: int,
+    sidecar_meta: dict | None = None,
 ) -> dict:
     """Decode one clip, score it, aggregate, and return the row dict.
 
     Runs in a subprocess worker.  Uses a worker-private YUV path so parallel
     workers never clobber each other.  Deletes the YUV unconditionally on exit
     (success or failure) to avoid scratch-dir disk saturation.
+
+    When ``sidecar_meta`` contains the required CHUG geometry fields
+    (``chug_width_manifest``, ``chug_height_manifest``,
+    ``chug_framerate_manifest``), ffprobe is skipped for that clip (Win 2,
+    Research-0135).
 
     Returns a dict with keys: clip_name, mos, width, height, <feat>_mean/std.
     Raises on any failure so the caller can log and skip.
@@ -552,7 +629,13 @@ def _process_clip(
     out_json = scratch_dir / f"{stem}.json"
 
     try:
-        width, height, pix_fmt, _fps = _probe_geometry(mp4)
+        # Win 2: skip ffprobe when sidecar has complete geometry.
+        geom = _geometry_from_sidecar(sidecar_meta) if sidecar_meta else None
+        if geom is None:
+            width, height, pix_fmt, _fps = _probe_geometry(mp4)
+        else:
+            width, height, pix_fmt, _fps = geom
+
         _decode_to_yuv(mp4, yuv_path, pix_fmt)
         frames = _run_feature_passes(
             vmaf_bin,
@@ -660,10 +743,20 @@ def main() -> int:
         ),
     )
     ap.add_argument(
-        "--flush-every",
+        "--progress-every",
         type=int,
         default=200,
-        help="Flush parquet every N completed clips.  Default 200 (was 1000).",
+        help=(
+            "Print a progress line every N completed clips.  Default 200.  "
+            "Previously named --flush-every; the name changed when the per-flush "
+            "parquet rewrite was replaced with at-end-only writes (Research-0135)."
+        ),
+    )
+    ap.add_argument(
+        "--flush-every",
+        type=int,
+        default=None,
+        help=argparse.SUPPRESS,  # Legacy alias; --progress-every takes precedence.
     )
     ap.add_argument(
         "--limit",
@@ -687,6 +780,9 @@ def main() -> int:
         help="Scratch directory for temporary YUV files.  Cleaned per-clip.",
     )
     args = ap.parse_args()
+
+    # --flush-every is a legacy alias; --progress-every takes precedence.
+    progress_every: int = args.progress_every
 
     use_cuda = not args.no_cuda
 
@@ -755,10 +851,19 @@ def main() -> int:
 
     args.scratch_dir.mkdir(parents=True, exist_ok=True)
 
+    # JSONL staging file — accumulates rows during the run for crash durability.
+    # Converted to parquet exactly once at the end (Research-0135 Win 1).
+    staging_path = _staging_path(args.out)
+    # Reload any rows from a previous partial run that are in the done set but
+    # whose staging rows survived.  This covers the edge-case where the process
+    # was killed after writing the staging line but before the final parquet write.
+    recovered_rows = _load_staging_rows(staging_path)
+    recovered_names = {r.get("clip_name") for r in recovered_rows if r.get("clip_name")}
+
     # ------------------------------------------------------------------
     # Parallel extraction via ProcessPoolExecutor
     # ------------------------------------------------------------------
-    rows: list[dict] = []
+    rows: list[dict] = list(recovered_rows)
     ok = 0
     fail = 0
     t0 = time.time()
@@ -766,13 +871,15 @@ def main() -> int:
 
     # Build submit order: (future, clip_name) pairs.
     # We use as_completed() so results flow back as soon as workers finish,
-    # keeping the checkpoint and parquet up-to-date without waiting for the
-    # whole batch.
+    # keeping the checkpoint and staging file up-to-date without waiting for
+    # the whole batch.  Parquet is written once at the end.
     with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads_cuda) as executor:
         future_to_clip: dict[concurrent.futures.Future, str] = {}
         for idx, mp4 in enumerate(pending):
             clip_name = mp4.name
             mos = mos_map.get(clip_name, float("nan"))
+            # Pass sidecar metadata to the worker for ffprobe skip (Win 2).
+            clip_sidecar = jsonl_meta.get(clip_name)
             fut = executor.submit(
                 _process_clip,
                 str(mp4),
@@ -783,6 +890,7 @@ def main() -> int:
                 args.threads,
                 use_cuda,
                 idx % args.threads_cuda,
+                clip_sidecar,
             )
             future_to_clip[fut] = clip_name
 
@@ -793,6 +901,9 @@ def main() -> int:
                 row = fut.result()
                 row.update(score_meta.get(clip_name, {}))
                 row.update(jsonl_meta.get(clip_name, {}))
+                # Append to JSONL staging immediately for crash durability.
+                if clip_name not in recovered_names:
+                    _append_row_to_staging(staging_path, row)
                 rows.append(row)
                 _append_done(done_path, clip_name)
                 ok += 1
@@ -800,8 +911,8 @@ def main() -> int:
                 print(f"[k150k] FAIL {clip_name}: {exc}", file=sys.stderr, flush=True)
                 fail += 1
 
-            # Periodic progress + parquet flush
-            if completed % args.flush_every == 0 or completed == len(pending):
+            # Periodic progress log (no parquet write — that happens at the end).
+            if completed % progress_every == 0 or completed == len(pending):
                 elapsed = time.time() - t0
                 rate = completed / elapsed if elapsed > 0 else 0.0
                 remaining = (len(pending) - completed) / rate / 3600.0 if rate > 0 else float("nan")
@@ -810,13 +921,13 @@ def main() -> int:
                     f"{rate:.2f} clip/s eta={remaining:.1f}h",
                     flush=True,
                 )
-                if rows:
-                    _flush_parquet(rows, args.out)
-                    rows = []
 
-    # Final flush for any remainder
+    # Write parquet exactly once at the end (Research-0135 Win 1).
+    # Include both newly-processed rows and any rows recovered from the staging file.
     if rows:
-        _flush_parquet(rows, args.out)
+        _write_parquet_from_rows(rows, args.out)
+        # Clean up the staging file now that the parquet is durable.
+        staging_path.unlink(missing_ok=True)
 
     elapsed = time.time() - t0
     rate = ok / elapsed if elapsed > 0 else 0.0
