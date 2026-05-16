@@ -34878,3 +34878,32 @@ meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build
 meson test -C build --suite=fast
 ```
+
+---
+
+## CUDA extractor `cuModuleUnload` teardown (2026-05-16)
+
+**Branch**: `fix/cuda-extractors-cumoduleUnload-2026-05-16`
+
+**Files touched**: 16 files in `libvmaf/src/feature/cuda/` (all fork-local
+CUDA extractor host-glue `.c` files except `ssimulacra2_cuda.c` which
+was already correct), plus `libvmaf/src/feature/cuda/AGENTS.md`,
+`changelog.d/fixed/cuda-extractor-module-unload.md`, `docs/rebase-notes.md`.
+
+**Rebase impact**: none. All touched files are fork-local; upstream
+Netflix/vmaf has no CUDA feature extractors and therefore no conflicts
+on these paths.
+
+**Invariant to preserve on rebase**: every CUDA extractor that calls
+`cuModuleLoadData` in `init_fex_cuda` must store the handle in the state
+struct and call `cuModuleUnload` in `close_fex_cuda`. See the AGENTS.md
+note added in this PR. Any new extractor added by a future upstream port
+or fork PR must follow the same pattern.
+
+**Smoke-test after rebase**:
+
+```bash
+meson setup build -Denable_cuda=false -Denable_sycl=false
+ninja -C build
+meson test -C build --suite=fast
+```

@@ -75,6 +75,7 @@ typedef struct PsnrStateCuda {
     VmafCudaKernelReadback rb[PSNR_NUM_PLANES];
     CUfunction funcbpc8;
     CUfunction funcbpc16;
+    CUmodule module;
     unsigned index;
     unsigned width[PSNR_NUM_PLANES];
     unsigned height[PSNR_NUM_PLANES];
@@ -148,8 +149,7 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     int ctx_pushed = 0;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CUmodule module;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, psnr_score_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, psnr_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc8, module, "calculate_psnr_kernel_8bpc"),
                     fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc16, module, "calculate_psnr_kernel_16bpc"),
@@ -295,6 +295,8 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
      * destroy events). Best-effort error aggregation matches the
      * old hand-rolled CHECK_CUDA_GOTO chain. */
     int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+    if (s->module)
+        (void)fex->cu_state->f->cuModuleUnload(s->module);
     for (unsigned p = 0; p < s->n_planes; p++) {
         const int err = vmaf_cuda_kernel_readback_free(&s->rb[p], fex->cu_state);
         if (err && rc == 0)

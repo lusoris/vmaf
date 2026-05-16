@@ -102,6 +102,7 @@ typedef struct CambiStateCuda {
     CUfunction func_mask;
     CUfunction func_decimate;
     CUfunction func_filter_mode;
+    CUmodule module;
 
     /* Device buffers (flat uint16 arrays sized for proc_width × proc_height). */
     VmafCudaBuffer *d_image; /* current scale image on device */
@@ -434,8 +435,7 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail_cuda);
     ctx_pushed = 1;
 
-    CUmodule module;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, cambi_score_ptx), fail_cuda);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, cambi_score_ptx), fail_cuda);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_mask, module, "cambi_spatial_mask_kernel"),
                     fail_cuda);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_decimate, module, "cambi_decimate_kernel"),
@@ -941,6 +941,8 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     CambiStateCuda *s = fex->priv;
     int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+    if (s->module)
+        (void)fex->cu_state->f->cuModuleUnload(s->module);
 
     if (s->d_image) {
         const int e = vmaf_cuda_buffer_free(fex->cu_state, s->d_image);

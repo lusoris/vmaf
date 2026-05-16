@@ -40,6 +40,7 @@ typedef struct MomentStateCuda {
 
     CUfunction funcbpc8;
     CUfunction funcbpc16;
+    CUmodule module;
     unsigned index;
     unsigned frame_w;
     unsigned frame_h;
@@ -84,8 +85,7 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
 
-    CUmodule module;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, moment_score_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, moment_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc8, module, "calculate_moment_kernel_8bpc"),
                     fail);
     CHECK_CUDA_GOTO(
@@ -190,6 +190,8 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     MomentStateCuda *s = fex->priv;
     int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+    if (s->module)
+        (void)fex->cu_state->f->cuModuleUnload(s->module);
     int rb_rc = vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
     if (rc == 0)
         rc = rb_rc;

@@ -40,6 +40,7 @@ typedef struct FloatAnsnrStateCuda {
 
     CUfunction funcbpc8;
     CUfunction funcbpc16;
+    CUmodule module;
 
     /* Per-frame upload of ref + dis raw pixels. */
     VmafCudaBuffer *ref_in;
@@ -94,8 +95,7 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
 
-    CUmodule module;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, float_ansnr_score_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, float_ansnr_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc8, module, "float_ansnr_kernel_8bpc"),
                     fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc16, module, "float_ansnr_kernel_16bpc"),
@@ -261,6 +261,8 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     FloatAnsnrStateCuda *s = fex->priv;
     int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+    if (s->module)
+        (void)fex->cu_state->f->cuModuleUnload(s->module);
 
     if (s->ref_in) {
         const int e = vmaf_cuda_buffer_free(fex->cu_state, s->ref_in);
