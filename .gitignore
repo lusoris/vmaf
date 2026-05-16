@@ -64,6 +64,7 @@ python/vmaf/matlab/**/*.o
 # Working/scratch directories
 .workingdir/
 .workingdir2/
+.corpus/
 
 # vmaf-tune Phase A scratch outputs (ADR-0237)
 corpus.jsonl
