@@ -116,7 +116,7 @@ index 0000000..b339442
 +static const AVOption vmaf_pre_options[] = {
 +    { "model",   "Path to ONNX learned-filter model.",    OFFSET(model_path),
 +        AV_OPT_TYPE_STRING, {.str=NULL},   0, 0,       FLAGS },
-+    { "device",  "auto | cpu | cuda | openvino | openvino-npu | openvino-cpu | openvino-gpu | coreml | coreml-ane | coreml-gpu | coreml-cpu | rocm.", OFFSET(device),
++    { "device",  "auto | cpu | cuda | openvino | rocm.", OFFSET(device),
 +        AV_OPT_TYPE_STRING, {.str="auto"}, 0, 0,       FLAGS },
 +    { "threads", "CPU EP intra-op threads.",              OFFSET(threads),
 +        AV_OPT_TYPE_INT,    {.i64=0},      0, INT_MAX, FLAGS },
@@ -130,18 +130,11 @@ index 0000000..b339442
 +
 +static int parse_device(const char *s, VmafDnnDevice *out)
 +{
-+    if (!s || !*s || !av_strcasecmp(s, "auto"))     { *out = VMAF_DNN_DEVICE_AUTO;         return 0; }
-+    if (!av_strcasecmp(s, "cpu"))                   { *out = VMAF_DNN_DEVICE_CPU;           return 0; }
-+    if (!av_strcasecmp(s, "cuda"))                  { *out = VMAF_DNN_DEVICE_CUDA;          return 0; }
-+    if (!av_strcasecmp(s, "openvino"))              { *out = VMAF_DNN_DEVICE_OPENVINO;      return 0; }
-+    if (!av_strcasecmp(s, "openvino-npu"))          { *out = VMAF_DNN_DEVICE_OPENVINO_NPU;  return 0; }
-+    if (!av_strcasecmp(s, "openvino-cpu"))          { *out = VMAF_DNN_DEVICE_OPENVINO_CPU;  return 0; }
-+    if (!av_strcasecmp(s, "openvino-gpu"))          { *out = VMAF_DNN_DEVICE_OPENVINO_GPU;  return 0; }
-+    if (!av_strcasecmp(s, "coreml"))                { *out = VMAF_DNN_DEVICE_COREML;        return 0; }
-+    if (!av_strcasecmp(s, "coreml-ane"))            { *out = VMAF_DNN_DEVICE_COREML_ANE;    return 0; }
-+    if (!av_strcasecmp(s, "coreml-gpu"))            { *out = VMAF_DNN_DEVICE_COREML_GPU;    return 0; }
-+    if (!av_strcasecmp(s, "coreml-cpu"))            { *out = VMAF_DNN_DEVICE_COREML_CPU;    return 0; }
-+    if (!av_strcasecmp(s, "rocm"))                  { *out = VMAF_DNN_DEVICE_ROCM;          return 0; }
++    if (!s || !*s || !av_strcasecmp(s, "auto"))     { *out = VMAF_DNN_DEVICE_AUTO;     return 0; }
++    if (!av_strcasecmp(s, "cpu"))                   { *out = VMAF_DNN_DEVICE_CPU;      return 0; }
++    if (!av_strcasecmp(s, "cuda"))                  { *out = VMAF_DNN_DEVICE_CUDA;     return 0; }
++    if (!av_strcasecmp(s, "openvino"))              { *out = VMAF_DNN_DEVICE_OPENVINO; return 0; }
++    if (!av_strcasecmp(s, "rocm"))                  { *out = VMAF_DNN_DEVICE_ROCM;     return 0; }
 +    return AVERROR(EINVAL);
 +}
 +

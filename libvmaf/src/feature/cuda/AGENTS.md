@@ -165,32 +165,6 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
   avoid casting through `uint8_t *` (UB even though it round-trips
   on x86-64 today).
 
-- **`integer_psnr_cuda.c` honours `enable_chroma` option parity** (ADR-0453).
-  The `enable_chroma` option (default `true`) clamps `n_planes` to 1 in
-  `init_fex_cuda` when set to `false`, matching CPU
-  `integer_psnr.c::init`'s behaviour. The clamp runs after the
-  `pix_fmt == YUV400P` guard so that YUV400 sources are always luma-only
-  regardless of the option. On rebase: if upstream Netflix adds an
-  `enable_chroma` option to the CPU path that behaves differently from the
-  fork's GPU guard, audit both and keep the GPU clamp semantically
-  equivalent. The SYCL and Vulkan twins carry the identical guard and must
-  move in lockstep with any change to this one. The cross-backend parity
-  gate at `places=4` covers both `enable_chroma=true` (default) and
-  `enable_chroma=false` paths.
-
-- **Host-side preprocessing in CUDA feature extractor `submit` callbacks
-  must download GPU→host first.** Pictures passed to a CUDA extractor's
-  `submit()` have device pointers in `data[]`; the host cannot read them
-  directly. Use `vmaf_cuda_picture_download_async` followed by
-  `cuStreamSynchronize` on the picture's private stream (obtained via
-  `vmaf_cuda_picture_get_stream`) before passing the picture to any
-  host-side function that dereferences `data[]`. The CAMBI extractor
-  (`integer_cambi_cuda.c::submit_fex_cuda`) is the canonical example
-  of this pattern (Issue #857 fix). All other CUDA extractors in this
-  directory currently keep preprocessing on the GPU and are not affected,
-  but the rule applies to any future extractor that mixes GPU input
-  pictures with host-side preprocessing.
-
 - **`integer_adm_cuda.c` must NOT include `feature/adm_options.h`
   directly.** `DEFAULT_ADM_NOISE_WEIGHT`, `DEFAULT_ADM_CSF_SCALE`,
   `DEFAULT_ADM_CSF_DIAG_SCALE`, and the full 4-member
@@ -241,6 +215,19 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
   [`../../hip/AGENTS.md`](../../hip/AGENTS.md) for the full
   consumer list.
 
+
+- **kernels with high spatial overlap (>=50% redundant cross-thread reads) must
+  stage into `__shared__`** (ADR-0464). `cambi_spatial_mask_kernel` sets the
+  precedent: a 22x22 `uint8_t zd_tile[22][32]` tile is populated cooperatively
+  by the 16x16 block (2-pass, 256 threads, 484 elements, 3x484 = 1452 global
+  reads per block) before the 7x7 box-sum loop reads exclusively from SLM.
+  Any new stencil kernel with a halo >= half the block dimension and >= 50%
+  cross-thread read overlap must follow the same pattern: compute the shared
+  footprint as (BLOCK + 2*HALO)^2 elements, load cooperatively in
+  ceil(N/BLOCK_AREA) passes, `__syncthreads()`, then read from SLM.
+  Omitting the tile for such kernels is a performance regression; the
+  parity-gate alone does not catch it.
+
 ## Build
 
 CUDA feature TUs compile only when `meson setup -Denable_cuda=true`.
@@ -266,15 +253,5 @@ The `enable_cuda` umbrella flag gates inclusion via
   per-feature CUDA kernel-template scaffolding.
 - [ADR-0360](../../../../docs/adr/0360-cambi-cuda.md) —
   CAMBI CUDA port (Strategy II hybrid, T3-15a).
-
-- **Every CUDA extractor that calls `cuModuleLoadData` in `init_fex_cuda`
-  MUST call `cuModuleUnload` in `close_fex_cuda`.** Persistent-process
-  workloads (the planned "reuse vmaf context across clips" optimisation,
-  which would save ~70 minutes on the full CHUG run by amortising the
-  300-700 ms CUDA init per clip) leak one module's GPU-resident backing
-  store per `vmaf_close()` cycle if this is omitted. The correct pattern
-  is: (1) store the `CUmodule` handle in the state struct (not a local
-  variable in `init`), (2) load it with `cuModuleLoadData(&s->module, ...)`,
-  (3) unload it in `close` with `if (s->module) (void)cu_f->cuModuleUnload(s->module);`.
-  Use `ssimulacra2_cuda.c` as the reference. Fixed across all 16 CUDA
-  extractors in PR #N (2026-05-16 audit).
+- [ADR-0464](../../../../docs/adr/0464-cambi-cuda-smem-tile.md) --
+  CAMBI CUDA spatial-mask SLM tile (perf-audit 2026-05-16 win 3).
