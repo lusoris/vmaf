@@ -108,7 +108,7 @@ and per-corpus loss-weighting key on `corpus_source`. `mos_native` +
 
 ```bash
 python ai/scripts/aggregate_corpora.py \
-    --inputs .workingdir2/konvid-150k/konvid_150k.jsonl \
+    --inputs .corpus/konvid-150k/konvid_150k.jsonl \
              .workingdir2/lsvq/lsvq.jsonl \
              .workingdir2/waterloo-ivc-4k/waterloo_ivc_4k.jsonl \
              .workingdir2/youtube-ugc/youtube_ugc.jsonl \

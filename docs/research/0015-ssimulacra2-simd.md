@@ -1,4 +1,4 @@
-# Research digest 0015 — SSIMULACRA 2 SIMD ports (T3-1 + T3-2)
+# Research-0015: SSIMULACRA 2 SIMD ports (T3-1 + T3-2)
 
 - **Status**: Active (captures the decision path for ADR-0161)
 - **Related ADRs**: [ADR-0130](../adr/0130-ssimulacra2-scalar-implementation.md)

@@ -29,7 +29,7 @@ posture for the Netflix Public drop (ADR-0203) is the same model:
 local-only handling, derived weights ship, source corpus does not.
 The redistribution rule for BVI-DVC therefore requires no new
 infrastructure; it requires the same gitignore + README discipline
-already in place for `.workingdir2/netflix/`.
+already in place for `.corpus/netflix/`.
 
 Concrete rules:
 

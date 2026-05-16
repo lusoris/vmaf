@@ -49,7 +49,7 @@ Reproducer:
 
 ```shell
 python ai/scripts/calibrate_phase_f_recipes.py \
-    --corpus .workingdir2/konvid-150k/konvid_150k.jsonl \
+    --corpus .corpus/konvid-150k/konvid_150k.jsonl \
     --out ai/data/phase_f_recipes_calibrated.json
 pytest tools/vmaf-tune/tests/test_calibrated_recipes.py \
        tools/vmaf-tune/tests/test_auto_recipe_overrides.py

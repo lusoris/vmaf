@@ -1,4 +1,4 @@
-# Research 0130: CUDA psnr_hvs DCT parallelisation
+# Research-0130: CUDA psnr_hvs DCT parallelisation
 
 ## Scope
 

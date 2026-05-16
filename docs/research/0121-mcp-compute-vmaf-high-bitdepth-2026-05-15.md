@@ -1,4 +1,4 @@
-# Research 0121: MCP `compute_vmaf` high-bit-depth input support
+# Research-0121: MCP `compute_vmaf` high-bit-depth input support
 
 ## Question
 

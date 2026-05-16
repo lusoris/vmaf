@@ -1,4 +1,4 @@
-# Research digest 0014 — `psnr_hvs` NEON sister port (T3-5-neon)
+# Research-0014: `psnr_hvs` NEON sister port (T3-5-neon)
 
 - **Status**: Active (captures the decision path for ADR-0160)
 - **Related ADRs**: [ADR-0159](../adr/0159-psnr-hvs-avx2-bitexact.md)

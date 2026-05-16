@@ -7,6 +7,21 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
+## perf/vulkan-pipeline-cache-2026-05-16 — VkPipelineCache (VK-4, ADR-0470)
+
+**`libvmaf/src/vulkan/common.c`**: adds `pipeline_cache_load` and
+`pipeline_cache_save_and_destroy` helpers; calls them from
+`vmaf_vulkan_context_new()` and `vmaf_vulkan_context_destroy()`.
+**`libvmaf/src/vulkan/kernel_template.h`**: both `vkCreateComputePipelines`
+call sites now pass `ctx->pipeline_cache` instead of `VK_NULL_HANDLE`.
+**`libvmaf/src/vulkan/vulkan_internal.h`**: adds `VkPipelineCache
+pipeline_cache` field to `VmafVulkanContext`.
+
+No rebase conflict expected from upstream — Netflix/vmaf has no Vulkan
+backend; the entire `libvmaf/src/vulkan/` tree is fork-local. If upstream
+ever adds Vulkan, resolve by merging their `VmafVulkanContext` struct with
+ours, preserving `pipeline_cache` and the load/save lifecycle.
+
 ## fix/saliency-per-mb-eval-2026-05-15 — integer_vif enable_chroma
 
 **`libvmaf/src/feature/integer_vif.c`**: adds `enable_chroma` bool field to

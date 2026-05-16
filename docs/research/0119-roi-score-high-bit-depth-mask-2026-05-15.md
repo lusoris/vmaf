@@ -1,4 +1,4 @@
-# Research 0119: ROI-Score High-Bit-Depth Mask Materialisation
+# Research-0119: ROI-Score High-Bit-Depth Mask Materialisation
 
 ## Summary
 

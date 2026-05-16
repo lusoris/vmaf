@@ -11,7 +11,7 @@ Training data is **never committed**. All YUV files are gitignored. The
 canonical local path for the Netflix corpus is:
 
 ```
-.workingdir2/netflix/
+.corpus/netflix/
   ref/    # 9 reference YUVs
   dis/    # 70 distorted YUVs
 ```
@@ -62,12 +62,12 @@ When `--data-root` points to a directory with the layout above, the loader:
 ```bash
 # Extract features from the local Netflix corpus.
 vmaf-train extract-features \
-    --data-root .workingdir2/netflix \
+    --data-root .corpus/netflix \
     --dataset nflx-local \
     --output ai/data/nflx_local_features.parquet
 
 # If VMAF_DATA_ROOT is set instead:
-export VMAF_DATA_ROOT=.workingdir2/netflix
+export VMAF_DATA_ROOT=.corpus/netflix
 vmaf-train extract-features --dataset nflx-local \
     --output ai/data/nflx_local_features.parquet
 ```

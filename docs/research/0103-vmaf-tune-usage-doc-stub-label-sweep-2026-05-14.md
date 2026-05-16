@@ -1,4 +1,4 @@
-# Research 0103 — `vmaf-tune` Usage-Doc Stub Label Sweep
+# Research-0103: `vmaf-tune` Usage-Doc Stub Label Sweep
 
 Date: 2026-05-14
 
