@@ -60,7 +60,7 @@ re-exporting.
 
 ## Provenance
 
-The training corpus (`.workingdir2/netflix/`) is the Netflix Public
+The training corpus (`.corpus/netflix/`) is the Netflix Public
 Dataset, distributed by Netflix under a license that forbids
 redistribution. The shipped ONNX is a derivative: parameters were
 fitted to per-frame `vmaf_v0.6.1` teacher scores computed locally on
@@ -118,7 +118,7 @@ scores = sess.run(["score"], {"features": x.astype(np.float32)})[0]
 ```bash
 # 1. Make sure runs/full_features_netflix.parquet exists. Regenerate via:
 python ai/scripts/extract_full_features.py \
-    --data-root .workingdir2/netflix \
+    --data-root .corpus/netflix \
     --vmaf-bin build-cpu/tools/vmaf
 
 # 2. Train + export (defaults match the shipped checkpoint).

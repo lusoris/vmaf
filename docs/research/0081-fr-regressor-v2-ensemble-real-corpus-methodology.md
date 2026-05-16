@@ -21,7 +21,7 @@ LOSO retrain ADR-0309 specifies:
 
 ## 1. Corpus-size sufficiency
 
-The corpus at `.workingdir2/netflix/` carries 9 reference clips and
+The corpus at `.corpus/netflix/` carries 9 reference clips and
 70 distorted clips, sized at ~37 GB total. Per Research-0067 §Corpus
 sizing:
 

@@ -3,7 +3,7 @@
 - **Tiny-AI Netflix corpus training scaffold — draft PR registration (ADR-0417).**
   Opens `ai/tiny-netflix-training-scaffold` as a formal draft PR so the user can
   review and confirm architecture choices before triggering a training run against
-  the local Netflix VMAF corpus (`.workingdir2/netflix/`, gitignored, 37 GB). This
+  the local Netflix VMAF corpus (`.corpus/netflix/`, gitignored, 37 GB). This
   PR adds no new code; it bundles the scaffold deliverables already in `master`
   (ADR-0242, Research Digest 0019, `docs/ai/training-data.md`,
   `mcp-server/vmaf-mcp/tests/test_smoke_e2e.py`) for a single-URL review point.

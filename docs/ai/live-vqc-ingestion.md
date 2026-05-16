@@ -158,7 +158,7 @@ common axis before the trainer consumes it. See
 
 ```bash
 python ai/scripts/aggregate_corpora.py \
-    --inputs .workingdir2/konvid-150k/konvid_150k.jsonl \
+    --inputs .corpus/konvid-150k/konvid_150k.jsonl \
              .workingdir2/lsvq/lsvq.jsonl \
              .workingdir2/live-vqc/live_vqc.jsonl \
     --output .workingdir2/aggregated/unified_corpus.jsonl

@@ -11,7 +11,7 @@
 
 `fr_regressor_v1` (T6-1a, commit `e421d70`) is trained on Netflix
 Public only — 9 reference + 70 distorted, ~37 GB, gitignored at
-`.workingdir2/netflix/`. The codec-aware `fr_regressor_v2` plan in
+`.corpus/netflix/`. The codec-aware `fr_regressor_v2` plan in
 [ADR-0042](../adr/0042-tinyai-docs-required-per-pr.md) and
 [ADR-0235](../adr/0235-codec-aware-fr-regressor.md) needs a wider
 codec sweep with subjective labels. Separately, the cross-backend

@@ -71,11 +71,11 @@ External binaries required at runtime:
 by the fast, per-shot, ladder, and auto paths. `--corpus` accepts either
 a single Phase-A JSONL file or a directory of JSONL shards; directory
 inputs are scanned recursively in sorted order so the trainer can consume
-`.workingdir2/corpus_run/` directly:
+`.corpus/corpus_run/` directly:
 
 ```shell
 python -m vmaftune.predictor_train \
-    --corpus .workingdir2/corpus_run \
+    --corpus .corpus/corpus_run \
     --codec libx264 \
     --output-dir .workingdir2/predictor-real
 ```
@@ -221,7 +221,7 @@ The mapping is closed and order-stable; see
 | `--preset P` | — | Required. Repeatable. Preset name (see codec table below). |
 | `--crf N` | — | Required. Repeatable. CRF integer (range varies by codec). |
 | `--output PATH` | `corpus.jsonl` | JSONL destination. |
-| `--encode-dir PATH` | `.workingdir2/encodes` | Scratch dir; gitignored by convention. |
+| `--encode-dir PATH` | `.corpus/encodes` | Scratch dir; gitignored by convention. |
 | `--keep-encodes` | off | Retain encoded files after scoring. |
 | `--vmaf-model NAME` | `vmaf_v0.6.1` | Forwarded to `vmaf --model`. Only used when `--no-resolution-aware` is set; otherwise auto-picked per encode resolution (see "Resolution-aware mode" below). |
 | `--resolution-aware` / `--no-resolution-aware` | on | Auto-pick the VMAF model per encode resolution. Default on. |
@@ -2293,7 +2293,7 @@ are the **F.5-calibrated** thresholds emitted by
 `ai/scripts/calibrate_phase_f_recipes.py` and shipped in
 `ai/data/phase_f_recipes_calibrated.json`. The calibration was run on
 2026-05-09 against the K150K corpus
-(`.workingdir2/konvid-150k/konvid_150k.jsonl`, 148 543 rows out of an
+(`.corpus/konvid-150k/konvid_150k.jsonl`, 148 543 rows out of an
 expected 153 841 — the ingestion was ~96.6 % complete; a re-run on the
 full corpus is a follow-up PR). Threshold rationale and the per-class
 proxy-vs-corpus provenance break-down live in
@@ -2331,7 +2331,7 @@ run:
 
 ```shell
 python ai/scripts/calibrate_phase_f_recipes.py \
-    --corpus .workingdir2/konvid-150k/konvid_150k.jsonl \
+    --corpus .corpus/konvid-150k/konvid_150k.jsonl \
     --out ai/data/phase_f_recipes_calibrated.json
 ```
 

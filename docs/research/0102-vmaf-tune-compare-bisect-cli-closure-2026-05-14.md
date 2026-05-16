@@ -1,4 +1,4 @@
-# Research 0102: vmaf-tune compare bisect CLI closure
+# Research-0102: vmaf-tune compare bisect CLI closure
 
 Date: 2026-05-14
 

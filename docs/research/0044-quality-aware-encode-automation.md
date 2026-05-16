@@ -98,7 +98,7 @@ the encoder.
 
 | Source | Sources we have | Encodes we own | Status |
 |---|---|---|---|
-| Netflix Public Dataset | 9 ref + 70 dis YUVs (37 GB, .workingdir2/netflix/) | We re-encode at Phase A grid | Sources: present locally per memory note 2026-04-27 |
+| Netflix Public Dataset | 9 ref + 70 dis YUVs (37 GB, .corpus/netflix/) | We re-encode at Phase A grid | Sources: present locally per memory note 2026-04-27 |
 | KoNViD-1k | sources + per-clip MOS | We re-encode at Phase A grid | Sources: CC BY 4.0, available |
 | BVI-DVC (parts A+B+C+D) | sources + per-clip ratings | We re-encode at Phase A grid | Already used for vmaf_tiny_v2 |
 | BVI-VC | sources | Optional Phase A+ corpus | TBD |
@@ -115,7 +115,7 @@ vmaf | ssimulacra2 | lpips_sq | psnr_y | psnr_hvs | cambi
 encoder_version | encoder_commit | ffmpeg_version
 ```
 
-The encodes themselves stay gitignored under `.workingdir2/encodes/`
+The encodes themselves stay gitignored under `.corpus/encodes/`
 (or a configurable cache dir). Only the parquet ships — and only
 after a licensing audit confirms the source provenance permits
 publishing the *features + scores* (it does for all four corpora).

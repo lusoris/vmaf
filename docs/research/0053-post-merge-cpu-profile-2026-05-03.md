@@ -1,4 +1,4 @@
-# Research Digest 0053 — Post-merge CPU profile, 2026-05-03
+# Research-0053: Post-merge CPU profile, 2026-05-03
 
 **Workstream:** perf / chore
 **PR:** `chore/profile-hotpath-2026-05-03`

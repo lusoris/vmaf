@@ -1,4 +1,4 @@
-# Research Digest 0021 — Corpus + Architecture Survey for the Next Tiny-AI Iteration
+# Research-0021: Corpus + Architecture Survey for the Next Tiny-AI Iteration
 
 **Date**: 2026-04-28
 **Author**: Lusoris / Claude (Anthropic)
@@ -19,7 +19,7 @@ for ONNX Runtime CPU inference) just landed its first canonical sweep on
 the original Netflix VMAF training corpus — three architectures
 (`mlp_small`, `mlp_medium`, `linear`) trained against 9 source clips with
 roughly 70 distortion variants per source (37 GB at
-`.workingdir2/netflix/`, gitignored, supplied locally). A leave-one-source-
+`.corpus/netflix/`, gitignored, supplied locally). A leave-one-source-
 out (LOSO) 9-fold cross-validation is concurrently running on
 `mlp_small`. All current models are extremely small (≤ ~5 KB ONNX,
 hand-crafted MLPs over 6 libvmaf-extracted features — `adm2`,

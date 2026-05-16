@@ -1,4 +1,4 @@
-# Research Digest 0054 — `vmaf-tune` Intel QSV codec adapters
+# Research-0066: `vmaf-tune` Intel QSV codec adapters
 
 - **Date**: 2026-05-03
 - **Author**: Lusoris

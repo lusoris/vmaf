@@ -1,4 +1,4 @@
-# Training Discovery Synthesis — 2026-05-14
+# Research-0101: Training Discovery Synthesis — 2026-05-14
 
 ## Scope
 

@@ -1,4 +1,4 @@
-# Research 0127: Tiny-AI quantisation doc status
+# Research-0127: Tiny-AI quantisation doc status
 
 - **Date**: 2026-05-15
 - **Workstream**: tiny-AI documentation hygiene

@@ -1,4 +1,4 @@
-- KonViD-150k corpus is materialized locally at `.workingdir2/konvid-150k/`
+- KonViD-150k corpus is materialized locally at `.corpus/konvid-150k/`
   (179 GB, 307 682 extracted MP4 clips, k150ka/k150kb scores CSV, JSONL,
   manifest) — confirmed 2026-05-15. The 2026-05-15 deep audit (slices C
   + E) and `docs/state.md` `T-MOS-HEAD-PRODFLIP` row had treated corpus

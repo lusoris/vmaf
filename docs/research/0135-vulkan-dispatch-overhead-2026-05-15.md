@@ -1,4 +1,4 @@
-# Research Digest 0135 — Vulkan Dispatch Overhead Characterization
+# Research-0135: Vulkan Dispatch Overhead Characterization
 
 **Date:** 2026-05-15
 **Author:** performance-analysis agent
