@@ -70,6 +70,14 @@ ADR-0214) catches drift but only after a full GPU run.
   `default_val.b = true` aligned with the CUDA and Vulkan twins; all three
   backends must agree on the default and the dispatch logic.
 
+- **`integer_psnr_sycl.cpp` uses ceiling division for chroma plane geometry**
+  (PR #878 Vulkan twin fix). `cw` and `ch` are computed via
+  `(w + 1U) >> 1` / `(h + 1U) >> 1`, not `w / 2U` / `h / 2U`, to match
+  CPU + CUDA + Vulkan behaviour on odd-dimension YUV420. On rebase: if
+  upstream Netflix changes the chroma-dimension formula in
+  `integer_psnr.c::init`, propagate it here and to the CUDA and Vulkan twins
+  in the same PR.
+
 - **`integer_ms_ssim_sycl.cpp` honours the `enable_lcs` GPU
   contract** (ADR-0243). Emits 15 extra metrics
   (`float_ms_ssim_{l,c,s}_scale{0..4}`) when `enable_lcs=true`.

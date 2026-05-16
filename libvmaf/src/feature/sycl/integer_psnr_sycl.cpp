@@ -254,8 +254,8 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         s->n_planes = PSNR_NUM_PLANES;
         const int ss_hor = (pix_fmt != VMAF_PIX_FMT_YUV444P);
         const int ss_ver = (pix_fmt == VMAF_PIX_FMT_YUV420P);
-        const unsigned cw = ss_hor ? (w / 2U) : w;
-        const unsigned ch = ss_ver ? (h / 2U) : h;
+        const unsigned cw = ss_hor ? ((w + 1U) >> 1) : w;
+        const unsigned ch = ss_ver ? ((h + 1U) >> 1) : h;
         s->width[1] = s->width[2] = cw;
         s->height[1] = s->height[2] = ch;
     }
