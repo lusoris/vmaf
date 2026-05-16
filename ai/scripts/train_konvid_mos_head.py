@@ -60,7 +60,6 @@ gate verdict recorded in the model card.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import sys
@@ -71,6 +70,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from aiutils.file_utils import sha256
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -162,63 +163,6 @@ def _set_seed(seed: int) -> None:
         pass
 
 
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        while True:
-            chunk = fh.read(1 << 20)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _row_to_features(row: dict[str, Any]) -> tuple[np.ndarray, float] | None:
-    """Project one corpus row to ``(features, mos)`` or ``None`` to skip.
-
-    Phase 1/2 KonViD JSONL rows carry per-clip aggregates only — they
-    do *not* yet carry the canonical-6 libvmaf features, the saliency
-    extractor's output, or TransNet shot-metadata. The trainer
-    accepts whichever subset of those columns the row carries and
-    fills the rest with content-independent defaults; that lets this
-    script run today against the in-flight Phase 1/2 JSONL while the
-    canonical-6 / saliency / shot-metadata columns get bolted on in
-    follow-up PRs.
-    """
-    mos = row.get("mos")
-    try:
-        mos_f = float(mos)
-    except (TypeError, ValueError):
-        mos_f = math.nan
-    if not math.isfinite(mos_f):
-        raw_mos = row.get("mos_raw_0_100")
-        try:
-            mos_f = MOS_MIN + (MOS_MAX - MOS_MIN) * (float(raw_mos) / 100.0)
-        except (TypeError, ValueError):
-            mos_f = math.nan
-    if not (math.isfinite(mos_f) and MOS_MIN <= mos_f <= MOS_MAX):
-        # KonViD's published MOS values live in [1, 5]; out-of-range
-        # rows indicate a schema mismatch and are dropped rather than
-        # silently clamped.
-        return None
-    feats = np.zeros(N_FEATURES, dtype=np.float32)
-    for idx, name in enumerate(FEATURE_COLUMNS):
-        value = row.get(name)
-        try:
-            value_f = float(value)
-        except (TypeError, ValueError):
-            value_f = math.nan
-        if not math.isfinite(value_f):
-            value = row.get(f"{name}_mean")
-            try:
-                value_f = float(value)
-            except (TypeError, ValueError):
-                value_f = math.nan
-        if math.isfinite(value_f):
-            feats[idx] = value_f
-    return feats, mos_f
-
-
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     """Load a JSONL corpus drop into a list of dicts."""
     out: list[dict[str, Any]] = []
@@ -256,6 +200,45 @@ def _load_corpus_rows(path: Path) -> list[dict[str, Any]]:
 def _normalise_split(raw: Any) -> str:
     split = str(raw or "").strip().lower()
     return split if split in {"train", "val", "test"} else ""
+
+
+def _row_to_features(row: dict[str, Any]) -> tuple[np.ndarray, float] | None:
+    """Project one corpus row to ``(features, mos)`` or ``None`` to skip.
+
+    Phase 1/2 KonViD JSONL rows carry per-clip aggregates only — they
+    do *not* yet carry the canonical-6 libvmaf features, the saliency
+    extractor's output, or TransNet shot-metadata. The trainer
+    accepts whichever subset of those columns the row carries and
+    fills the rest with content-independent defaults; that lets this
+    script run today against the in-flight Phase 1/2 JSONL while the
+    canonical-6 / saliency / shot-metadata columns get bolted on in
+    follow-up PRs.
+    """
+    import contextlib
+
+    mos = row.get("mos")
+    try:
+        mos_f = float(mos)
+    except (TypeError, ValueError):
+        mos_f = math.nan
+    if not math.isfinite(mos_f):
+        raw_mos = row.get("mos_raw_0_100")
+        try:
+            mos_f = MOS_MIN + (MOS_MAX - MOS_MIN) * (float(raw_mos) / 100.0)
+        except (TypeError, ValueError):
+            mos_f = math.nan
+    if not (math.isfinite(mos_f) and MOS_MIN <= mos_f <= MOS_MAX):
+        # KonViD's published MOS values live in [1, 5]; out-of-range
+        # rows indicate a schema mismatch and are dropped rather than
+        # silently clamped.
+        return None
+    feats = np.zeros(N_FEATURES, dtype=np.float32)
+    for idx, name in enumerate(FEATURE_COLUMNS):
+        value = row.get(name)
+        if value is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                feats[idx] = float(value)
+    return feats, mos_f
 
 
 def _load_corpus_arrays(
@@ -572,7 +555,7 @@ def _export_onnx(model, onnx_path: Path) -> str:  # type: ignore[no-untyped-def]
         },
         opset_version=17,
     )
-    return _sha256(onnx_path)
+    return sha256(onnx_path)
 
 
 # ---------------------------------------------------------------------
