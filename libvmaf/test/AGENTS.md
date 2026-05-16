@@ -105,3 +105,31 @@ and teardown.
   that converts every test function to `(void)` parameters
   must also drop `-fno-sanitize=function` from the workflow in
   the same PR.
+
+## Suite-tagging invariant
+
+**Every `test()` declaration in [`meson.build`](meson.build) MUST carry a
+`suite:` argument.** The `fast` suite is the documented pre-push gate
+(`CLAUDE.md §3`; `meson test -C build --suite=fast`) and must contain every
+test that completes in under 2 seconds under normal CPU load.
+
+Tag assignments:
+
+| Suite tag(s)          | Criteria                                                  |
+|-----------------------|-----------------------------------------------------------|
+| `['fast']`            | CPU-only unit test, finishes in <2 s                      |
+| `['fast', 'simd']`    | SIMD bit-exactness test, arch-gated, finishes in <2 s     |
+| `['fast', 'gpu']`     | GPU backend scaffold/contract smoke, finishes in <2 s     |
+| `['slow']`            | Runs longer than 2 s (e.g. `test_mcp_smoke`, timeout 60s) |
+
+**Rebase-sensitive**: upstream Netflix/vmaf may add new `test()` calls
+without `suite:` arguments when cherry-picking or syncing. After every
+upstream sync or port-upstream-commit, run:
+
+```bash
+grep "^test(" libvmaf/test/meson.build | grep -v "suite :"
+```
+
+Any line returned is a violation — add the appropriate `suite:` before
+merging. See the audit that identified this bug:
+`.workingdir/audit-build-matrix-symbols-2026-05-16.md` finding 5c.
