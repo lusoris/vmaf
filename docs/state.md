@@ -1,6 +1,7 @@
 # Fork bug-status — `docs/state.md`
 
 <!-- markdownlint-disable MD013 -->
+_Updated: 2026-05-16 (`test_cambi` UBSan deselect and `test_framesync` TSan deselect retired — `test_cambi` is clean after PR #761 (AVX2 runtime gate, 2026-05-11); `test_framesync` is clean after PR #548 (mutex-domain fix, 2026-05-09, nightly TSan green 2026-05-09/10); both removed from the sanitizer EXCLUDE regexes.)_
 _Updated: 2026-05-16 (build-matrix §1a fixed — `enable_nvtx=true` without `enable_cuda=true` now produces a clear meson error instead of an opaque include-dir not-found failure; row added to Recently closed.)_
 _Updated: 2026-05-16 (T-CAMBI-CUDA-HOST-PREPROCESSING-SEGV closed — `cambi_cuda` SIGSEGV on every frame fixed by downloading dist_pic GPU→host before host preprocessing; row added to Recently closed.)_
 _Updated: 2026-05-16 (Audit findings #7, #8, #10 fixed — `pthread_*_init` return checks in `thread_pool.c`, NULL-guard + return-error in `adm_dwt2_*` in `adm_tools.c`, `w`/`h` overflow guard in `vmaf_picture_alloc`; rows added to Recently closed.)
@@ -107,6 +108,8 @@ landed fix yet._
 
 | T-BUILD-NVTX-CUDA-HARD-ERROR | `meson setup -Denable_nvtx=true -Denable_cuda=false` hard-errored with "Include dir does not exist" on hosts without a CUDA installation; now emits a clear `error()` diagnostic | — | fix/nvtx-cuda-dependency-guard-2026-05-16 | `meson setup build -Denable_nvtx=true -Denable_cuda=false` → expect error message | (last ~3 months)
 | T-GPU-PSNR-ENABLE-CHROMA-SILENT | `psnr_cuda` / `psnr_sycl` / `psnr_vulkan` silently ignored `enable_chroma=false`, emitting full chroma on non-YUV400 sources and diverging from CPU | ADR-0453 / Research-0136 | fix/psnr-enable-chroma-gpu-parity-2026-05-16 | — | (last ~3 months)
+| T-SANITIZER-CAMBI-UBSAN-DESELECT | `test_cambi` UBSan deselect was stale — PR #761 (2026-05-11) added `__builtin_cpu_supports("avx2")` runtime gate, eliminating the SIGILL that justified the exclusion | — | fix/sanitizer-cambi-framesync-deselect-2026-05-16 | `UBSAN_OPTIONS=halt_on_error=1 ./build-ubsan/test/test_cambi` passes clean | (last ~3 months)
+| T-SANITIZER-FRAMESYNC-TSAN-DESELECT | `test_framesync` TSan deselect was stale — PR #548 (2026-05-09) fixed the SAN-FRAMESYNC-MUTEX-DOMAIN mutex-domain mismatch; nightly TSan job was green 2026-05-09 and 2026-05-10 | — | fix/sanitizer-cambi-framesync-deselect-2026-05-16 | nightly TSan green per state.md 2026-05-10 update | (last ~3 months)
 
 _Bugs closed in the last ~90 days. Older entries roll off into
 `git log` and the per-PR ADRs._
