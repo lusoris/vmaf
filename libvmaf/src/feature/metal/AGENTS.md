@@ -96,6 +96,15 @@ a real kernel lands; they are removed from `metal_sources` in
   the `places=4` gate must pass. Any future change to the weight
   application math must span all motion-family GPU twins in the same PR.
 
+## Registration coverage invariant
+
+Every new Metal `VmafFeatureExtractor` added to `feature_extractor.c`'s
+`feature_extractor_list[]` MUST appear in `libvmaf/test/test_metal_smoke.c`'s
+registration table with a `vmaf_get_feature_extractor_by_name` assertion
+in the same PR. Motion-class extractors must also assert
+`VMAF_FEATURE_EXTRACTOR_TEMPORAL` on the `.flags` field (load-bearing
+for the feature engine's collect-before-next-submit scheduling).
+
 ## Governing ADRs
 
 - [ADR-0421](../../../../docs/adr/0421-metal-first-kernel-motion-v2.md) — T8-1c through T8-1k batch specification
