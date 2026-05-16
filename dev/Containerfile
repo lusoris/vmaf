@@ -225,6 +225,20 @@ RUN git clone --depth=1 --branch n12.2.72.0 \
     && make -C /tmp/nv-codec-headers install PREFIX=/usr/local \
     && rm -rf /tmp/nv-codec-headers
 
+# Install ONNX Runtime C++ SDK (provides libonnxruntime + headers for -Denable_dnn).
+# Version must satisfy ai/pyproject.toml requirement (>=1.20,<2.0).
+ARG ORT_VERSION=1.20.1
+RUN curl -fsSL \
+        "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz" \
+        -o /tmp/ort.tgz \
+    && tar -xzf /tmp/ort.tgz -C /tmp \
+    && cp -r /tmp/onnxruntime-linux-x64-${ORT_VERSION}/include/* /usr/local/include/ \
+    && cp -r /tmp/onnxruntime-linux-x64-${ORT_VERSION}/lib/* /usr/local/lib/ \
+    && rm -rf /tmp/ort.tgz /tmp/onnxruntime-linux-x64-${ORT_VERSION} \
+    && ldconfig \
+    && printf "prefix=/usr/local\nexec_prefix=\${prefix}\nlibdir=\${exec_prefix}/lib\nincludedir=\${prefix}/include\n\nName: libonnxruntime\nDescription: ONNX Runtime C++ API\nVersion: %s\nLibs: -L\${libdir} -lonnxruntime\nCflags: -I\${includedir}\n" "${ORT_VERSION}" \
+        > /usr/local/lib/pkgconfig/libonnxruntime.pc
+
 USER vmaf
 
 # Configure with all backends enabled.
