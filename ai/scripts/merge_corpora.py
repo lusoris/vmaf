@@ -30,7 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from pathlib import Path
 
 # The merge utility lives outside the vmaf-tune package; resolve the
@@ -41,26 +41,16 @@ _VMAFTUNE_SRC = _REPO_ROOT / "tools" / "vmaf-tune" / "src"
 if str(_VMAFTUNE_SRC) not in sys.path:
     sys.path.insert(0, str(_VMAFTUNE_SRC))
 
+# Resolve aiutils package.
+_AI_SRC = _REPO_ROOT / "ai" / "src"
+if str(_AI_SRC) not in sys.path:
+    sys.path.insert(0, str(_AI_SRC))
+
 from vmaftune import CORPUS_ROW_KEYS  # noqa: E402  (sys.path adjusted above)
 
+from aiutils.jsonl_utils import iter_jsonl  # noqa: E402  (sys.path adjusted above)
+
 _REQUIRED_KEYS: frozenset[str] = frozenset(CORPUS_ROW_KEYS)
-
-
-def _iter_jsonl(path: Path) -> Iterator[tuple[int, dict]]:
-    """Yield ``(line_no, row)`` tuples from a JSONL file. Skips blank lines."""
-    with path.open("r", encoding="utf-8") as fp:
-        for line_no, line in enumerate(fp, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                yield line_no, json.loads(stripped)
-            except json.JSONDecodeError as exc:
-                print(
-                    f"error: {path}:{line_no}: invalid JSON ({exc})",
-                    file=sys.stderr,
-                )
-                raise SystemExit(1) from exc
 
 
 def _validate_row(path: Path, line_no: int, row: dict) -> None:
@@ -118,7 +108,7 @@ def merge(inputs: Iterable[Path], output: Path) -> tuple[int, int, int, int]:
             if not path.is_file():
                 print(f"error: input not found: {path}", file=sys.stderr)
                 raise SystemExit(2)
-            for line_no, row in _iter_jsonl(path):
+            for line_no, row in iter_jsonl(path):
                 rows_in += 1
                 _validate_row(path, line_no, row)
                 key = _dedup_key(row)
