@@ -34844,3 +34844,31 @@ meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build
 meson test -C build --suite=fast
 ```
+
+---
+
+## perf/cambi-calculate-c-values-avx512-neon-2026-05-16 (ADR-0452)
+
+**What changed**: Added `calculate_c_values_row_avx512` and
+`calculate_c_values_row_neon` as siblings of the existing
+`calculate_c_values_row_avx2`. Updated `cambi.c` dispatch to assign
+`calculate_c_values_avx512` on AVX-512 hosts and corrected the NEON wrapper to
+call `calculate_c_values_row_neon` instead of the scalar fallback.
+
+**Rebase impact**: low. All modified files are fork-local additions to cambi
+SIMD infrastructure; upstream Netflix/vmaf does not maintain AVX-512 or NEON
+CAMBI kernels. No public API surface is changed.
+
+**Invariant to preserve on rebase**: The twin-update rule (x86/AGENTS.md,
+arm64/AGENTS.md) now requires that every cambi inner-loop function ported to
+AVX2 ships with AVX-512 + NEON siblings in the same PR. Do not merge a
+cambi AVX2 kernel without the matching AVX-512 + NEON files and a dispatch
+update in `cambi.c`.
+
+**Smoke-test after rebase**:
+
+```bash
+meson setup build -Denable_cuda=false -Denable_sycl=false
+ninja -C build
+meson test -C build --suite=fast
+```
