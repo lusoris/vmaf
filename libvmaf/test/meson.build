@@ -260,6 +260,28 @@ test_cambi = executable('test_cambi',
     dependencies: [pthread_dependency, gpu_all_deps],
 )
 
+cambi_simd_test_archs = ['x86_64', 'x86', 'aarch64', 'arm64']
+if cambi_simd_test_archs.contains(host_machine.cpu_family())
+test_cambi_simd = executable('test_cambi_simd',
+    ['test.c', 'test_cambi_simd.c',
+     '../src/mem.c', '../src/picture.c', '../src/ref.c',
+     '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
+     '../src/metadata_handler.c', '../src/thread_locale.c', '../src/gpu_picture_pool.c', dnn_sources],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/'),
+                           include_directories('../src/feature/'), dnn_inc],
+    c_args : vmaf_cflags_common + dnn_defines,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
+                    gpu_all_deps, dnn_deps],
+    objects : [
+      common_cuda_objects,
+      platform_specific_cpu_objects,
+      libvmaf_cpu_static_lib.extract_all_objects(recursive: true),
+      libvmaf_feature_static_lib.extract_all_objects(recursive: true),
+      libsvm_static_lib.extract_all_objects(recursive: true),
+    ],
+)
+endif
+
 # speed_chroma + speed_temporal registration smoke tests — link against
 # libvmaf_feature_static_lib for the extractor list (mirrors test_lpips).
 # Both extractors live in libvmaf/src/feature/speed.c, which is only
@@ -845,6 +867,10 @@ test('test_fastdvdnet_pre', test_fastdvdnet_pre)
 test('test_mobilesal', test_mobilesal)
 test('test_transnet_v2', test_transnet_v2)
 test('test_cambi', test_cambi)
+
+if cambi_simd_test_archs.contains(host_machine.cpu_family())
+test('test_cambi_simd', test_cambi_simd, suite : 'fast')
+endif
 if get_option('enable_float')
 test('test_speed', test_speed)
 endif
