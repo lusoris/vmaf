@@ -157,7 +157,7 @@ vulkan_sources += files(
     'picture_vulkan.c',
     'picture_vulkan_pool.c',
     '../feature/vulkan/adm_vulkan.c',
-    '../feature/vulkan/vif_vulkan.c',
+    '../feature/vulkan/integer_vif_vulkan.c',
     '../feature/vulkan/motion_vulkan.c',
     '../feature/vulkan/motion_v2_vulkan.c',
     '../feature/vulkan/psnr_vulkan.c',
