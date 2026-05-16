@@ -236,8 +236,15 @@ def _geometry_from_sidecar(meta: dict | None) -> tuple[int, int, str, str] | Non
     return int(w), int(h), pix_fmt, str(fps)
 
 
-def _probe_geometry(mp4: Path) -> tuple[int, int, str, str]:
-    """Return (width, height, pix_fmt, fps) for the first video stream."""
+def _probe_geometry(mp4: Path) -> tuple[int, int, str, str, dict[str, str]]:
+    """Return (width, height, pix_fmt, fps, color_meta) for the first video stream.
+
+    The 5th element ``color_meta`` is a dict with keys
+    ``color_primaries`` / ``color_transfer`` / ``color_space`` (each
+    optional, populated when ffprobe surfaces the field).  Callers use
+    this to decide HDR-aware feature options (CAMBI ``eotf=pq``,
+    motion ``motion_fps_weight``).
+    """
     proc = subprocess.run(
         [
             "ffprobe",
@@ -246,7 +253,7 @@ def _probe_geometry(mp4: Path) -> tuple[int, int, str, str]:
             "-select_streams",
             "v:0",
             "-show_entries",
-            "stream=width,height,pix_fmt,r_frame_rate",
+            "stream=width,height,pix_fmt,r_frame_rate,color_primaries,color_transfer,color_space",
             "-of",
             "json",
             str(mp4),
@@ -259,7 +266,142 @@ def _probe_geometry(mp4: Path) -> tuple[int, int, str, str]:
     pix_fmt: str = s.get("pix_fmt", "yuv420p")
     # Normalise to libvmaf-safe pixel formats.
     pix_fmt = "yuv420p10le" if "10" in pix_fmt else "yuv420p"
-    return int(s["width"]), int(s["height"]), pix_fmt, s.get("r_frame_rate", "25/1")
+    color_meta = {
+        "color_primaries": s.get("color_primaries", "") or "",
+        "color_transfer": s.get("color_transfer", "") or "",
+        "color_space": s.get("color_space", "") or "",
+    }
+    return (
+        int(s["width"]),
+        int(s["height"]),
+        pix_fmt,
+        s.get("r_frame_rate", "25/1"),
+        color_meta,
+    )
+
+
+def _is_hdr_source(pix_fmt: str, color_meta: dict[str, str]) -> bool:
+    """True when the source is HDR (PQ or HLG transfer characteristics).
+
+    A source needs both:
+    1. 10-bit (or higher) pix_fmt — SDR 8-bit can't be HDR.
+    2. PQ (``smpte2084``) or HLG (``arib-std-b67``) transfer characteristics
+       OR BT.2020 primaries (a weaker fallback when transfer is absent).
+
+    Returns ``False`` on missing metadata to fail-safe to SDR defaults
+    rather than mis-applying HDR options to an SDR source.
+    """
+    if "10" not in pix_fmt and "12" not in pix_fmt and "16" not in pix_fmt:
+        return False
+    transfer = color_meta.get("color_transfer", "").lower()
+    if transfer in ("smpte2084", "arib-std-b67", "bt2020-10", "bt2020-12"):
+        return True
+    primaries = color_meta.get("color_primaries", "").lower()
+    return primaries in ("bt2020", "bt2020nc", "bt2020c")
+
+
+def _parse_fps(fps_str: str) -> float:
+    """Parse the ffprobe ``r_frame_rate`` string ``"num/den"`` into a float.
+
+    Returns 0.0 on parse failure so callers can fall back to a default.
+    """
+    if "/" in fps_str:
+        try:
+            num, den = fps_str.split("/", 1)
+            den_f = float(den)
+            return float(num) / den_f if den_f > 0 else 0.0
+        except (ValueError, ZeroDivisionError):
+            return 0.0
+    try:
+        return float(fps_str)
+    except ValueError:
+        return 0.0
+
+
+def _motion_fps_weight(fps: float) -> float:
+    """Compute the libvmaf ``motion_fps_weight`` for a given source fps.
+
+    Motion features measure per-frame absolute differences. At 50/60 fps
+    the per-frame delta on the same physical motion is ~half what it is
+    at 25/30 fps; at 120 fps it's ~quarter. The libvmaf
+    ``motion[_v2]_fps_weight`` knob multiplies the score to compensate.
+
+    The reference fps for motion features is 30 (per Netflix golden
+    fixtures).  Returns 1.0 (no correction) for any fps in [24, 32];
+    otherwise returns ``30 / fps`` clamped to ``[0.25, 4.0]``.
+    """
+    if fps <= 0:
+        return 1.0
+    if 24.0 <= fps <= 32.0:
+        return 1.0
+    weight = 30.0 / fps
+    return max(0.25, min(4.0, weight))
+
+
+# Per-extractor option support. CUDA twins ship a reduced VmafOption
+# table vs their CPU counterparts (verified against
+# libvmaf/src/feature/cuda/{integer_cambi_cuda,integer_ms_ssim_cuda,
+# integer_motion_cuda}.c); options not present here are silently
+# dropped from the --feature arg rather than triggering
+# "problem loading feature extractor" at runtime.
+_FEATURE_OPTION_SUPPORT: dict[str, frozenset[str]] = {
+    "cambi": frozenset({"eotf", "cambi_eotf", "full_ref"}),
+    "cambi_cuda": frozenset({"eotf", "cambi_eotf"}),
+    "float_ms_ssim": frozenset({"enable_db", "clip_db", "enable_lcs"}),
+    "float_ms_ssim_cuda": frozenset({"enable_lcs"}),
+    "motion": frozenset({"motion_fps_weight"}),
+    "motion_cuda": frozenset({"motion_fps_weight"}),
+    "motion_v2": frozenset({"motion_fps_weight"}),
+    "motion_v2_cuda": frozenset({"motion_fps_weight"}),
+}
+
+
+def _feature_arg(extractor: str, is_hdr: bool, motion_fps_weight: float) -> str:
+    """Build the ``--feature`` argument value for one extractor.
+
+    Per libvmaf/tools/cli_parse.c the CLI grammar is
+    ``EXTRACTOR=key1=val1:key2=val2``: ``strsep(&optarg, "=")`` consumes
+    the extractor name first, then ``:`` separates the ``key=value``
+    pairs.  The leading literal ``name=`` token is NOT part of the
+    grammar — it parses as a feature called "name" with bad options
+    and trips ``problem loading feature extractor: name``.
+
+    Returns ``"<extractor>=k1=v1:k2=v2"`` when HDR-aware options apply
+    AND the extractor advertises support for them; returns the bare
+    ``<extractor>`` name otherwise (preserving pre-fix behaviour for
+    SDR sources and silently dropping CUDA-unsupported options).
+
+    HDR-aware options follow lawrence's 2026-05-15 guidance:
+    - CAMBI: ``eotf=pq`` (HDR PQ visibility thresholds, not SDR);
+      ``full_ref=true`` (FR-CAMBI matches the script's ref==dis
+      topology; the CUDA twin doesn't expose this option, so the
+      whitelist drops it for ``cambi_cuda``).
+    - MS_SSIM: ``enable_db=false`` (linear scale per recipe);
+      the CUDA twin doesn't expose this option either.
+    - motion / motion_v2 (both CPU and CUDA): ``motion_fps_weight``
+      when fps != 30.
+    """
+    desired: list[tuple[str, str]] = []
+    base = extractor
+
+    if is_hdr and base in ("cambi", "cambi_cuda"):
+        desired.append(("eotf", "pq"))
+        desired.append(("full_ref", "true"))
+    if is_hdr and base in ("float_ms_ssim", "float_ms_ssim_cuda"):
+        desired.append(("enable_db", "false"))
+    if motion_fps_weight != 1.0 and base in (
+        "motion",
+        "motion_cuda",
+        "motion_v2",
+        "motion_v2_cuda",
+    ):
+        desired.append(("motion_fps_weight", f"{motion_fps_weight:.4f}"))
+
+    supported = _FEATURE_OPTION_SUPPORT.get(base, frozenset())
+    opts = [f"{k}={v}" for k, v in desired if k in supported]
+    if not opts:
+        return base
+    return f"{base}=" + ":".join(opts)
 
 
 def _decode_to_yuv(mp4: Path, yuv_path: Path, pix_fmt: str) -> None:
@@ -303,11 +445,13 @@ def _build_vmaf_cmd(
     threads: int,
     extractor_names: tuple[str, ...],
     backend_args: list[str],
+    is_hdr: bool = False,
+    motion_fps_weight_value: float = 1.0,
 ) -> list[str]:
     bitdepth = "10" if "10" in pix_fmt else "8"
     feat_args: list[str] = []
     for ex in extractor_names:
-        feat_args += ["--feature", ex]
+        feat_args += ["--feature", _feature_arg(ex, is_hdr, motion_fps_weight_value)]
 
     return [
         str(vmaf_bin),
@@ -344,6 +488,8 @@ def _run_vmaf_json(
     threads: int,
     extractor_names: tuple[str, ...],
     backend_args: list[str],
+    is_hdr: bool = False,
+    motion_fps_weight_value: float = 1.0,
 ) -> list[dict]:
     """Run vmaf once and return a list of per-frame metric dicts."""
     cmd = _build_vmaf_cmd(
@@ -356,6 +502,8 @@ def _run_vmaf_json(
         threads,
         extractor_names,
         backend_args,
+        is_hdr=is_hdr,
+        motion_fps_weight_value=motion_fps_weight_value,
     )
     subprocess.run(cmd, check=True, capture_output=True)
     with out_json.open() as f:
@@ -384,6 +532,8 @@ def _run_feature_passes(
     out_json: Path,
     threads: int,
     use_cuda: bool,
+    is_hdr: bool = False,
+    motion_fps_weight_value: float = 1.0,
 ) -> list[dict]:
     """Run vmaf feature extraction, splitting CUDA mode where required.
 
@@ -409,6 +559,8 @@ def _run_feature_passes(
             threads,
             EXTRACTOR_NAMES,
             ["--no_cuda", "--no_sycl", "--no_vulkan", *_MODEL_ARGS],
+            is_hdr=is_hdr,
+            motion_fps_weight_value=motion_fps_weight_value,
         )
 
     cuda_json = out_json.with_name(out_json.stem + ".cuda.json")
@@ -424,6 +576,8 @@ def _run_feature_passes(
             threads,
             CUDA_EXTRACTOR_NAMES,
             ["--backend", "cuda", *_MODEL_ARGS],
+            is_hdr=is_hdr,
+            motion_fps_weight_value=motion_fps_weight_value,
         )
         # CPU residual pass — kept structurally for future feature
         # additions that lack a CUDA implementation. As of 2026-05-15
@@ -441,6 +595,8 @@ def _run_feature_passes(
                 threads,
                 CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES,
                 ["--no_cuda", "--no_sycl", "--no_vulkan"],
+                is_hdr=is_hdr,
+                motion_fps_weight_value=motion_fps_weight_value,
             )
             frames = _merge_frame_metrics(cuda_frames, cpu_frames)
         else:
@@ -670,13 +826,19 @@ def _process_clip(
     out_json = scratch_dir / f"{stem}.json"
 
     try:
-        # Win 2: skip ffprobe when sidecar has complete geometry.
+        # Always probe for color_meta (needed for HDR detection).
+        # Win 2: override with sidecar geometry when available — ffprobe
+        # geometry is less reliable than the manifest fields for CHUG clips,
+        # and the sidecar skips an extra ffprobe call for the geometry fields.
+        _pw, _ph, _ppf, fps_str, color_meta = _probe_geometry(mp4)
         geom = _geometry_from_sidecar(sidecar_meta) if sidecar_meta else None
-        if geom is None:
-            width, height, pix_fmt, _fps = _probe_geometry(mp4)
+        if geom is not None:
+            width, height, pix_fmt, fps_str = geom
         else:
-            width, height, pix_fmt, _fps = geom
-
+            width, height, pix_fmt = _pw, _ph, _ppf
+        is_hdr = _is_hdr_source(pix_fmt, color_meta)
+        fps = _parse_fps(fps_str)
+        motion_w = _motion_fps_weight(fps)
         _decode_to_yuv(mp4, yuv_path, pix_fmt)
         frames = _run_feature_passes(
             vmaf_bin,
@@ -688,6 +850,8 @@ def _process_clip(
             out_json,
             vmaf_threads,
             use_cuda,
+            is_hdr=is_hdr,
+            motion_fps_weight_value=motion_w,
         )
         agg = _aggregate_frames(frames)
         return {
@@ -695,6 +859,9 @@ def _process_clip(
             "mos": mos,
             "width": width,
             "height": height,
+            "fps": fps,
+            "is_hdr": is_hdr,
+            "motion_fps_weight": motion_w,
             **agg,
         }
     finally:
