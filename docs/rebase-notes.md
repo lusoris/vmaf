@@ -7,36 +7,12 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
-## refactor/bootstrap-name-builder-dedup-2026-05-16
-
-**`libvmaf/src/bootstrap_names.h`** is a new fork-local internal header.
-If upstream Netflix ever refactors `predict.c` or `libvmaf.c` in the
-bootstrap-score-pooling area, check whether the suffix constants remain
-identical and update `bootstrap_names.h` accordingly.  No public API
-change; no rebase conflict expected in practice since upstream has not
-touched these functions since the fork diverged.
-
-**Smoke-test after rebase**:
-
-```bash
-meson setup build -Denable_cuda=false -Denable_sycl=false && ninja -C build
-meson test -C build --suite=fast 2>&1 | grep -E 'predict|model|FAIL|PASS'
-```
-
-## fix/sycl-motion-fps-weight-vulkan-import-status-2026-05-16
-
-**Sub-task B -- `integer_motion_v2_sycl.cpp`**: adds `motion_fps_weight`
-to `MotionV2StateSycl` struct and `options_motion_v2_sycl[]`. If
-upstream Netflix ever adds `motion_fps_weight` to `integer_motion_v2.c`
-(the CPU reference), both the SYCL and CUDA `motion_v2` twins should
-pick it up in the same PR per the invariant added to
-`libvmaf/src/feature/sycl/AGENTS.md`.
-
-**Sub-task A -- `libvmaf_vulkan.h`**: removes stale
-`-ENOSYS until T7-29 part 2 lands` from the `@return` lines of
-`vmaf_vulkan_import_image`, `vmaf_vulkan_wait_compute`, and
-`vmaf_vulkan_read_imported_pictures`. No upstream rebase conflict
-expected -- the public Vulkan header is fork-local.
+No rebase impact: `fix/nvtx-cuda-dependency-guard-2026-05-16` adds a
+meson `error()` guard to `libvmaf/src/meson.build` for the
+`enable_nvtx=true` + `enable_cuda=false` combination. The guard is
+fork-additive: upstream Netflix/vmaf does not enable NVTX, so no
+sync-upstream conflict is expected. If upstream ever adds their own
+NVTX guard, the merge is a no-op (both sides add the same intent).
 
 No rebase impact: `fix/dev-mcp-stage3-and-bundled-fixes-2026-05-16` touches
 only `dev/Containerfile`, `dev/AGENTS.md`, `docs/research/0135-*`, and
@@ -77,26 +53,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
-### feat/vulkan-pipeline-cache-persistence-pr865 — persistent VkPipelineCache (ADR-0445)
-
-- **Touches**: `libvmaf/src/vulkan/common.c`, `libvmaf/src/vulkan/vulkan_internal.h`,
-  `libvmaf/src/vulkan/kernel_template.h`, `libvmaf/src/vulkan/AGENTS.md`.
-- **Invariant**: Every `vkCreateComputePipelines()` call must pass
-  `ctx->pipeline_cache` as the second argument, not `VK_NULL_HANDLE`.
-  The cache file path (`$XDG_CACHE_HOME/libvmaf/vulkan-pipeline-cache.bin`)
-  and the env-var opt-out (`LIBVMAF_VULKAN_PIPELINE_CACHE=0`) are part
-  of the public contract (user-visible). The `VkPipelineCacheHeaderVersionOne`
-  vendor ID + device ID validation must run before any blob is passed to
-  `vkCreatePipelineCache`.
-- **Re-test**:
-
-  ```shell
-  meson test -C build-vulkan test_vulkan_pipeline_cache
-  # Confirm no vkCreateComputePipelines with VK_NULL_HANDLE second arg:
-  grep -n 'vkCreateComputePipelines.*VK_NULL_HANDLE' libvmaf/src/vulkan/kernel_template.h
-  # Should return no matches.
-  ```
-
 ### fix/psnr-enable-chroma-gpu-parity-2026-05-16 — PSNR `enable_chroma` option GPU parity
 
 - **Touches**: `libvmaf/src/feature/cuda/integer_psnr_cuda.c`,
@@ -123,6 +79,8 @@ cover several PRs in one workstream; cross-link from the ID heading.
       --feature-opts 'psnr=enable_chroma=false' \
       --feature-opts 'psnr_cuda=enable_chroma=false'
   ```
+
+
 ### fix/vmaf-tune-temporal-saliency-2026-05-15 — recommend-saliency temporal aggregation
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/saliency.py`,
@@ -11263,28 +11221,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
-### feat/vulkan-pipeline-cache-persistence-pr865 — persistent VkPipelineCache (ADR-0445)
-
-- **Touches**: `libvmaf/src/vulkan/common.c`, `libvmaf/src/vulkan/vulkan_internal.h`,
-  `libvmaf/src/vulkan/kernel_template.h`, `libvmaf/src/vulkan/AGENTS.md`.
-- **Invariant**: Every `vkCreateComputePipelines()` call must pass
-  `ctx->pipeline_cache` as the second argument, not `VK_NULL_HANDLE`.
-  The cache file path (`$XDG_CACHE_HOME/libvmaf/vulkan-pipeline-cache.bin`)
-  and the env-var opt-out (`LIBVMAF_VULKAN_PIPELINE_CACHE=0`) are part
-  of the public contract (user-visible). The `VkPipelineCacheHeaderVersionOne`
-  vendor ID + device ID validation must run before any blob is passed to
-  `vkCreatePipelineCache`.
-- **Re-test**:
-
-  ```shell
-  meson test -C build-vulkan test_vulkan_pipeline_cache
-  # Confirm no vkCreateComputePipelines with VK_NULL_HANDLE second arg:
-  grep -n 'vkCreateComputePipelines.*VK_NULL_HANDLE' libvmaf/src/vulkan/kernel_template.h
-  # Should return no matches.
-  ```
-
-
-
 
 ### 0332 — Agent worktree-drift hard guard (ADR-0332)
 
@@ -21801,28 +21737,6 @@ IDs are assigned in commit order and never reused. A single entry may
 cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
-
-### feat/vulkan-pipeline-cache-persistence-pr865 — persistent VkPipelineCache (ADR-0445)
-
-- **Touches**: `libvmaf/src/vulkan/common.c`, `libvmaf/src/vulkan/vulkan_internal.h`,
-  `libvmaf/src/vulkan/kernel_template.h`, `libvmaf/src/vulkan/AGENTS.md`.
-- **Invariant**: Every `vkCreateComputePipelines()` call must pass
-  `ctx->pipeline_cache` as the second argument, not `VK_NULL_HANDLE`.
-  The cache file path (`$XDG_CACHE_HOME/libvmaf/vulkan-pipeline-cache.bin`)
-  and the env-var opt-out (`LIBVMAF_VULKAN_PIPELINE_CACHE=0`) are part
-  of the public contract (user-visible). The `VkPipelineCacheHeaderVersionOne`
-  vendor ID + device ID validation must run before any blob is passed to
-  `vkCreatePipelineCache`.
-- **Re-test**:
-
-  ```shell
-  meson test -C build-vulkan test_vulkan_pipeline_cache
-  # Confirm no vkCreateComputePipelines with VK_NULL_HANDLE second arg:
-  grep -n 'vkCreateComputePipelines.*VK_NULL_HANDLE' libvmaf/src/vulkan/kernel_template.h
-  # Should return no matches.
-  ```
-
-
 
 
 
@@ -35057,10 +34971,3 @@ runtime or reading a schema-version sidecar (future work).
 python -m pytest ai/tests/test_extract_k150k_no_ssimulacra2.py -v
 # Expected: 3/3 PASS
 ```
-
----
-
-## test(dnn): vmaf_use_tiny_model ctx-attach test
-
-No rebase impact: new test file only (`libvmaf/test/dnn/test_vmaf_use_tiny_model.c`
-and `libvmaf/test/dnn/meson.build` registration). No production code changed.

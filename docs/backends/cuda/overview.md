@@ -125,6 +125,13 @@ Adding a new CUDA extractor: see [`/add-feature-extractor`](../../../.claude/ski
   builds that already load CUDA dynamically.
 - **Pinned host staging.** Input pictures are uploaded from
   `cuMemHostAlloc`-pinned buffers. See [picture_cuda.c](../../../libvmaf/src/cuda/picture_cuda.c).
+- **Picture accessors.** `picture_cuda.h` exports thin accessors —
+  `vmaf_cuda_picture_get_stream`, `vmaf_cuda_picture_get_ready_event`,
+  `vmaf_cuda_picture_get_finished_event`, and
+  `vmaf_cuda_picture_get_pix_fmt` — to avoid feature extractors
+  reaching into `VmafPicture` or `VmafPicturePrivate` fields directly.
+  Use these rather than `pic->pix_fmt` / `pic->priv->cuda.*` in new
+  extractor code.
 - **Non-default streams per extractor.** Each feature extractor owns its own
   stream so submit/collect for different features can overlap.
 - **Ring-buffered double-buffer submit.** Frame N+1 starts uploading while
