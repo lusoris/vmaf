@@ -1114,6 +1114,17 @@ relationship is preserved (primary = `PyPsnr*`, deprecated = `Pypsnr*`).
 
 ### 0229 — HIP fifth-consumer kernel `float_ansnr_hip` (ADR-0266)
 
+### N/A — `float_ansnr_hip` `enable_chroma` option (ADR-0453 parity)
+
+- **Touches**: `libvmaf/src/feature/hip/float_ansnr_hip.c` only.
+- **Invariant**: `enable_chroma` default is `false` (matches CPU PR #947 and
+  CUDA PR #957). `n_planes` is derived in `init_fex_hip` from `pix_fmt` and
+  `enable_chroma`; the submit/collect loops iterate `s->n_planes`, not the
+  static `ANSNR_HIP_MAX_PLANES`. `close_fex_hip` iterates `ANSNR_HIP_MAX_PLANES`
+  to safely free all slots even when `n_planes < 3`.
+- **no rebase impact**: purely additive change to a single TU with no
+  public-header or registration-list modifications.
+
 ### 0228 — `y4m_convert_411_422jpeg` 1-byte heap-buffer-overflow fix
 
 ### 0228 — `vmaf-tune` resolution-aware model selection (ADR-0289)
