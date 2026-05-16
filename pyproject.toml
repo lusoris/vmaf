@@ -27,7 +27,8 @@ extend-exclude = '''
 [tool.isort]
 profile = "black"
 line_length = 100
-known_first_party = ["vmaf", "ai", "vmaf_train", "corpus"]
+known_first_party = ["vmaf", "ai", "vmaf_train", "corpus", "aiutils"]
+src_paths = ["ai/src", "python"]
 skip_glob = [
   "build/*",
   "subprojects/*",
@@ -65,6 +66,11 @@ ignore = [
   "PLR0913",       # too-many-arguments — VMAF feature kernels naturally take many
   "S101",          # assert is fine in tests
 ]
+
+[tool.ruff.lint.isort]
+# Must mirror [tool.isort].known_first_party so isort and ruff-check agree
+# on first-party import grouping. aiutils lives in ai/src/ (added by #908).
+known-first-party = ["vmaf", "ai", "vmaf_train", "corpus", "aiutils"]
 
 [tool.ruff.lint.per-file-ignores]
 # Upstream Netflix Python is not our style canon. Keep F821 (undefined
