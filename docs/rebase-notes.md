@@ -7,6 +7,12 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
+No rebase impact: `fix/dev-mcp-stage3-and-bundled-fixes-2026-05-16` touches
+only `dev/Containerfile`, `dev/AGENTS.md`, `docs/research/0135-*`, and
+`changelog.d/fixed/dev-mcp-container-stage-3.md`. These are all fork-local
+infra files; no upstream-shared code, headers, build files, or feature
+extractors are modified. No sync-upstream conflicts expected.
+
 No rebase impact: `feat/tiny-ai-registry-ci-and-saliency-v2-promotion-2026-05-15`
 touches `model/tiny/registry.json` (fork-local tiny-AI registry),
 `docs/ai/models/` (fork-local model cards), `docs/adr/0444-*` (fork-local
