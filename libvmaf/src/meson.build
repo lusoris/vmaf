@@ -222,14 +222,17 @@ if is_hipcc_enabled and is_hip_enabled
     # Batch-1b (ADR-0254): float_psnr_score (pre-existing, omitted from earlier
     #   meson.build edit; added here alongside the float_motion fix).
     # Batch-2 (ADR-0373): float_motion_score (temporal Gaussian SAD).
-    # Batch-3 (ADR-0375): moment_score, ssim_score.
+    # Batch-3 (ADR-0375): moment_score (float_moment/ twin), ssim_score.
     # Batch-4 (ADR-0377): ciede_score (CIEDE2000), motion_v2_score (integer SAD ping-pong).
+    # integer_moment_score: canonical HIP port of integer_moment_cuda.c
+    #   (integer_moment_hip.c), following CUDA/SYCL naming convention.
     hip_kernel_sources = {
         'psnr_score' : feature_src_dir + 'hip/integer_psnr/psnr_score.hip',
         'float_psnr_score' : feature_src_dir + 'hip/float_psnr/float_psnr_score.hip',
         'float_ansnr_score' : feature_src_dir + 'hip/float_ansnr/float_ansnr_score.hip',
         'float_motion_score' : feature_src_dir + 'hip/float_motion/float_motion_score.hip',
         'moment_score' : feature_src_dir + 'hip/float_moment/moment_score.hip',
+        'integer_moment_score' : feature_src_dir + 'hip/integer_moment/moment_score.hip',
         'ssim_score' : feature_src_dir + 'hip/float_ssim/ssim_score.hip',
         'ciede_score' : feature_src_dir + 'hip/integer_ciede/ciede_score.hip',
         'motion_v2_score' : feature_src_dir + 'hip/integer_motion_v2/motion_v2_score.hip',
