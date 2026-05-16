@@ -684,14 +684,10 @@ after a port-upstream of any of these files.
   CUDA + Vulkan + SYCL MS-SSIM kernels. On rebase: ensure the
   option metadata stays declared on the GPU paths even if the
   body is still TODO.
-- **`psnr` cross-backend `enable_chroma` option parity (ADR-0453)** —
-  `psnr_cuda`, `psnr_sycl`, and `psnr_vulkan` now honour
-  `enable_chroma` (default `true`) consistently with the CPU reference.
-  Passing `enable_chroma=false` produces luma-only output on all three
-  GPU backends. The option default must remain `true`; any change to the
-  default or the `n_planes` clamp logic requires a coordinated update
-  across all three GPU twins. See CUDA AGENTS.md / Vulkan AGENTS.md
-  invariant notes and [ADR-0453](../../../docs/adr/0453-psnr-enable-chroma-gpu-parity.md).
+- **psnr chroma Vulkan (T3-15(b), PR #204 open, ADR-0216
+  placeholder)** — `psnr_cb` + `psnr_cr` Vulkan twins next to
+  `psnr_y`
+  ([ADR-0182](../../../docs/adr/0182-gpu-long-tail-batch-1.md)).
 - **MobileSal saliency extractor (T6-2a, PR #208 open, ADR-0218
   placeholder)** — first half of T6-2 (encoder-side ROI bundle).
   DNN-backed; opens sessions through
@@ -730,6 +726,15 @@ after a port-upstream of any of these files.
   port from `d3647c73` (`speed_chroma` + `speed_temporal`) is
   PR #213 (open). 32-bit ADM/cpu fallbacks (`8a289703` +
   `1b6c3886`) are PR #212 (open).
-- **`float_ansnr` `enable_chroma`**: fork-local option (default `false`). GPU
-  twins do not yet expose this option; if ported, ensure they emit the same
-  four chroma feature names (`float_ansnr_cb/cr`, `float_anpsnr_cb/cr`).
+
+- **Per-frame `malloc`/`aligned_malloc` for geometry-sized buffers is forbidden
+  on hot paths** (ADR-0452): any buffer whose size is determined by the input
+  geometry (`w`, `h`, `stride`) MUST be hoisted to `init_fex` and freed in
+  `close_fex`. The geometry is known at init time. Per-frame heap traffic for
+  geometry-sized scratch eliminates up to ~79 MB/frame of allocator pressure at
+  1080p and causes arena lock contention in threaded mode. Examples: `float_vif`
+  hoists `10 × plane_sz` to `VifState::vif_buf` per ADR-0452; `ssimulacra2`
+  hoists its workspace similarly. If an upstream port re-introduces a per-frame
+  allocation for a geometry-sized buffer, move it to init/close in the same PR.
+  Small constant-size (geometry-independent) allocations inside hot paths
+  are acceptable but must be justified in the PR description.
