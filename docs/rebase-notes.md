@@ -46,6 +46,34 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/psnr-enable-chroma-gpu-parity-2026-05-16 — PSNR `enable_chroma` option GPU parity
+
+- **Touches**: `libvmaf/src/feature/cuda/integer_psnr_cuda.c`,
+  `libvmaf/src/feature/sycl/integer_psnr_sycl.cpp`,
+  `libvmaf/src/feature/vulkan/psnr_vulkan.c`,
+  `docs/metrics/features.md`, `docs/research/0135-*`, `docs/adr/0452-*`,
+  `changelog.d/fixed/psnr-enable-chroma-cross-backend.md`,
+  `docs/research/0136-psnr-enable-chroma-cross-backend-2026-05-16.md`,
+  `docs/adr/0453-psnr-enable-chroma-gpu-parity.md`.
+- **Invariant**: The `enable_chroma` option default is `true` on all backends.
+  The `n_planes` clamp in GPU `init()` must stay in the following order:
+  (1) `pix_fmt == YUV400P` sets `n_planes = 1`; (2) `!enable_chroma && n_planes > 1`
+  also clamps to 1. If upstream Netflix ever adds option-table support to
+  the CUDA/Vulkan twins, port any new options but preserve the `enable_chroma`
+  entry and its `default_val.b = true` exactly — a default flip to `false`
+  would silently suppress chroma output and break the cross-backend parity gate.
+- **Re-test**:
+
+  ```bash
+  python3 scripts/ci/cross_backend_parity_gate.py \
+      --backends cpu cuda --features psnr --places 4
+  python3 scripts/ci/cross_backend_parity_gate.py \
+      --backends cpu cuda --features psnr --places 4 \
+      --feature-opts 'psnr=enable_chroma=false' \
+      --feature-opts 'psnr_cuda=enable_chroma=false'
+  ```
+
+
 ### fix/vmaf-tune-temporal-saliency-2026-05-15 — recommend-saliency temporal aggregation
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/saliency.py`,
