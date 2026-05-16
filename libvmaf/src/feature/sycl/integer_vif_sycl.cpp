@@ -50,7 +50,6 @@ extern "C" {
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature_name.h"
-#include "picture.h"
 #include "sycl/common.h"
 #include "log.h"
 }
@@ -109,8 +108,7 @@ struct VifStateSycl {
     unsigned bpc;
 
     bool debug;
-    bool enable_chroma;
-    unsigned n_planes;
+    bool vif_skip_scale0;
     double vif_enhn_gain_limit;
 
     VmafDictionary *feature_name_dict;
@@ -168,13 +166,14 @@ static const VmafOption options[] = {
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {
-        .name = "enable_chroma",
-        .help = "when set, compute vif on chroma (Cb/Cr) planes in addition to luma; "
-                "forced off for YUV400. "
-                "SYCL path: n_planes clamped to 1 (luma-only kernel)",
-        .offset = offsetof(VifStateSycl, enable_chroma),
+        .name = "vif_skip_scale0",
+        .help = "when set, skip scale 0 calculations",
+        .alias = "ssclz",
+        .offset = offsetof(VifStateSycl, vif_skip_scale0),
         .type = VMAF_OPT_TYPE_BOOL,
         .default_val = {.b = false},
+        .min = 0.0,
+        .max = 0.0,
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {
@@ -1381,17 +1380,13 @@ static void vif_post_graph(void *queue_ptr, void *priv);
 static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
 {
+    (void)pix_fmt;
     auto *s = static_cast<VifStateSycl *>(fex->priv);
 
     s->width = w;
     s->height = h;
     s->bpc = bpc;
     s->has_pending = false;
-
-    /* Clamp n_planes to 1: SYCL VIF kernel is luma-only; honour YUV400 too. */
-    if (pix_fmt == VMAF_PIX_FMT_YUV400P)
-        s->enable_chroma = false;
-    s->n_planes = 1; /* SYCL path: chroma dispatch not yet implemented */
 
     if (!fex->sycl_state) {
         vmaf_log(VMAF_LOG_LEVEL_ERROR, "vif_sycl: no SYCL state\n");
@@ -1657,20 +1652,28 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
 
         vif_scale_num[scale] = num;
         vif_scale_den[scale] = den;
+        /* Skip scale 0 contribution when vif_skip_scale0 is set,
+         * matching integer_vif.c write_scores() parity. */
+        if (scale == 0 && s->vif_skip_scale0)
+            continue;
         score_num += num;
         score_den += den;
     }
 
     // Write primary per-scale features
+    static const char *const key_names[] = {
+        "VMAF_integer_feature_vif_scale0_score",
+        "VMAF_integer_feature_vif_scale1_score",
+        "VMAF_integer_feature_vif_scale2_score",
+        "VMAF_integer_feature_vif_scale3_score",
+    };
     for (int i = 0; i < VIF_NUM_SCALES; i++) {
-        double const score = (vif_scale_den[i] > 0.0) ? vif_scale_num[i] / vif_scale_den[i] : 1.0;
-
-        static const char *const key_names[] = {
-            "VMAF_integer_feature_vif_scale0_score",
-            "VMAF_integer_feature_vif_scale1_score",
-            "VMAF_integer_feature_vif_scale2_score",
-            "VMAF_integer_feature_vif_scale3_score",
-        };
+        double score;
+        if (i == 0 && s->vif_skip_scale0) {
+            score = 0.0;
+        } else {
+            score = (vif_scale_den[i] > 0.0) ? vif_scale_num[i] / vif_scale_den[i] : 1.0;
+        }
 
         int const err = vmaf_feature_collector_append_with_dict(
             feature_collector, s->feature_name_dict, key_names[i], score, index);
@@ -1691,12 +1694,20 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
 
         for (int i = 0; i < VIF_NUM_SCALES; i++) {
             char name[64];
+            double num_val, den_val;
+            if (i == 0 && s->vif_skip_scale0) {
+                num_val = 0.0f;
+                den_val = -1.0f;
+            } else {
+                num_val = vif_scale_num[i];
+                den_val = vif_scale_den[i];
+            }
             (void)std::snprintf(name, sizeof(name), "integer_vif_num_scale%d", i);
             vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, name,
-                                                    vif_scale_num[i], index);
+                                                    num_val, index);
             (void)std::snprintf(name, sizeof(name), "integer_vif_den_scale%d", i);
             vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, name,
-                                                    vif_scale_den[i], index);
+                                                    den_val, index);
         }
     }
 
