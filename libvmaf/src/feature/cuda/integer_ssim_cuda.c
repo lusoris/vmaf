@@ -51,6 +51,7 @@ typedef struct SsimStateCuda {
     CUfunction func_horiz_8;
     CUfunction func_horiz_16;
     CUfunction func_vert;
+    CUmodule module; /* retained for cuModuleUnload in close_fex_cuda */
     int scale_override;
 
     /* 5 intermediate float buffers — kept outside the template's
@@ -139,14 +140,14 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
 
-    CUmodule module;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, ssim_score_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, ssim_score_ptx), fail);
     CHECK_CUDA_GOTO(
-        cu_f, cuModuleGetFunction(&s->func_horiz_8, module, "calculate_ssim_horiz_8bpc"), fail);
-    CHECK_CUDA_GOTO(
-        cu_f, cuModuleGetFunction(&s->func_horiz_16, module, "calculate_ssim_horiz_16bpc"), fail);
-    CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_vert, module, "calculate_ssim_vert_combine"),
+        cu_f, cuModuleGetFunction(&s->func_horiz_8, s->module, "calculate_ssim_horiz_8bpc"), fail);
+    CHECK_CUDA_GOTO(cu_f,
+                    cuModuleGetFunction(&s->func_horiz_16, s->module, "calculate_ssim_horiz_16bpc"),
                     fail);
+    CHECK_CUDA_GOTO(
+        cu_f, cuModuleGetFunction(&s->func_vert, s->module, "calculate_ssim_vert_combine"), fail);
 
     CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
 
@@ -359,6 +360,13 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
     const int dict_rc = vmaf_dictionary_free(&s->feature_name_dict);
     if (rc == 0)
         rc = dict_rc;
+
+    /* Unload the PTX module — cuModuleLoadData allocates GPU-resident
+     * module backing store not reclaimed until cuModuleUnload or context
+     * destruction (audit finding 2026-05-16). */
+    if (s->module)
+        (void)fex->cu_state->f->cuModuleUnload(s->module);
+
     return rc;
 }
 

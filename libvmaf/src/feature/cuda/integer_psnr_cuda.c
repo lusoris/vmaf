@@ -75,6 +75,7 @@ typedef struct PsnrStateCuda {
     VmafCudaKernelReadback rb[PSNR_NUM_PLANES];
     CUfunction funcbpc8;
     CUfunction funcbpc16;
+    CUmodule module; /* retained for cuModuleUnload in close_fex_cuda */
     unsigned index;
     unsigned width[PSNR_NUM_PLANES];
     unsigned height[PSNR_NUM_PLANES];
@@ -167,12 +168,11 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     int ctx_pushed = 0;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CUmodule module;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, psnr_score_ptx), fail);
-    CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc8, module, "calculate_psnr_kernel_8bpc"),
-                    fail);
-    CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc16, module, "calculate_psnr_kernel_16bpc"),
-                    fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, psnr_score_ptx), fail);
+    CHECK_CUDA_GOTO(
+        cu_f, cuModuleGetFunction(&s->funcbpc8, s->module, "calculate_psnr_kernel_8bpc"), fail);
+    CHECK_CUDA_GOTO(
+        cu_f, cuModuleGetFunction(&s->funcbpc16, s->module, "calculate_psnr_kernel_16bpc"), fail);
     CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
 
     s->bpc = bpc;
@@ -322,6 +322,13 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
     const int err = vmaf_dictionary_free(&s->feature_name_dict);
     if (err && rc == 0)
         rc = err;
+
+    /* Unload the PTX module — cuModuleLoadData allocates GPU-resident
+     * module backing store not reclaimed until cuModuleUnload or context
+     * destruction (audit finding 2026-05-16). */
+    if (s->module)
+        (void)fex->cu_state->f->cuModuleUnload(s->module);
+
     return rc;
 }
 

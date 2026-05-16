@@ -51,6 +51,7 @@ typedef struct PsnrHvsStateCuda {
      * template's single-pair readback bundle. */
     VmafCudaKernelLifecycle lc;
     CUfunction func_psnr_hvs;
+    CUmodule module; /* retained for cuModuleUnload in close_fex_cuda */
 
     /* Dedicated H2D upload stream + completion event (T-GPU-OPT-2).
      * H2Ds run on `upload_str` so DMA can overlap kernel launches on
@@ -168,9 +169,8 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
                     fail);
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->upload_done, CU_EVENT_DISABLE_TIMING), fail);
 
-    CUmodule module;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, psnr_hvs_score_ptx), fail);
-    CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_psnr_hvs, module, "psnr_hvs"), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, psnr_hvs_score_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_psnr_hvs, s->module, "psnr_hvs"), fail);
 
     CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
 
@@ -482,6 +482,13 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
             (void)vmaf_cuda_buffer_host_free(fex->cu_state, s->h_uint_dist[p]);
     }
     ret |= vmaf_dictionary_free(&s->feature_name_dict);
+
+    /* Unload the PTX module — cuModuleLoadData allocates GPU-resident
+     * module backing store not reclaimed until cuModuleUnload or context
+     * destruction (audit finding 2026-05-16). */
+    if (s->module)
+        (void)cu_f->cuModuleUnload(s->module);
+
     return ret;
 }
 

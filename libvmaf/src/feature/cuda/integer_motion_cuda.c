@@ -43,6 +43,7 @@
 typedef struct MotionStateCuda {
     CUevent event, finished;
     CUfunction funcbpc8, funcbpc16;
+    CUmodule module; /* retained for cuModuleUnload in close_fex_cuda */
     CUstream str;
     VmafCudaBuffer *blur[2];
     VmafCudaBuffer *sad;
@@ -276,15 +277,14 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
 
-    CUmodule module;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, motion_score_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, motion_score_ptx), fail);
 
     CHECK_CUDA_GOTO(
-        cu_f, cuModuleGetFunction(&s->funcbpc16, module, "calculate_motion_score_kernel_16bpc"),
+        cu_f, cuModuleGetFunction(&s->funcbpc16, s->module, "calculate_motion_score_kernel_16bpc"),
         fail);
-    CHECK_CUDA_GOTO(cu_f,
-                    cuModuleGetFunction(&s->funcbpc8, module, "calculate_motion_score_kernel_8bpc"),
-                    fail);
+    CHECK_CUDA_GOTO(
+        cu_f, cuModuleGetFunction(&s->funcbpc8, s->module, "calculate_motion_score_kernel_8bpc"),
+        fail);
 
     CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
 
@@ -558,6 +558,13 @@ after_event2_destroy:;
         s->sad_host = NULL;
     }
     ret |= vmaf_dictionary_free(&s->feature_name_dict);
+
+    /* Unload the PTX module loaded by init_fex_cuda — cuModuleLoadData
+     * allocates GPU-resident module backing store that is not reclaimed
+     * until cuModuleUnload or context destruction (audit finding
+     * 2026-05-16). Guarded by null check; safe to call on partial init. */
+    if (s->module)
+        (void)cu_f->cuModuleUnload(s->module);
 
     return ret;
 }

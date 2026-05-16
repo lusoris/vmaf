@@ -44,6 +44,7 @@ typedef struct FloatVifStateCuda {
     VmafCudaKernelLifecycle lc;
     CUfunction func_compute;
     CUfunction func_decimate;
+    CUmodule module; /* retained for cuModuleUnload in close_fex_cuda */
 
     VmafCudaBuffer *ref_raw;
     VmafCudaBuffer *dis_raw;
@@ -129,12 +130,12 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
 
     int _cuda_err = 0;
     int ctx_pushed = 0;
-    CUmodule module;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, float_vif_score_ptx), fail);
-    CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_compute, module, "float_vif_compute"), fail);
-    CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_decimate, module, "float_vif_decimate"),
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, float_vif_score_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_compute, s->module, "float_vif_compute"),
+                    fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_decimate, s->module, "float_vif_decimate"),
                     fail);
     CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
 
@@ -453,6 +454,13 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
         }
     }
     ret |= vmaf_dictionary_free(&s->feature_name_dict);
+
+    /* Unload the PTX module — cuModuleLoadData allocates GPU-resident
+     * module backing store not reclaimed until cuModuleUnload or context
+     * destruction (audit finding 2026-05-16). */
+    if (s->module)
+        (void)fex->cu_state->f->cuModuleUnload(s->module);
+
     return ret;
 }
 
