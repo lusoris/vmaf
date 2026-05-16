@@ -146,12 +146,12 @@ extern VmafFeatureExtractor vmaf_fex_float_motion_hip;
  * `feature/cuda/integer_ssim_cuda.c` and pins the two-dispatch +
  * five intermediate float buffers shape. v1: scale=1 only. */
 extern VmafFeatureExtractor vmaf_fex_float_ssim_hip;
-/* HIP ninth-consumer kernel — ADR-0285. Mirrors the CUDA twin
- * `feature/cuda/integer_ms_ssim_cuda.c`: 5-level pyramid,
- * three kernels (decimate, horiz, vert_lcs), per-scale l/c/s
- * float partial readbacks. Emits `float_ms_ssim` + optional
- * per-scale l/c/s triples when enable_lcs=true. */
-extern VmafFeatureExtractor vmaf_fex_integer_ms_ssim_hip;
+/* HIP ninth-consumer kernel — T7-10b batch-5 / ADR-0379.  Direct
+ * port of `feature/cuda/float_vif_cuda.c`: 4-scale separable VIF
+ * with per-block (num, den) partial reduction.  With
+ * `enable_hipcc=true` the HSACO is embedded; without it init()
+ * returns -ENOSYS (scaffold posture). */
+extern VmafFeatureExtractor vmaf_fex_float_vif_hip;
 #endif
 #if HAVE_METAL
 /* Metal feature extractors — T8-1c through T8-1j / ADR-0421.
@@ -167,8 +167,7 @@ extern VmafFeatureExtractor vmaf_fex_float_psnr_metal;
 extern VmafFeatureExtractor vmaf_fex_float_ansnr_metal;
 extern VmafFeatureExtractor vmaf_fex_float_motion_metal;
 extern VmafFeatureExtractor vmaf_fex_float_moment_metal;
-/* T8-2b: integer_vif_metal — real VIF port to Metal (ADR-0436). */
-extern VmafFeatureExtractor vmaf_fex_integer_vif_metal;
+extern VmafFeatureExtractor vmaf_fex_float_vif_metal;
 #endif
 /* SpEED-QA NR metric scaffold — ADR-0253. */
 extern VmafFeatureExtractor vmaf_fex_speed_qa;
@@ -307,9 +306,7 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     &vmaf_fex_integer_psnr_metal, &vmaf_fex_float_ssim_metal, &vmaf_fex_integer_motion_metal,
     /* T8-1 batch-2 additional consumers (ADR-0361): 4 float features. */
     &vmaf_fex_float_psnr_metal, &vmaf_fex_float_ansnr_metal, &vmaf_fex_float_motion_metal,
-    &vmaf_fex_float_moment_metal,
-    /* T8-2b: integer_vif_metal — real VIF port to Metal (ADR-0436). */
-    &vmaf_fex_integer_vif_metal,
+    &vmaf_fex_float_moment_metal, &vmaf_fex_float_vif_metal,
 #endif
     &vmaf_fex_speed_qa, &vmaf_fex_lpips, &vmaf_fex_dists_sq, &vmaf_fex_fastdvdnet_pre,
     &vmaf_fex_mobilesal, &vmaf_fex_transnet_v2, &vmaf_fex_null, NULL};
