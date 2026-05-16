@@ -34878,3 +34878,38 @@ meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build
 meson test -C build --suite=fast
 ```
+
+---
+
+### perf/ssimulacra2-cuda-blur-fusion-transpose — 3-channel kernel fusion + V-pass transpose (ADR-0456)
+
+- **Touches**: `libvmaf/src/feature/cuda/ssimulacra2/ssimulacra2_blur.cu`,
+  `libvmaf/src/feature/cuda/ssimulacra2_cuda.c`,
+  `libvmaf/src/feature/cuda/AGENTS.md`.
+- **Invariant**: `ssimulacra2_blur.cu` must export exactly 5 kernel symbols:
+  `ssimulacra2_transpose`, `ssimulacra2_blur_h`, `ssimulacra2_blur_h3`,
+  `ssimulacra2_blur_v`, `ssimulacra2_blur_v3_transposed`. The host dispatch in
+  `ssimulacra2_cuda.c` looks up all 5 via `cuModuleGetFunction` at init time;
+  removing or renaming any symbol causes a hard init failure. The fused kernels
+  use `gridDim.z = 3` with `plane_stride = width * height` (full-resolution
+  constant stride, NOT scale-adjusted stride); any change to the stride contract
+  must propagate to both the kernel and the three host dispatch helpers
+  (`ss2c_launch_blur_h3`, `ss2c_launch_transpose`,
+  `ss2c_launch_blur_v3_transposed`). The `--fmad=false` flag in the
+  `cuda_cu_extra_flags` map in `libvmaf/src/meson.build` is load-bearing for
+  the `places=4` cross-backend parity gate; do not remove it.
+- **Re-test**:
+
+  ```bash
+  meson setup libvmaf/build_cuda libvmaf -Denable_cuda=true -Denable_sycl=false
+  ninja -C libvmaf/build_cuda tools/vmaf
+  # Correctness gate:
+  ./libvmaf/build_cuda/tools/vmaf \
+      --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
+      --feature ssimulacra2_cuda --output /tmp/cuda_out.xml --backend cuda
+  # Cross-backend parity:
+  python3 scripts/ci/cross_backend_parity_gate.py \
+      --features ssimulacra2 --backends cpu cuda --places 4
+  ```

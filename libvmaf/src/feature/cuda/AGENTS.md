@@ -215,6 +215,16 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
   [`../../hip/AGENTS.md`](../../hip/AGENTS.md) for the full
   consumer list.
 
+- **`ssimulacra2/ssimulacra2_blur.cu` blur kernels with per-channel loops must
+  fuse via `gridDim.z`** (ADR-0456). The fused kernels `ssimulacra2_blur_h3`,
+  `ssimulacra2_transpose`, and `ssimulacra2_blur_v3_transposed` all take a
+  `plane_stride` argument and use `blockIdx.z` to select the XYB channel. The
+  V-pass operates on a column-major transposed buffer to convert stride-`width`
+  per-thread access to stride-1 sequential reads. Any future blur kernel that
+  iterates over columns (V-direction IIR) requires a preceding transpose for
+  coalescing; do not skip the transpose to save one launch — the V-pass
+  performance benefit outweighs the launch cost at all resolutions ≥ 480p.
+
 ## Build
 
 CUDA feature TUs compile only when `meson setup -Denable_cuda=true`.
@@ -240,3 +250,5 @@ The `enable_cuda` umbrella flag gates inclusion via
   per-feature CUDA kernel-template scaffolding.
 - [ADR-0360](../../../../docs/adr/0360-cambi-cuda.md) —
   CAMBI CUDA port (Strategy II hybrid, T3-15a).
+- [ADR-0456](../../../../docs/adr/0456-ssimulacra2-cuda-blur-fusion-transpose.md) —
+  SSIMULACRA2 CUDA blur: 3-channel kernel fusion + V-pass transpose.

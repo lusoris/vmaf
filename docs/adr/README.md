@@ -450,3 +450,4 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0444](0444-saliency-student-v2-production-promotion.md) | Promote `saliency_student_v2` to production default (IoU 0.7105 vs v1 0.6558, +8.3 %) | Accepted | ai, dnn, saliency, tiny-ai, fork-local |
 | [ADR-0451](0451-local-dev-mcp-container.md) | Local dev-MCP container for live probing — Docker, all 4 GPU backends (CUDA/SYCL/Vulkan/HIP), continuous 15-min smoke probe | Accepted | infra, docker, mcp, gpu, hip, cuda, sycl, vulkan, dev, fork-local |
 | [ADR-0452](0452-cambi-calculate-c-values-avx512-neon.md) | Port `calculate_c_values_row` to AVX-512 (16-lane gather) and NEON (mask-zero fast-skip); bit-exact integer pipeline | Accepted | simd, cambi, perf |
+| [ADR-0456](0456-ssimulacra2-cuda-blur-fusion-transpose.md) | SSIMULACRA2 CUDA blur: 3-channel kernel fusion (`gridDim.z`) + V-pass shared-memory transpose for coalesced access | Accepted | cuda, perf, ssimulacra2 |
