@@ -77,6 +77,30 @@ and teardown.
   (its `fill_random` FP rounding order is load-bearing for input bit
   patterns).
 
+## GPU extractor parity tests
+
+Every GPU-backed feature extractor MUST have a `test_<name>_<backend>.c`
+parity test in this directory tagged `suite: ['fast', 'gpu']`.
+`test_integer_cambi_sycl.c` is the model for SYCL tests;
+`test_adm_cuda.c` / `test_vif_cuda.c` / `test_motion_v2_cuda.c` /
+`test_psnr_cuda.c` / `test_ssimulacra2_cuda.c` are the models for CUDA
+tests. Pattern:
+
+1. `vmaf_cuda_state_init` / `vmaf_sycl_state_init` — skip cleanly on
+   non-zero return (no GPU present).
+2. `vmaf_get_feature_extractor_by_name` — assert name + flag round-trip.
+3. Feed a small synthetic frame (≤256×144) through the full
+   init→use_feature→read_pictures→flush→score_at_index pipeline.
+4. Assert the primary score key is `isfinite()` and (where the metric
+   is bounded below) non-negative.
+5. Teardown: always free the GPU state after `vmaf_close`.
+
+Temporal extractors (flag `VMAF_FEATURE_EXTRACTOR_TEMPORAL`, e.g.
+`motion_v2_cuda`) must submit ≥2 frames and read the score at frame
+index 1 (the first inter-frame interval). See `test_motion_v2_cuda.c`.
+
+**Run all GPU tests**: `meson test -C build --suite=gpu`
+
 ## Governing ADRs
 
 - [ADR-0015](../../docs/adr/0015-ci-matrix-asan-ubsan-tsan.md) — sanitizer
@@ -105,31 +129,3 @@ and teardown.
   that converts every test function to `(void)` parameters
   must also drop `-fno-sanitize=function` from the workflow in
   the same PR.
-
-## Suite-tagging invariant
-
-**Every `test()` declaration in [`meson.build`](meson.build) MUST carry a
-`suite:` argument.** The `fast` suite is the documented pre-push gate
-(`CLAUDE.md §3`; `meson test -C build --suite=fast`) and must contain every
-test that completes in under 2 seconds under normal CPU load.
-
-Tag assignments:
-
-| Suite tag(s)          | Criteria                                                  |
-|-----------------------|-----------------------------------------------------------|
-| `['fast']`            | CPU-only unit test, finishes in <2 s                      |
-| `['fast', 'simd']`    | SIMD bit-exactness test, arch-gated, finishes in <2 s     |
-| `['fast', 'gpu']`     | GPU backend scaffold/contract smoke, finishes in <2 s     |
-| `['slow']`            | Runs longer than 2 s (e.g. `test_mcp_smoke`, timeout 60s) |
-
-**Rebase-sensitive**: upstream Netflix/vmaf may add new `test()` calls
-without `suite:` arguments when cherry-picking or syncing. After every
-upstream sync or port-upstream-commit, run:
-
-```bash
-grep "^test(" libvmaf/test/meson.build | grep -v "suite :"
-```
-
-Any line returned is a violation — add the appropriate `suite:` before
-merging. See the audit that identified this bug:
-`.workingdir/audit-build-matrix-symbols-2026-05-16.md` finding 5c.

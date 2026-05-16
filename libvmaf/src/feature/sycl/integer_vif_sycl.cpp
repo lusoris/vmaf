@@ -108,7 +108,6 @@ struct VifStateSycl {
     unsigned bpc;
 
     bool debug;
-    bool vif_skip_scale0;
     double vif_enhn_gain_limit;
 
     VmafDictionary *feature_name_dict;
@@ -163,17 +162,6 @@ static const VmafOption options[] = {
         .default_val = {.d = 100.0},
         .min = 1.0,
         .max = 100.0,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    {
-        .name = "vif_skip_scale0",
-        .help = "when set, skip scale 0 calculations",
-        .alias = "ssclz",
-        .offset = offsetof(VifStateSycl, vif_skip_scale0),
-        .type = VMAF_OPT_TYPE_BOOL,
-        .default_val = {.b = false},
-        .min = 0.0,
-        .max = 0.0,
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {
