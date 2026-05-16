@@ -88,20 +88,16 @@ ADR-0234) catches drift but only after a full GPU run.
   `default_val.b = true`; do **not** flip the default. See
   [`../../AGENTS.md §"Vulkan PSNR chroma contract"`](../../AGENTS.md).
 
-- **`psnr_vulkan.c` chroma plane geometry must use ceiling division**
-  (Research-0094; dedup-audit-c-feature-twins-2026-05-16 finding #5).
-  `init()` computes chroma width/height with
-  `(w + (unsigned)ss_hor) >> ss_hor` and
-  `(h + (unsigned)ss_ver) >> ss_ver` — the ceiling form that matches
-  `integer_psnr.c::init` (CPU) and `cuda/integer_psnr_cuda.c:132`
-  (CUDA). **Do not** replace this with `w / 2U` or `h / 2U` (floor).
-  Floor division underestimates chroma plane size by 1 pixel on
-  odd-dimension YUV420 inputs (e.g., 1921×1080), producing a different
-  sample count and diverging PSNR scores that break the cross-backend
-  `places=4` parity gate silently. Even-width/height inputs are
-  unaffected. The regression test
-  `test_psnr_vulkan_chroma_geom.c::test_odd_yuv420_chroma_dims` pins
-  this for 1921×1081 and 999×540.
+- **`psnr_hvs_vulkan.c` `enable_chroma` option**
+  ([ADR-0461](../../../../docs/adr/0461-psnr-hvs-vulkan-enable-chroma.md)).
+  Mirrors the ADR-0453 / `psnr_vulkan` pattern: `n_planes` is 1 when
+  `enable_chroma=false` (luma-only output; combined `psnr_hvs` score
+  suppressed) and 3 otherwise. Chroma pipelines
+  (`pipeline_chroma_u` / `pipeline_chroma_v`) are only created in
+  `create_pipeline()` when `enable_chroma=true`; `close_fex()` relies on
+  `VK_NULL_HANDLE` guards so no special-casing is needed there. The
+  `default_val.b = true` must **not** be flipped — it would silently drop
+  `psnr_hvs_cb`, `psnr_hvs_cr`, and `psnr_hvs` for all existing callers.
 
 - **`ms_ssim_vulkan.c` honours the `enable_lcs` GPU contract**
   (ADR-0243). Emits 15 extra metrics
