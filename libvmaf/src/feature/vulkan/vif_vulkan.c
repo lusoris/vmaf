@@ -40,7 +40,6 @@
 #include <assert.h>
 #include <errno.h>
 #include <math.h>
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -89,12 +88,8 @@ struct vif_accums {
 typedef struct {
     /* Options. */
     bool debug;
-    bool enable_chroma;
+    bool vif_skip_scale0;
     double vif_enhn_gain_limit;
-
-    /* Number of active planes: 1 when !enable_chroma or YUV400P, 3 otherwise.
-     * v1 kernel processes data[0] only; n_planes>1 is reserved for v2. */
-    unsigned n_planes;
 
     /* Frame geometry. */
     unsigned width;
@@ -162,17 +157,6 @@ static const VmafOption options[] = {{
                                          .default_val.b = true,
                                      },
                                      {
-                                         .name = "enable_chroma",
-                                         .help = "when set, compute vif on chroma (Cb/Cr) planes "
-                                                 "in addition to luma; forced off for YUV400. "
-                                                 "Vulkan path: n_planes clamped to 1 (luma-only "
-                                                 "kernel); multi-plane dispatch deferred to v2.",
-                                         .offset = offsetof(VifVulkanState, enable_chroma),
-                                         .type = VMAF_OPT_TYPE_BOOL,
-                                         .default_val.b = false,
-                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-                                     },
-                                     {
                                          .name = "vif_enhn_gain_limit",
                                          .help = "enhancement gain imposed on VIF, must be >= 1.0, "
                                                  "where 1.0 means the gain is unrestricted",
@@ -181,6 +165,15 @@ static const VmafOption options[] = {{
                                          .default_val.d = 100.0,
                                          .min = 1.0,
                                          .max = 100.0,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {
+                                         .name = "vif_skip_scale0",
+                                         .help = "when set, skip scale 0 calculations",
+                                         .alias = "ssclz",
+                                         .offset = offsetof(VifVulkanState, vif_skip_scale0),
+                                         .type = VMAF_OPT_TYPE_BOOL,
+                                         .default_val.b = false,
                                          .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
                                      },
                                      {0}};
@@ -444,17 +437,8 @@ static int alloc_scale_buffers(VifVulkanState *s)
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
+    (void)pix_fmt;
     VifVulkanState *s = fex->priv;
-
-    /* Derive n_planes from pix_fmt, then clamp when !enable_chroma.
-     * Mirrors integer_vif_cuda.c::init_fex_cuda enable_chroma guard (ADR-0453).
-     * v1 kernel is luma-only; n_planes>1 is reserved for v2. */
-    if (pix_fmt == VMAF_PIX_FMT_YUV400P) {
-        s->n_planes = 1U;
-    } else {
-        s->n_planes = s->enable_chroma ? 3U : 1U;
-    }
-
     s->width = w;
     s->height = h;
     s->bpc = bpc;
@@ -634,6 +618,10 @@ static int reduce_and_emit(VifVulkanState *s, unsigned index, VmafFeatureCollect
                      (double)totals[i].den_non_log;
         scale_num[i] = num;
         scale_den[i] = den;
+        /* Skip scale 0 contribution when vif_skip_scale0 is set,
+         * matching integer_vif.c write_scores() parity. */
+        if (i == 0 && s->vif_skip_scale0)
+            continue;
         score_num += num;
         score_den += den;
     }
@@ -645,7 +633,12 @@ static int reduce_and_emit(VifVulkanState *s, unsigned index, VmafFeatureCollect
         "VMAF_integer_feature_vif_scale3_score",
     };
     for (int i = 0; i < VIF_NUM_SCALES; i++) {
-        double score = (scale_den[i] > 0.0) ? scale_num[i] / scale_den[i] : 1.0;
+        double score;
+        if (i == 0 && s->vif_skip_scale0) {
+            score = 0.0;
+        } else {
+            score = (scale_den[i] > 0.0) ? scale_num[i] / scale_den[i] : 1.0;
+        }
         int err = vmaf_feature_collector_append_with_dict(fc, s->feature_name_dict, key_names[i],
                                                           score, index);
         if (err)
@@ -661,13 +654,13 @@ static int reduce_and_emit(VifVulkanState *s, unsigned index, VmafFeatureCollect
         vmaf_feature_collector_append_with_dict(fc, s->feature_name_dict, "integer_vif_den",
                                                 score_den, index);
         for (int i = 0; i < VIF_NUM_SCALES; i++) {
+            double num_val = (i == 0 && s->vif_skip_scale0) ? 0.0f : scale_num[i];
+            double den_val = (i == 0 && s->vif_skip_scale0) ? -1.0f : scale_den[i];
             char name[64];
-            snprintf(name, sizeof(name), "integer_vif_num_scale%d", i);
-            vmaf_feature_collector_append_with_dict(fc, s->feature_name_dict, name, scale_num[i],
-                                                    index);
-            snprintf(name, sizeof(name), "integer_vif_den_scale%d", i);
-            vmaf_feature_collector_append_with_dict(fc, s->feature_name_dict, name, scale_den[i],
-                                                    index);
+            (void)snprintf(name, sizeof(name), "integer_vif_num_scale%d", i);
+            vmaf_feature_collector_append_with_dict(fc, s->feature_name_dict, name, num_val, index);
+            (void)snprintf(name, sizeof(name), "integer_vif_den_scale%d", i);
+            vmaf_feature_collector_append_with_dict(fc, s->feature_name_dict, name, den_val, index);
         }
     }
     return 0;
@@ -681,10 +674,6 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     (void)dist_pic_90;
     VifVulkanState *s = fex->priv;
     int err = 0;
-
-    /* v1 dispatches luma plane only (kernel reads data[0]).
-     * When enable_chroma=true, n_planes=3 but the kernel loop is deferred
-     * to v2 (requires passing plane index into the shader). */
 
     err = upload_input_plane(s, ref_pic, /*which=*/0);
     if (err)
