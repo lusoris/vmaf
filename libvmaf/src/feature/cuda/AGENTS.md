@@ -180,6 +180,25 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
   `integer_adm.c` / `float_adm.c`, the CUDA twins must be updated
   in the same PR.
 
+- **`motion_fps_weight` is a cross-backend parity parameter** — all
+  motion-family GPU twins must expose `motion_fps_weight` in their
+  `VmafOption options[]` table and apply it identically: for
+  `integer_motion_v2_*` (flush-based motion2), the weight scales both
+  `score_cur` and `score_next` before the min in `flush()`; for
+  `float_motion_*` (collect-based motion2), the weight scales both
+  `prev_motion_score` and `motion_score` before the min in `collect()`
+  (for index >= 2) and scales `prev_motion_score` alone in `flush()`.
+  When `motion_fps_weight = 1.0` (default) the arithmetic is a
+  no-op and the `places=4` cross-backend gate must continue to pass.
+  If the application math ever changes in the CPU reference
+  (`integer_motion_v2.c` / `float_motion.c`), all GPU twins must be
+  updated in the same PR. Twins in scope: `integer_motion_v2_cuda.c`,
+  `integer_motion_v2_sycl.cpp`, `motion_v2_vulkan.c`,
+  `integer_motion_v2_hip.c`, `integer_motion_v2_metal.mm`,
+  `float_motion_cuda.c`, `float_motion_sycl.cpp`,
+  `float_motion_vulkan.c`, `float_motion_hip.c`,
+  `float_motion_metal.mm`. PR #863 initially wired this option.
+
 - **`integer_adm/adm_cm.cu` (and the rest of the `integer_adm/`
   subdirectory) carries an NVIDIA copyright line** alongside the
   Netflix one. This is upstream-mirror — keep both headers
