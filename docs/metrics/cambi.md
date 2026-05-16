@@ -202,6 +202,26 @@ ninja -C build-vulkan
     -p 420 -b 8 --backend vulkan --feature cambi
 ```
 
+### SYCL
+
+The SYCL backend (`--backend sycl --feature cambi_sycl`) supports the same
+option surface as CUDA and Vulkan. See
+[ADR-0415](../adr/0415-cambi-sycl-port.md) for the implementation notes.
+
+### Option parity note — `src_width` / `src_height`
+
+All three GPU backends (CUDA, SYCL, Vulkan) now accept `src_width` and
+`src_height` via the same syntax as the CPU backend:
+
+```bash
+--feature cambi=src_width=1920:src_height=1080
+```
+
+These fields default to 0 (resolved to the actual input dimensions at
+`init()` time). They are only meaningful when `full_ref=true`, which is not
+yet supported on any GPU backend; a non-zero value is stored and preserved
+for forward compatibility once `full_ref` is ported.
+
 Companion research digests:
 [Research-0032](../research/0032-cambi-vulkan-integration.md) (Vulkan),
 [Research-0091](../research/0091-cambi-cuda-integration.md) (CUDA).
