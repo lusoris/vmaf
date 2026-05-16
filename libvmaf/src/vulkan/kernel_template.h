@@ -297,8 +297,11 @@ static inline int vmaf_vulkan_kernel_pipeline_create(VmafVulkanContext *ctx,
     cpci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     cpci.stage.module = out->shader;
     cpci.layout = out->pipeline_layout;
-    if (vkCreateComputePipelines(ctx->device, VK_NULL_HANDLE, 1, &cpci, NULL, &out->pipeline) !=
-        VK_SUCCESS) {
+    /* VK-4 (ADR-0499): pass the disk-persistent pipeline cache so the
+     * driver can skip re-linking on warm starts.  Falls back gracefully
+     * to uncached creation when ctx->pipeline_cache is VK_NULL_HANDLE. */
+    if (vkCreateComputePipelines(ctx->device, ctx->pipeline_cache, 1, &cpci, NULL,
+                                 &out->pipeline) != VK_SUCCESS) {
         vkDestroyShaderModule(ctx->device, out->shader, NULL);
         vkDestroyPipelineLayout(ctx->device, out->pipeline_layout, NULL);
         vkDestroyDescriptorSetLayout(ctx->device, out->dsl, NULL);
@@ -686,7 +689,9 @@ static inline int vmaf_vulkan_kernel_pipeline_add_variant(
     cpci.stage.module = base->shader;
     cpci.layout = base->pipeline_layout;
     *out_pipeline = VK_NULL_HANDLE;
-    if (vkCreateComputePipelines(ctx->device, VK_NULL_HANDLE, 1, &cpci, NULL, out_pipeline) !=
+    /* VK-4 (ADR-0499): use the persistent pipeline cache for variant
+     * pipelines too (e.g. ADM multi-level, CAMBI scale variants). */
+    if (vkCreateComputePipelines(ctx->device, ctx->pipeline_cache, 1, &cpci, NULL, out_pipeline) !=
         VK_SUCCESS) {
         return -ENOMEM;
     }

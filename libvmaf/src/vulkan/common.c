@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "libvmaf/libvmaf_vulkan.h"
 #include "vulkan_common.h"
@@ -39,6 +40,160 @@
             goto fail;                                                                             \
         }                                                                                          \
     } while (0)
+
+/* ------------------------------------------------------------------ */
+/*  VK-4 (ADR-0499): disk-persistent VkPipelineCache                 */
+/*                                                                    */
+/*  Drivers re-link every compute pipeline from SPIR-V on each cold   */
+/*  start (10–50 ms per pipeline, ~200–700 ms for a full multi-feature */
+/*  VMAF run).  A VkPipelineCache lets the driver serialise the result */
+/*  of pipeline compilation to a binary blob; subsequent runs load     */
+/*  the blob and skip re-linking entirely.                             */
+/*                                                                    */
+/*  Cache path:                                                        */
+/*    ${XDG_CACHE_HOME:-$HOME/.cache}/vmaf/vulkan/<device-uuid>.bin   */
+/*                                                                    */
+/*  Failure to create the directory or read/write the file is silently */
+/*  tolerated — we fall back to an empty (in-memory-only) cache so    */
+/*  the feature extractors still work, just without the warm-start     */
+/*  speedup.  All error-path returns leave *out_cache = VK_NULL_HANDLE */
+/*  so callers can pass it directly to vkCreateComputePipelines.       */
+/* ------------------------------------------------------------------ */
+
+/* Maximum size we are willing to read from a cache file.  16 MiB is
+ * generous; real blobs are typically 50–500 KiB per feature kernel. */
+#define PIPELINE_CACHE_MAX_BYTES (16u * 1024u * 1024u)
+
+/* Build the cache file path into buf[buf_sz].  Returns 0 on success,
+ * -1 if the path would overflow. */
+static int build_pipeline_cache_path(const VkPhysicalDeviceProperties *props, char *buf,
+                                     size_t buf_sz)
+{
+    const char *xdg = getenv("XDG_CACHE_HOME");
+    const char *home = getenv("HOME");
+    const char *base = (xdg && xdg[0] != '\0') ? xdg : home;
+    if (!base || base[0] == '\0')
+        return -1;
+
+    /* Format the device UUID as a 32-hex-char string. */
+    char uuid[33];
+    for (int i = 0; i < VK_UUID_SIZE; i++) {
+        (void)snprintf(uuid + 2 * i, 3, "%02x", (unsigned)props->pipelineCacheUUID[i]);
+    }
+    uuid[32] = '\0';
+
+    /* Use the XDG-standard sub-path so collisions with other tools are
+     * impossible.  vmaf/vulkan/ is our exclusive namespace. */
+    const char *suffix = (xdg && xdg[0] != '\0') ? "/vmaf/vulkan/" : "/.cache/vmaf/vulkan/";
+    int n = snprintf(buf, buf_sz, "%s%s%s.bin", base, suffix, uuid);
+    if (n < 0 || (size_t)n >= buf_sz)
+        return -1;
+    return 0;
+}
+
+/* Ensure every directory component of path exists (mkdir -p equivalent).
+ * Modifies path in-place temporarily; restores it before returning. */
+static void mkdir_p(char *path)
+{
+    for (char *p = path + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            (void)mkdir(path, 0755); /* ignore EEXIST */
+            *p = '/';
+        }
+    }
+    (void)mkdir(path, 0755);
+}
+
+/* Load (or create empty) a VkPipelineCache for `device` keyed by the
+ * physical device UUID.  On any error, *out_cache = VK_NULL_HANDLE and
+ * the function returns; callers pass that to vkCreateComputePipelines. */
+static void pipeline_cache_load(VkDevice device, const VkPhysicalDeviceProperties *props,
+                                VkPipelineCache *out_cache)
+{
+    *out_cache = VK_NULL_HANDLE;
+
+    char path[1024];
+    if (build_pipeline_cache_path(props, path, sizeof(path)) != 0)
+        return; /* no usable home dir */
+
+    /* Read existing blob. */
+    void *initial_data = NULL;
+    size_t initial_size = 0;
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        (void)fseek(f, 0, SEEK_END);
+        long file_sz = ftell(f);
+        rewind(f);
+        if (file_sz > 0 && (size_t)file_sz <= PIPELINE_CACHE_MAX_BYTES) {
+            initial_data = malloc((size_t)file_sz);
+            if (initial_data) {
+                size_t n = fread(initial_data, 1, (size_t)file_sz, f);
+                if (n == (size_t)file_sz) {
+                    initial_size = (size_t)file_sz;
+                } else {
+                    free(initial_data);
+                    initial_data = NULL;
+                }
+            }
+        }
+        (void)fclose(f);
+    }
+
+    VkPipelineCacheCreateInfo ci = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+        .initialDataSize = initial_size,
+        .pInitialData = initial_data,
+    };
+    VkPipelineCache cache = VK_NULL_HANDLE;
+    if (vkCreatePipelineCache(device, &ci, NULL, &cache) != VK_SUCCESS)
+        cache = VK_NULL_HANDLE; /* tolerate; callers handle NULL */
+
+    free(initial_data);
+    *out_cache = cache;
+}
+
+/* Serialise the cache to disk, then destroy it.  Silent on error. */
+static void pipeline_cache_save_and_destroy(VkDevice device,
+                                            const VkPhysicalDeviceProperties *props,
+                                            VkPipelineCache cache)
+{
+    if (cache == VK_NULL_HANDLE)
+        return;
+
+    char path[1024];
+    if (build_pipeline_cache_path(props, path, sizeof(path)) == 0) {
+        /* Ensure the parent directory exists. */
+        char dir[1024];
+        size_t len = strlen(path);
+        if (len < sizeof(dir)) {
+            (void)memcpy(dir, path, len + 1);
+            char *slash = strrchr(dir, '/');
+            if (slash) {
+                *slash = '\0';
+                mkdir_p(dir);
+            }
+        }
+
+        size_t data_size = 0;
+        if (vkGetPipelineCacheData(device, cache, &data_size, NULL) == VK_SUCCESS &&
+            data_size > 0 && data_size <= PIPELINE_CACHE_MAX_BYTES) {
+            void *data = malloc(data_size);
+            if (data) {
+                if (vkGetPipelineCacheData(device, cache, &data_size, data) == VK_SUCCESS) {
+                    FILE *f = fopen(path, "wb");
+                    if (f) {
+                        (void)fwrite(data, 1, data_size, f);
+                        (void)fclose(f);
+                    }
+                }
+                free(data);
+            }
+        }
+    }
+
+    vkDestroyPipelineCache(device, cache, NULL);
+}
 
 static int g_volk_loaded = 0;
 
@@ -313,6 +468,13 @@ int vmaf_vulkan_context_new(VmafVulkanContext **out, int device_index)
     volkLoadDevice(ctx->device);
     vkGetDeviceQueue(ctx->device, ctx->queue_family_index, 0, &ctx->queue);
 
+    /* VK-4 (ADR-0499): load the per-device pipeline cache from disk so
+     * vkCreateComputePipelines calls in kernel_template.h can reuse the
+     * driver's compiled pipeline blobs across process invocations.
+     * Failures are silently tolerated; ctx->pipeline_cache stays
+     * VK_NULL_HANDLE and callers fall back to uncached pipeline creation. */
+    pipeline_cache_load(ctx->device, &ctx->props, &ctx->pipeline_cache);
+
     VmaVulkanFunctions vma_fns = {
         .vkGetInstanceProcAddr = vkGetInstanceProcAddr,
         .vkGetDeviceProcAddr = vkGetDeviceProcAddr,
@@ -365,6 +527,14 @@ void vmaf_vulkan_context_destroy(VmafVulkanContext *ctx)
 {
     if (!ctx)
         return;
+    /* VK-4 (ADR-0499): serialise the pipeline cache to disk before
+     * tearing down the device.  Must happen before vkDestroyDevice so
+     * vkGetPipelineCacheData can still query the driver.
+     * pipeline_cache_save_and_destroy is a no-op when pipeline_cache is
+     * VK_NULL_HANDLE (e.g. read-only filesystem, external-handle path). */
+    pipeline_cache_save_and_destroy(ctx->device, &ctx->props, ctx->pipeline_cache);
+    ctx->pipeline_cache = VK_NULL_HANDLE;
+
     /* command_pool + allocator are always libvmaf-owned, even
      * for externally-supplied instance/device handles. */
     if (ctx->command_pool != VK_NULL_HANDLE)

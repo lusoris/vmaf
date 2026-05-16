@@ -287,6 +287,17 @@ changes each frame.
 The required tear-down ordering — pool destroy before pipeline destroy —
 is documented in `libvmaf/src/feature/vulkan/AGENTS.md`.
 
+**T-GPU-OPT-VK-4 (pipeline cache)**: `vmaf_vulkan_context_new()` creates a
+`VkPipelineCache` loaded from
+`${XDG_CACHE_HOME:-$HOME/.cache}/vmaf/vulkan/<device-uuid>.bin` and passes
+it to every `vkCreateComputePipelines` call in `kernel_template.h`. On warm
+starts the driver can skip ISA re-compilation and reuse the cached native
+binary directly. Expected saving: 200–700 ms per full multi-feature Vulkan
+run (varies by driver and feature count). The cache is serialised back to
+disk on `vmaf_vulkan_context_destroy()`. Failures (read-only filesystem,
+missing home dir) fall through to uncached pipeline creation. See
+[ADR-0470](../../adr/0470-vulkan-pipeline-cache.md).
+
 ## What lands next
 
 - Self-hosted Arc runner registration to flip the `Vulkan VIF

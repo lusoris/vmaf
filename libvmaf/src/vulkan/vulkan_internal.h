@@ -155,6 +155,15 @@ struct VmafVulkanContext {
     VmaAllocator allocator;
     VkCommandPool command_pool;
 
+    /* Disk-persistent pipeline cache (VK-4 / ADR-0499).
+     * Loaded from ${XDG_CACHE_HOME:-$HOME/.cache}/vmaf/vulkan/<device-uuid>.bin
+     * at context creation and saved back to the same path on destroy.
+     * Passed to every vkCreateComputePipelines call in kernel_template.h
+     * so the driver can skip pipeline re-linking on warm starts.
+     * VK_NULL_HANDLE if the cache file cannot be created/loaded
+     * (e.g. read-only filesystem); fall-through to uncached create. */
+    VkPipelineCache pipeline_cache;
+
     /* Properties of the selected physical device — feature kernels
      * read these to pick group size, sub-group ops, etc. */
     VkPhysicalDeviceProperties props;
