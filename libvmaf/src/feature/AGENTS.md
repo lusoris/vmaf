@@ -684,10 +684,14 @@ after a port-upstream of any of these files.
   CUDA + Vulkan + SYCL MS-SSIM kernels. On rebase: ensure the
   option metadata stays declared on the GPU paths even if the
   body is still TODO.
-- **psnr chroma Vulkan (T3-15(b), PR #204 open, ADR-0216
-  placeholder)** — `psnr_cb` + `psnr_cr` Vulkan twins next to
-  `psnr_y`
-  ([ADR-0182](../../../docs/adr/0182-gpu-long-tail-batch-1.md)).
+- **`psnr` cross-backend `enable_chroma` option parity (ADR-0453)** —
+  `psnr_cuda`, `psnr_sycl`, and `psnr_vulkan` now honour
+  `enable_chroma` (default `true`) consistently with the CPU reference.
+  Passing `enable_chroma=false` produces luma-only output on all three
+  GPU backends. The option default must remain `true`; any change to the
+  default or the `n_planes` clamp logic requires a coordinated update
+  across all three GPU twins. See CUDA AGENTS.md / Vulkan AGENTS.md
+  invariant notes and [ADR-0453](../../../docs/adr/0453-psnr-enable-chroma-gpu-parity.md).
 - **MobileSal saliency extractor (T6-2a, PR #208 open, ADR-0218
   placeholder)** — first half of T6-2 (encoder-side ROI bundle).
   DNN-backed; opens sessions through
