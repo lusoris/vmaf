@@ -159,6 +159,7 @@ extern VmafFeatureExtractor vmaf_fex_float_psnr_metal;
 extern VmafFeatureExtractor vmaf_fex_float_ansnr_metal;
 extern VmafFeatureExtractor vmaf_fex_float_motion_metal;
 extern VmafFeatureExtractor vmaf_fex_float_moment_metal;
+extern VmafFeatureExtractor vmaf_fex_float_adm_metal;
 #endif
 /* SpEED-QA NR metric scaffold — ADR-0253. */
 extern VmafFeatureExtractor vmaf_fex_speed_qa;
@@ -288,6 +289,8 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     /* T8-1 batch-2 additional consumers (ADR-0361): 4 float features. */
     &vmaf_fex_float_psnr_metal, &vmaf_fex_float_ansnr_metal, &vmaf_fex_float_motion_metal,
     &vmaf_fex_float_moment_metal,
+    /* T8-2a / ADR-0424: float_adm Metal twin. */
+    &vmaf_fex_float_adm_metal,
 #endif
     &vmaf_fex_speed_qa, &vmaf_fex_lpips, &vmaf_fex_dists_sq, &vmaf_fex_fastdvdnet_pre,
     &vmaf_fex_mobilesal, &vmaf_fex_transnet_v2, &vmaf_fex_null, NULL};
