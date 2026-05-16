@@ -361,6 +361,21 @@ libvmaf/
   yet wired — it can be added later once at least 5 parsers carry
   harnesses.
 
+- **`c_args : vmaf_cflags_common` is REQUIRED on every `static_library()` call
+  in `libvmaf/src/meson.build`** (fork-local,
+  [ADR-0379](../docs/adr/0379-libvmaf-symbol-visibility.md) / audit
+  finding 2b, 2026-05-16).  Every internal helper that is NOT declared in
+  `libvmaf/include/libvmaf/` MUST have hidden visibility so it does not
+  appear in the DSO dynamic symbol table.  The canonical pattern is the
+  `libvmaf_cpu_static_lib` precedent: pass `c_args : vmaf_cflags_common`
+  (which carries `-fvisibility=hidden`) to the `static_library()` call.
+  As a belt-and-suspenders guard, also annotate internal function
+  declarations with `VMAF_HIDDEN` (defined in
+  `libvmaf/include/libvmaf/macros.h`).  Omitting `c_args` from a new
+  static_library() target silently re-opens the leak — the CI nm gate
+  (`nm -D --defined-only build/src/libvmaf.so.3 | grep " T " | grep -v "vmaf_"`)
+  catches it.
+
 Backend-specific orientation:
 
 - [src/cuda/AGENTS.md](src/cuda/AGENTS.md) — CUDA backend runtime

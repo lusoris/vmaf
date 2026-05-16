@@ -7,29 +7,6 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
-No rebase impact: `fix/nvtx-cuda-dependency-guard-2026-05-16` adds a
-meson `error()` guard to `libvmaf/src/meson.build` for the
-`enable_nvtx=true` + `enable_cuda=false` combination. The guard is
-fork-additive: upstream Netflix/vmaf does not enable NVTX, so no
-sync-upstream conflict is expected. If upstream ever adds their own
-NVTX guard, the merge is a no-op (both sides add the same intent).
-## fix/cpu-symbol-visibility-2026-05-16
-
-No rebase impact: touches only `libvmaf/src/meson.build` (adding `c_args :
-vmaf_cflags_common` to `libvmaf_cpu_static_lib`). This is a fork-local build
-rule; Netflix/vmaf does not use Meson. No upstream-shared C sources, headers,
-or feature extractors are modified. No sync-upstream conflicts expected.
-
-## fix/saliency-per-mb-eval-2026-05-15 — integer_vif enable_chroma
-
-**`libvmaf/src/feature/integer_vif.c`**: adds `enable_chroma` bool field to
-`VifState`, a new `VmafOption` entry, a YUV400 clamp in `init`, and eight new
-keys in `provided_features`. If upstream Netflix ever adds chroma support to
-`integer_vif`, resolve by keeping their implementation and dropping the fork's
-`extract_plane` helper, or rebasing it if the upstream approach differs.
-
-No rebase conflict expected on the luma path — only additive changes.
-
 ## fix/sycl-motion-fps-weight-vulkan-import-status-2026-05-16
 
 **Sub-task B -- `integer_motion_v2_sycl.cpp`**: adds `motion_fps_weight`
@@ -251,6 +228,28 @@ cover several PRs in one workstream; cross-link from the ID heading.
   spawning ffmpeg until a PR adds explicit plane semantics.
 - **Re-test**:
   `PYTHONPATH=ai/src .venv/bin/python -m pytest ai/tests/test_frame_loader.py -q`
+
+### fix/mkdocs-strict-pre-push-2026-05-15 — mkdocs strict-mode pre-push hook
+
+- **Touches**: `scripts/git-hooks/pre-push-mkdocs-strict.sh` (new),
+  `scripts/git-hooks/pre-push` (delegation call appended),
+  `.pre-commit-config.yaml` (new `mkdocs-strict` local hook entry),
+  `docs/adr/0466-mkdocs-strict-pre-push-hook.md` (new ADR).
+- **Invariant**: The hook gate mirrors the CI `docs.yml` lane (ADR-0403):
+  `mkdocs build --strict --quiet` with the repo-root `mkdocs.yml`. Keeping
+  the hook's config-file flag pointed at `mkdocs.yml` in the repo root is
+  load-bearing — if `mkdocs.yml` is ever moved, update
+  `pre-push-mkdocs-strict.sh` in the same PR. The `SKIP=mkdocs-strict`
+  bypass token is the per-hook escape hatch; preserve it across rebases so
+  the CI-gate-mirror contract (which also respects `SKIP`) stays coherent.
+- **Re-test**:
+
+  ```shell
+  # Touch a docs file with a known-good anchor, push — hook should pass:
+  touch docs/index.md && git push
+  # Touch docs/index.md, add a broken anchor ref, push — hook should block:
+  echo "[bad](#nonexistent)" >> docs/index.md && git push
+  ```
 
 ### fix/dists-extractor-2026-05-14 — DISTS-Sq extractor smoke surface
 
@@ -34882,33 +34881,41 @@ ninja -C build test/test_cli_parse
 
 ---
 
-## 2026-05-15 — Tiny-AI ONNX Blob Storage Migration (ADR-0457)
+## `fix/saliency-per-mb-eval-2026-05-15` — cpu-static-lib visibility fix (Batch 6)
 
-**Files removed from working tree** (still in git history):
+**Branch**: `fix/saliency-per-mb-eval-2026-05-15`
 
-- `model/tiny/transnet_v2.onnx` (30.8 MB)
-- `model/tiny/fastdvdnet_pre.onnx` (10.0 MB)
-- `model/tiny/lpips_sq.onnx` (3.3 MB)
+**Files touched**: `libvmaf/src/meson.build`,
+`libvmaf/src/cpu.h`,
+`libvmaf/src/x86/cpu.h`,
+`libvmaf/src/arm/cpu.h`,
+`libvmaf/include/libvmaf/macros.h`,
+`libvmaf/AGENTS.md`.
 
-**Replaced with**: `tiny-blobs-v1` GitHub Release attachments
-(`https://github.com/lusoris/vmaf/releases/download/tiny-blobs-v1/<file>`)
-fetched on demand by `scripts/ai/fetch-tiny-blobs.sh`.
+**ABI note**: this change removes 4 symbols
+(`vmaf_get_cpu_flags`, `vmaf_get_cpu_flags_x86`, `vmaf_init_cpu`,
+`vmaf_set_cpu_flags_mask`) from the dynamic symbol table of `libvmaf.so`.
+These symbols were never declared in any public header and never documented;
+their presence was a de-facto ABI leak (audit finding 2b).  Removing them is
+NOT a SONAME bump — they were unintentionally exported and carry no stability
+guarantee.  Any downstream code that was resolving these via `dlsym` was
+depending on undocumented internals.
 
-**Rebase impact**: minimal. Upstream Netflix/vmaf does not ship these
-ONNX files (they are fork-local tiny-AI artefacts). A rebase will not
-re-introduce them.
-
-**Invariant to preserve on rebase**: any new ONNX file added to
-`model/tiny/` that is ≥ 1 MB must follow the same pattern (upload to
-the next `tiny-blobs-vN` release, set `release_url` in `registry.json`,
-add a `.gitignore` entry, do NOT `git add` the file). Files below 1 MB
-stay inline.
+**Rebase impact**: low.  `libvmaf/src/meson.build` is an upstream-shared file,
+but the `libvmaf_cpu_static_lib` block is entirely fork-added (upstream uses
+the sources directly in the main `static_library` call).  On any upstream sync
+that restructures the CPU source gathering, verify that the merged block still
+carries `c_args : vmaf_cflags_common`; otherwise the 4 symbols silently
+reappear.  The `VMAF_HIDDEN` annotations on the function declarations provide
+the belt-and-suspenders guard.
 
 **Smoke-test after rebase**:
 
 ```bash
-scripts/ai/fetch-tiny-blobs.sh --check  # expect: verified=3 failures=0
-scripts/ai/fetch-tiny-blobs.sh          # expect: idempotent no-op
+meson setup build -Denable_cuda=false -Denable_sycl=false
+ninja -C build src/libvmaf.so.3.0.0
+nm -D --defined-only build/src/libvmaf.so.3.0.0 | grep -E 'vmaf_(get_cpu_flags|init_cpu|set_cpu_flags_mask)'
+# Must print nothing (symbols correctly hidden)
 ```
 
 ---

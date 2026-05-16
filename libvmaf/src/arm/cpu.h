@@ -19,6 +19,8 @@
 #ifndef __VMAF_SRC_ARM_CPU_H__
 #define __VMAF_SRC_ARM_CPU_H__
 
+#include "libvmaf/macros.h"
+
 enum CpuFlags {
     VMAF_ARM_CPU_FLAG_NEON = 1 << 0,
     /* SVE2 (T7-38) — runtime-detected via getauxval(AT_HWCAP2) &
@@ -28,6 +30,8 @@ enum CpuFlags {
     VMAF_ARM_CPU_FLAG_SVE2 = 1 << 1,
 };
 
-unsigned vmaf_get_cpu_flags_arm(void);
+/* Belt-and-suspenders: hidden even if the TU is built without
+ * -fvisibility=hidden.  See ADR-0379 / audit finding 2b. */
+VMAF_HIDDEN unsigned vmaf_get_cpu_flags_arm(void);
 
 #endif /* __VMAF_SRC_ARM_CPU_H__ */
