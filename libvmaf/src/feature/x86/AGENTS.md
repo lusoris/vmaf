@@ -24,6 +24,13 @@ contains only kernel TUs.
 
 ## Ground rules
 
+- **Every SIMD `.h` file MUST be self-contained.** Include every
+  standard header that names a type used in the file's own declarations
+  — do not rely on transitive includes from consumer `.c` files. In
+  particular, any header that declares a `ptrdiff_t` parameter MUST
+  include `<stddef.h>` directly. Standalone-include failures on Apple
+  Clang and Ubuntu ARM Clang are CI regressions (see PR #914 for the
+  cambi family; fixed for the motion family in the accompanying PR).
 - **Parent rules** apply in full (see [../AGENTS.md](../AGENTS.md) +
   [../../AGENTS.md](../../AGENTS.md)).
 - **Bit-exactness with the scalar reference is non-negotiable.** Every

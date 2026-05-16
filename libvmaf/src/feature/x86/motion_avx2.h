@@ -19,6 +19,7 @@
 #ifndef X86_AVX2_MOTION_H_
 #define X86_AVX2_MOTION_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 void y_convolution_8_avx2(void *src, uint16_t *dst, unsigned width, unsigned height,
