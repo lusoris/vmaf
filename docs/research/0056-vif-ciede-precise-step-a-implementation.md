@@ -1,4 +1,4 @@
-# Research-0054: `precise` decoration audit on `vif.comp` + `ciede.comp` — Step A implementation findings
+# Research-0056: `precise` decoration audit on `vif.comp` + `ciede.comp` — Step A implementation findings
 
 - **Status**: Active
 - **Workstream**: [ADR-0264](../adr/0264-vulkan-1-4-bump-blocked-on-fp-contraction.md), [ADR-0269](../adr/0269-vif-ciede-precise-step-a.md)

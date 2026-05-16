@@ -1,4 +1,4 @@
-# Research-0054 — `vmaf-tune` resolution-aware model selection + CRF offsets
+# Research-0064 — `vmaf-tune` resolution-aware model selection + CRF offsets
 
 - **Status**: Accepted as basis for [ADR-0289](../adr/0289-vmaf-tune-resolution-aware.md)
 - **Date**: 2026-05-03
