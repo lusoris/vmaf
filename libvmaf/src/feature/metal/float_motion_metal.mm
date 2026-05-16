@@ -50,6 +50,7 @@ typedef struct FloatMotionStateMetal {
     size_t blur_buf_size;          /* W × H × sizeof(float) */
 
     double prev_motion_score;
+    double motion_fps_weight;
     size_t partials_count;
     unsigned frame_index;
     unsigned frame_w;
@@ -59,7 +60,20 @@ typedef struct FloatMotionStateMetal {
     VmafDictionary *feature_name_dict;
 } FloatMotionStateMetal;
 
-static const VmafOption options[] = {{0}};
+static const VmafOption options[] = {
+    {
+        .name    = "motion_fps_weight",
+        .alias   = "mfw",
+        .help    = "fps-aware multiplicative weight/correction",
+        .offset  = offsetof(FloatMotionStateMetal, motion_fps_weight),
+        .type    = VMAF_OPT_TYPE_DOUBLE,
+        .default_val = {.d = 1.0},
+        .min     = 0.0,
+        .max     = 5.0,
+        .flags   = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {0},
+};
 
 static int build_pipelines(FloatMotionStateMetal *s, id<MTLDevice> device)
 {
@@ -266,7 +280,11 @@ static int collect_fex_metal(VmafFeatureExtractor *fex, unsigned index,
             "VMAF_feature_motion2_score", motion2, index);
         if (err != 0) { return err; }
     } else {
-        motion2 = (motion_score < s->prev_motion_score) ? motion_score : s->prev_motion_score;
+        /* Apply fps weight to both operands before the min; identity when
+         * motion_fps_weight = 1.0.  Mirrors the HIP and CUDA twin patterns. */
+        const double w_cur  = motion_score * s->motion_fps_weight;
+        const double w_prev = s->prev_motion_score * s->motion_fps_weight;
+        motion2 = (w_cur < w_prev) ? w_cur : w_prev;
         err = vmaf_feature_collector_append_with_dict(
             feature_collector, s->feature_name_dict,
             "VMAF_feature_motion2_score", motion2, index - 1);
@@ -281,9 +299,11 @@ static int flush_fex_metal(VmafFeatureExtractor *fex, VmafFeatureCollector *feat
 {
     FloatMotionStateMetal *s = (FloatMotionStateMetal *)fex->priv;
     if (s->frame_index >= 1) {
+        /* Tail emission: apply fps weight; identity when motion_fps_weight = 1.0. */
         (void)vmaf_feature_collector_append_with_dict(
             feature_collector, s->feature_name_dict,
-            "VMAF_feature_motion2_score", s->prev_motion_score, s->frame_index);
+            "VMAF_feature_motion2_score",
+            s->prev_motion_score * s->motion_fps_weight, s->frame_index);
     }
     return 1;
 }
