@@ -36,6 +36,43 @@
 #include <string>
 #include <vector>
 
+/* std::call_once-protected snapshots of environment variables read during
+ * SYCL state initialisation.  getenv() is not required to be thread-safe
+ * in C11 / C++11 when another thread concurrently calls setenv/putenv.
+ * Caching under std::call_once ensures the lookup happens exactly once
+ * regardless of how many SYCL contexts are opened in parallel.
+ *
+ * Caller contract: set VMAF_SYCL_PROFILE / VMAF_SYCL_TIMING before the
+ * first call to vmaf_sycl_state_init().  Later setenv() calls are not
+ * observed.
+ */
+static std::once_flag g_sycl_profile_once;
+static std::once_flag g_sycl_timing_once;
+static bool g_sycl_profile_enabled = false;
+static bool g_sycl_timing_enabled = false;
+
+static bool sycl_profile_from_env()
+{
+    std::call_once(g_sycl_profile_once, []() {
+        /* NOLINT(concurrency-mt-unsafe) — serialised by call_once; concurrent
+         * setenv is a caller-contract violation per POSIX.1-2008 §2.2.2. */
+        const char *val = getenv("VMAF_SYCL_PROFILE"); // NOLINT(concurrency-mt-unsafe)
+        g_sycl_profile_enabled = (val && val[0] == '1');
+    });
+    return g_sycl_profile_enabled;
+}
+
+static bool sycl_timing_from_env()
+{
+    std::call_once(g_sycl_timing_once, []() {
+        /* NOLINT(concurrency-mt-unsafe) — serialised by call_once; concurrent
+         * setenv is a caller-contract violation per POSIX.1-2008 §2.2.2. */
+        const char *val = getenv("VMAF_SYCL_TIMING"); // NOLINT(concurrency-mt-unsafe)
+        g_sycl_timing_enabled = (val && val[0] == '1');
+    });
+    return g_sycl_timing_enabled;
+}
+
 /* Portable monotonic timer in milliseconds. std::chrono::steady_clock
  * is guaranteed monotonic by the C++ standard and is available on
  * every supported host (Linux gcc/clang/icpx + Windows MSVC/icpx-cl).
@@ -223,11 +260,8 @@ extern "C" int vmaf_sycl_state_init(VmafSyclState **sycl_state, VmafSyclConfigur
         }
 
         sycl::property_list props;
-        // Allow runtime profiling via environment variable
-        bool profiling = cfg.enable_profiling;
-        const char *env_prof = getenv("VMAF_SYCL_PROFILE");
-        if (env_prof && env_prof[0] == '1')
-            profiling = true;
+        // Allow runtime profiling via environment variable (cached once via call_once)
+        bool profiling = cfg.enable_profiling || sycl_profile_from_env();
         if (profiling) {
             props = sycl::property_list{sycl::property::queue::in_order{},
                                         sycl::property::queue::enable_profiling{}};
@@ -246,8 +280,7 @@ extern "C" int vmaf_sycl_state_init(VmafSyclState **sycl_state, VmafSyclConfigur
         auto *s = new VmafSyclState(std::move(q), std::move(cq));
         s->profiling_enabled = profiling;
         // Per-extractor timing via q.wait() — no enable_profiling needed
-        const char *env_timing = getenv("VMAF_SYCL_TIMING");
-        s->extractor_timing = (env_timing && env_timing[0] == '1');
+        s->extractor_timing = sycl_timing_from_env();
         s->has_fp64 = has_fp64;
         *sycl_state = s;
         return 0;

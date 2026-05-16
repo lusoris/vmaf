@@ -54,6 +54,7 @@ libvmaf/
 
 ## Governing ADRs
 
+- [ADR-0453](../docs/adr/0453-race-safe-static-globals-and-getenv.md) — concurrency contract for module-level statics and `getenv`: see invariant below.
 - [ADR-0119](../docs/adr/0119-cli-precision-default-revert.md) — CLI precision default `%.6f` (Netflix-compat golden gate); `--precision=max` opts in to `%.17g`. Propagates to `output.c` and Python. Supersedes [ADR-0006](../docs/adr/0006-cli-precision-17g-default.md).
 - [ADR-0012](../docs/adr/0012-coding-standards-jpl-cert-misra.md) — the coding-standards stack.
 - [ADR-0022](../docs/adr/0022-inference-runtime-onnx.md) — execution-provider mapping ORT↔backends.
@@ -63,6 +64,14 @@ libvmaf/
   thread-local locale abstraction (`thread_locale.h`) for all numeric I/O.
 
 ## Rebase-sensitive invariants
+
+- **Every `getenv()` call MUST be cached via `pthread_once` (C) or `std::call_once` (C++); every mutable `static` global MUST be `_Atomic`**
+  (fork-local, [ADR-0453](../docs/adr/0453-race-safe-static-globals-and-getenv.md)).
+  The `concurrency-mt-unsafe` clang-tidy check is the gate.  Exception: when
+  the variable name is dynamic and the call site is provably single-threaded
+  (e.g. extractor `init` hooks), annotate with
+  `// NOLINT(concurrency-mt-unsafe) — ADR-0453: init-single-threaded` and
+  document the invariant in the function doc-comment.
 
 - **`feature_extractor_vector_append()` deduplicates by provided-feature
   names, not extractor name** (fork-local, ADR-0385 / T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE):

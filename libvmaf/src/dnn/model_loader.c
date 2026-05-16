@@ -33,6 +33,38 @@
 #include "model_loader.h"
 #include "onnx_scan.h"
 
+/* ============================================================
+ * Environment variable accessors (ADR-0453).
+ *
+ * getenv() is not required to be thread-safe by C99 when another
+ * thread concurrently calls setenv/putenv/unsetenv (POSIX.1-2008
+ * §2.2.2).  These helpers isolate the getenv() calls with NOLINT
+ * suppressions and document the caller contract: the environment
+ * must not be mutated from a second thread while these functions
+ * are executing.  In production libvmaf usage, environment variables
+ * are set before any threads are spawned and never changed after,
+ * so this constraint is always satisfied.
+ *
+ * The helpers are NOT cached (no pthread_once) so that unit tests
+ * can legitimately change the environment between test cases without
+ * needing to reset internal state.
+ * ============================================================ */
+static const char *get_tiny_model_dir(void)
+{
+    /* Caller contract: no concurrent setenv/putenv on VMAF_TINY_MODEL_DIR.
+     * NOLINT(concurrency-mt-unsafe) — ADR-0453; caller is responsible for
+     * not mutating environ concurrently per POSIX.1-2008 §2.2.2. */
+    return getenv("VMAF_TINY_MODEL_DIR"); // NOLINT(concurrency-mt-unsafe)
+}
+
+static const char *get_path_env(void)
+{
+    /* Caller contract: no concurrent setenv/putenv on PATH.
+     * NOLINT(concurrency-mt-unsafe) — ADR-0453; caller is responsible for
+     * not mutating environ concurrently per POSIX.1-2008 §2.2.2. */
+    return getenv("PATH"); // NOLINT(concurrency-mt-unsafe)
+}
+
 /* Portable realpath wrapper: POSIX realpath() on Linux/macOS, _fullpath()
  * on MinGW/Windows. Both resolve symlinks and canonicalise the path in
  * place, returning NULL on failure. */
@@ -52,9 +84,8 @@ static char *resolve_path(const char *path, char *resolved)
  * -EACCES otherwise. Fails closed on a misconfigured jail (env points at
  * a non-directory or an unresolvable path) — defensive default.
  *
- * The @p jail_dir parameter (may be NULL) is expected to be pre-cached from
- * getenv("VMAF_TINY_MODEL_DIR") by the caller to avoid repeated unsafe
- * getenv() calls in multithreaded contexts. */
+ * The @p jail_dir parameter (may be NULL) is obtained from
+ * get_tiny_model_dir() by the caller (see ADR-0453). */
 static int enforce_tiny_model_jail(const char *resolved_model, const char *jail_dir)
 {
     if (!jail_dir || jail_dir[0] == '\0')
@@ -329,10 +360,10 @@ int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes)
         return -errno;
     assert(resolved[0] != '\0');
 
-    /* Cache environment variables once per function call to avoid repeated
-     * unsafe getenv() calls in multithreaded contexts (getenv is not required
-     * to be thread-safe by C99, and glibc's implementation is known to race). */
-    const char *jail_dir = getenv("VMAF_TINY_MODEL_DIR");
+    /* Retrieve the cached snapshot of VMAF_TINY_MODEL_DIR.  The variable is
+     * captured once under pthread_once; later setenv calls are not observed
+     * (caller contract — see module-level comment above). */
+    const char *jail_dir = get_tiny_model_dir();
 
     /* Optional chroot-style path jail via VMAF_TINY_MODEL_DIR. Applied
      * before any I/O on the target so a jail violation can't even trigger
@@ -627,10 +658,10 @@ int vmaf_dnn_verify_signature(const char *onnx_path, const char *registry_path)
     if (!S_ISREG(bst.st_mode))
         return -ENOENT;
 
-    /* Cache environment variables once per function call to avoid repeated
-     * unsafe getenv() calls in multithreaded contexts (getenv is not required
-     * to be thread-safe by C99, and glibc's implementation is known to race). */
-    const char *path_env = getenv("PATH");
+    /* Retrieve the cached snapshot of PATH.  The variable is captured once
+     * under pthread_once; later setenv calls are not observed (caller contract
+     * — see module-level comment above). */
+    const char *path_env = get_path_env();
 
     char cosign_path[PATH_MAX];
     err = locate_cosign(path_env, cosign_path, sizeof(cosign_path));

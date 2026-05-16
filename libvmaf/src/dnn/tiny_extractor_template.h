@@ -92,6 +92,9 @@ extern "C" {
  * @return non-NULL path on success, NULL when neither source provided
  *         a usable path. The returned pointer aliases either
  *         @p option_value or `getenv(env_var)`; do not free it.
+ *
+ * @note Thread-safety: this function calls getenv() and must be invoked
+ *       only from the single-threaded extractor init path.  See ADR-0453.
  */
 static inline const char *vmaf_tiny_ai_resolve_model_path(const char *feature_name,
                                                           const char *option_value,
@@ -101,7 +104,11 @@ static inline const char *vmaf_tiny_ai_resolve_model_path(const char *feature_na
         return option_value;
     }
     if (env_var && *env_var) {
-        const char *env = getenv(env_var);
+        /* getenv() is safe here: called only during single-threaded init
+         * (ADR-0453).  env_var is dynamic so a pthread_once static cache
+         * is not applicable; the init-single-threaded contract is the guard.
+         * NOLINT(concurrency-mt-unsafe) — ADR-0453: init-single-threaded. */
+        const char *env = getenv(env_var); // NOLINT(concurrency-mt-unsafe)
         if (env && *env) {
             return env;
         }

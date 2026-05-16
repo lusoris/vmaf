@@ -42,6 +42,13 @@ Runtime directly.
   [ADR-0041](../../../docs/adr/0041-lpips-sq-extractor.md).
 - **Every tiny-AI change ships docs** under `docs/ai/` in the same PR. See
   [ADR-0042](../../../docs/adr/0042-tinyai-docs-required-per-pr.md).
+- **`getenv()` calls in `model_loader.c` MUST go through the module-level
+  `get_tiny_model_dir()` and `get_path_env()` helpers (ADR-0453).** Direct bare
+  `getenv()` calls outside these helpers will trip the `concurrency-mt-unsafe`
+  clang-tidy gate. The helpers carry the required NOLINT suppression with the
+  ADR-0453 citation and document the caller contract (no concurrent setenv from
+  another thread). Do NOT add `pthread_once` caching — it breaks test isolation
+  (tests legitimately set env vars between cases in the same process).
 - **Tiny-AI extractor template is the dedup contract**
   ([ADR-0250](../../../docs/adr/0250-tiny-ai-extractor-template.md)).
   New tiny-AI feature extractors use the helpers in

@@ -1,4 +1,4 @@
-# Research-0134: saliency per-block evaluation
+# Research 0134: saliency per-block evaluation
 
 ## Question
 

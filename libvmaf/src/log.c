@@ -20,6 +20,7 @@
 #include "log.h"
 
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #ifdef _WIN32
 /* MSVC provides isatty / fileno via <io.h> (named with leading underscores;
@@ -31,15 +32,21 @@
 #include <unistd.h>
 #endif
 
-static enum VmafLogLevel vmaf_log_level = VMAF_LOG_LEVEL_INFO;
-static int istty = 0;
+/* _Atomic on the two module-level globals avoids data races when
+ * vmaf_set_log_level() is called from one thread while vmaf_log() is
+ * running on another.  Relaxed ordering is sufficient: both fields are
+ * independently readable hints; no synchronisation with other memory
+ * operations is required.  Zero overhead on x86-64 (MOV is already
+ * atomic for aligned int-sized loads/stores). */
+static _Atomic(int) vmaf_log_level_atomic = VMAF_LOG_LEVEL_INFO;
+static _Atomic(int) istty_atomic = 0;
 
 void vmaf_set_log_level(enum VmafLogLevel level)
 {
     level = level < VMAF_LOG_LEVEL_NONE ? VMAF_LOG_LEVEL_NONE : level;
     level = level > VMAF_LOG_LEVEL_DEBUG ? VMAF_LOG_LEVEL_DEBUG : level;
-    vmaf_log_level = level;
-    istty = isatty(fileno(stderr));
+    atomic_store_explicit(&vmaf_log_level_atomic, (int)level, memory_order_relaxed);
+    atomic_store_explicit(&istty_atomic, isatty(fileno(stderr)), memory_order_relaxed);
 }
 
 static const char *level_str[] = {
@@ -60,12 +67,14 @@ void vmaf_log(enum VmafLogLevel level, const char *fmt, ...)
 {
     if (level <= VMAF_LOG_LEVEL_NONE)
         return;
-    if (level > vmaf_log_level)
+    const int cur_level = atomic_load_explicit(&vmaf_log_level_atomic, memory_order_relaxed);
+    if (level > (enum VmafLogLevel)cur_level)
         return;
 
+    const int tty = atomic_load_explicit(&istty_atomic, memory_order_relaxed);
     va_list args;
-    (void)fprintf(stderr, "%slibvmaf%s %s%s%s ", istty ? "\x1B[35m" : "", istty ? "\x1B[0m" : "",
-                  istty ? level_str_color[level] : "", level_str[level], istty ? "\x1B[0m" : "");
+    (void)fprintf(stderr, "%slibvmaf%s %s%s%s ", tty ? "\x1B[35m" : "", tty ? "\x1B[0m" : "",
+                  tty ? level_str_color[level] : "", level_str[level], tty ? "\x1B[0m" : "");
     va_start(args, fmt);
     (void)vfprintf(stderr, fmt, args);
     va_end(args);

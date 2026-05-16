@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <string.h>
 
 #include "gpu_picture_pool.h"
@@ -126,9 +127,14 @@ int vmaf_gpu_picture_pool_fetch(VmafGpuPicturePool *pool, VmafPicture *pic)
         return err;
 
 #ifdef HAVE_NVTX
+    /* _Atomic counter: NVTX range labels must be unique per invocation and
+     * vmaf_gpu_picture_pool_fetch() is called from multiple threads.
+     * atomic_fetch_add with relaxed ordering gives a unique sequence number
+     * without any cross-memory synchronisation cost. */
+    static _Atomic(unsigned) glob = 0u;
     char n[40];
-    static unsigned glob = 0;
-    snprintf(n, sizeof(n), "fetch idx %d %d", pic_idx, glob++);
+    const unsigned seq = atomic_fetch_add_explicit(&glob, 1u, memory_order_relaxed);
+    (void)snprintf(n, sizeof(n), "fetch idx %u %u", pic_idx, seq);
     nvtxRangePushA(n);
 #endif
 
