@@ -59,6 +59,17 @@ ADR-0234) catches drift but only after a full GPU run.
 
 ## Rebase-sensitive invariants
 
+- **Compute shaders MUST declare a workgroup size that is a multiple of 32 (or 64)
+  — never `layout(local_size_x=1,local_size_y=1,local_size_z=1)`**, which leaves
+  31 of 32 lanes idle per warp on NVIDIA and 63 of 64 idle per wavefront on AMD.
+  Per-row (or per-column) sequential work uses `local_size_x=WG_X` with the grid
+  sized to `ceil(rows/WG_X)`; each invocation handles one row/column and
+  bounds-checks against the actual row/column count. This pattern was established
+  as the fork standard by the VK-1 (blur shaders) and VK-2 (cambi SAT) fixes.
+  The host-side constant names follow the pattern `WG_X` / `WG_Y` so dispatch
+  math is consistent with the shader's `local_size_*` declaration. Do not revert
+  a shader to `local_size_x=1` without an ADR that justifies the exception.
+
 - **`psnr_vulkan.c` chroma plane loop and `enable_chroma` option**
   ([ADR-0216](../../../../docs/adr/0216-vulkan-chroma-psnr.md) /
   [ADR-0453](../../../../docs/adr/0453-psnr-enable-chroma-gpu-parity.md)).
