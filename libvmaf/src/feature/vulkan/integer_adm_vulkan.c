@@ -2,10 +2,18 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  ADM (Adaptive Detail Model) feature kernel on the Vulkan backend
- *  (T5-1c-adm). Mirrors the SYCL port in
+ *  integer_adm_vulkan.c — Integer ADM (Adaptive Detail Model) feature
+ *  extractor on the Vulkan backend (ADR-0468).
+ *
+ *  Canonical Vulkan port of libvmaf/src/feature/cuda/integer_adm_cuda.c.
+ *  Mirrors the SYCL port in
  *  libvmaf/src/feature/sycl/integer_adm_sycl.cpp and the CPU reference
  *  in libvmaf/src/feature/integer_adm.c.
+ *
+ *  Supersedes the legacy adm_vulkan.c (which had an inconsistent name);
+ *  adm_vulkan.c is retained as a build-compatibility shim. The
+ *  canonical extractor name is now "integer_adm_vulkan" and the
+ *  GLSL kernels live in integer_adm.comp / integer_adm_reduce.comp.
  *
  *  Per-frame pipeline (per scale, 4 scales total):
  *    Stage 0 — DWT vertical (ref+dis fused, dim_z=2)
@@ -51,8 +59,8 @@
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_internal.h"
 
-#include "adm_spv.h"        /* per-WG accumulator kernel */
-#include "adm_reduce_spv.h" /* two-level reduction kernel (ADR-0350) */
+#include "integer_adm_spv.h"        /* per-WG accumulator kernel (ADR-0468) */
+#include "integer_adm_reduce_spv.h" /* two-level reduction kernel (ADR-0468 / ADR-0350) */
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -377,8 +385,8 @@ static int create_pipelines(AdmVulkanState *s)
     const VmafVulkanKernelPipelineDesc desc = {
         .ssbo_binding_count = 9U,
         .push_constant_size = (uint32_t)sizeof(AdmPushConsts),
-        .spv_bytes = adm_spv,
-        .spv_size = adm_spv_size,
+        .spv_bytes = integer_adm_spv,
+        .spv_size = integer_adm_spv_size,
         .pipeline_create_info =
             {
                 .stage =
@@ -412,8 +420,8 @@ static int create_pipelines(AdmVulkanState *s)
         const VmafVulkanKernelPipelineDesc reduce_desc = {
             .ssbo_binding_count = 2U,
             .push_constant_size = (uint32_t)sizeof(uint32_t),
-            .spv_bytes = adm_reduce_spv,
-            .spv_size = adm_reduce_spv_size,
+            .spv_bytes = integer_adm_reduce_spv,
+            .spv_size = integer_adm_reduce_spv_size,
             .pipeline_create_info = {.stage = {.pName = "main"}},
             .max_descriptor_sets = (uint32_t)(ADM_NUM_SCALES * 2),
         };
@@ -1244,12 +1252,8 @@ static const char *provided_features[] = {"VMAF_integer_feature_adm2_score",
                                           "integer_adm_den_scale3",
                                           NULL};
 
-/* Legacy symbol — retained for backward compatibility.
- * The canonical extractor is vmaf_fex_integer_adm_vulkan in
- * integer_adm_vulkan.c (ADR-0468).  This symbol is no longer
- * registered in feature_extractor.c model dispatch tables. */
-VmafFeatureExtractor vmaf_fex_integer_adm_vulkan_legacy = {
-    .name = "adm_vulkan",
+VmafFeatureExtractor vmaf_fex_integer_adm_vulkan = {
+    .name = "integer_adm_vulkan",
     .init = init,
     .extract = extract,
     .close = close_fex,
