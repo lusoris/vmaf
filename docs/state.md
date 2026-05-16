@@ -4,6 +4,7 @@
 _Updated: 2026-05-16 (build-matrix §1a fixed — `enable_nvtx=true` without `enable_cuda=true` now produces a clear meson error instead of an opaque include-dir not-found failure; row added to Recently closed.)_
 _Updated: 2026-05-16 (T-CAMBI-CUDA-HOST-PREPROCESSING-SEGV closed — `cambi_cuda` SIGSEGV on every frame fixed by downloading dist_pic GPU→host before host preprocessing; row added to Recently closed.)_
 _Updated: 2026-05-16 (Audit findings #7, #8, #10 fixed — `pthread_*_init` return checks in `thread_pool.c`, NULL-guard + return-error in `adm_dwt2_*` in `adm_tools.c`, `w`/`h` overflow guard in `vmaf_picture_alloc`; rows added to Recently closed.)
+_Updated: 2026-05-16 (MS-SSIM GPU option-parity bug fixed — CUDA `float_ms_ssim` extractor now honours `enable_db` and `clip_db`; SYCL extractor now honours `enable_lcs`, `enable_db`, and `clip_db`; previously all were silently dropped; ADR-0460 / Research-0137; row added to Recently closed.)_
 _Updated: 2026-05-16 (GPU PSNR `enable_chroma` option-parity bug fixed — `psnr_cuda`, `psnr_sycl`, `psnr_vulkan` now honour `enable_chroma=false`; previously the option was silently dropped and GPU extractors emitted full chroma on non-YUV400 sources regardless of the flag; ADR-0453 / Research-0136; row added to Recently closed.)_
 _Updated: 2026-05-16 (T-VK-PSNR-CHROMA-FLOOR fixed — psnr_vulkan.c chroma ceiling-division bug closed; Research-0094 / dedup-audit finding #5.)_
 _Updated: 2026-05-16 (Issue #857 closed — cambi_cuda SIGSEGV fixed; wrong kernel parameter type in cuLaunchKernel dispatch helpers; row added to Recently closed.)_
@@ -105,7 +106,7 @@ landed fix yet._
 
 ## Recently closed
 
-| T-BUILD-NVTX-CUDA-HARD-ERROR | `meson setup -Denable_nvtx=true -Denable_cuda=false` hard-errored with "Include dir does not exist" on hosts without a CUDA installation; now emits a clear `error()` diagnostic | — | fix/nvtx-cuda-dependency-guard-2026-05-16 | `meson setup build -Denable_nvtx=true -Denable_cuda=false` → expect error message | (last ~3 months)
+| T-GPU-MS-SSIM-ENABLE-DB-SILENT | `float_ms_ssim_cuda` silently ignored `enable_db` / `clip_db`; `float_ms_ssim_sycl` silently ignored `enable_lcs`, `enable_db`, `clip_db` — GPU emitted linear scores regardless | ADR-0460 / Research-0137 | fix/ms-ssim-gpu-enable-db-lcs-sycl-2026-05-16 | — | (last ~3 months)
 | T-GPU-PSNR-ENABLE-CHROMA-SILENT | `psnr_cuda` / `psnr_sycl` / `psnr_vulkan` silently ignored `enable_chroma=false`, emitting full chroma on non-YUV400 sources and diverging from CPU | ADR-0453 / Research-0136 | fix/psnr-enable-chroma-gpu-parity-2026-05-16 | — | (last ~3 months)
 
 _Bugs closed in the last ~90 days. Older entries roll off into

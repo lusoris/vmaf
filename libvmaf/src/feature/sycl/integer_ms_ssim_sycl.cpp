@@ -26,6 +26,7 @@
 
 #include <sycl/sycl.hpp>
 
+#include <algorithm>
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
@@ -109,6 +110,11 @@ struct MsSsimStateSycl {
 
     bool has_pending;
     unsigned pending_index;
+
+    /* CPU-option parity (wiring-audit-2026-05-16): matches CPU float_ms_ssim */
+    bool enable_lcs; /* emit per-scale L/C/S triples (float_ms_ssim_{l,c,s}_scale{0..4}) */
+    bool enable_db;  /* return dB-domain score: -10*log10(1 - ms_ssim) */
+    bool clip_db;    /* clip linear ms_ssim to [0, 1] before dB conversion */
 
     VmafDictionary *feature_name_dict;
 };
@@ -273,7 +279,30 @@ static void launch_vert_lcs(sycl::queue &q, const float *h_ref_mu, const float *
 
 extern "C" {
 
-static const VmafOption options_ms_ssim_sycl[] = {{0}};
+static const VmafOption options_ms_ssim_sycl[] = {
+    {
+        .name = "enable_lcs",
+        .help = "enable luminance, contrast and structure intermediate output",
+        .offset = offsetof(MsSsimStateSycl, enable_lcs),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+    },
+    {
+        .name = "enable_db",
+        .help = "return dB-domain MS-SSIM score: -10*log10(1 - ms_ssim)",
+        .offset = offsetof(MsSsimStateSycl, enable_db),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+    },
+    {
+        .name = "clip_db",
+        .help = "clip linear ms_ssim to [0, 1] before dB conversion",
+        .offset = offsetof(MsSsimStateSycl, clip_db),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+    },
+    {0},
+};
 
 static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
@@ -443,8 +472,36 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
                   std::pow(std::fabs(s_means[i]), (double)GAMMAS[i]);
     }
 
-    return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "float_ms_ssim", msssim, index);
+    /* dB conversion — mirrors CPU float_ms_ssim.c behaviour exactly. */
+    double score = msssim;
+    if (s->enable_db) {
+        if (s->clip_db)
+            score = std::clamp(score, 0.0, 1.0);
+        score = -10.0 * std::log10(1.0 - score);
+    }
+
+    int err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                      "float_ms_ssim", score, index);
+    if (s->enable_lcs) {
+        static const char *const l_names[MS_SSIM_SCALES] = {
+            "float_ms_ssim_l_scale0", "float_ms_ssim_l_scale1", "float_ms_ssim_l_scale2",
+            "float_ms_ssim_l_scale3", "float_ms_ssim_l_scale4",
+        };
+        static const char *const c_names[MS_SSIM_SCALES] = {
+            "float_ms_ssim_c_scale0", "float_ms_ssim_c_scale1", "float_ms_ssim_c_scale2",
+            "float_ms_ssim_c_scale3", "float_ms_ssim_c_scale4",
+        };
+        static const char *const s_names[MS_SSIM_SCALES] = {
+            "float_ms_ssim_s_scale0", "float_ms_ssim_s_scale1", "float_ms_ssim_s_scale2",
+            "float_ms_ssim_s_scale3", "float_ms_ssim_s_scale4",
+        };
+        for (int i = 0; i < MS_SSIM_SCALES; i++) {
+            err |= vmaf_feature_collector_append(feature_collector, l_names[i], l_means[i], index);
+            err |= vmaf_feature_collector_append(feature_collector, c_names[i], c_means[i], index);
+            err |= vmaf_feature_collector_append(feature_collector, s_names[i], s_means[i], index);
+        }
+    }
+    return err;
 }
 
 static int close_fex_sycl(VmafFeatureExtractor *fex)
