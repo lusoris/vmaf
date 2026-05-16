@@ -34967,6 +34967,29 @@ update in `cambi.c`.
 
 ---
 
+## `refactor/gpu-dispatch-parse-dedup` — shared GPU dispatch env tokenizer (ADR-0483)
+
+**Branch**: `refactor/gpu-dispatch-parse-dedup`
+
+**Files touched**:
+`libvmaf/src/gpu_dispatch_parse.h` (new),
+`libvmaf/src/cuda/dispatch_strategy.c`,
+`libvmaf/src/sycl/dispatch_strategy.cpp`,
+`libvmaf/src/vulkan/dispatch_strategy.c`.
+
+**Rebase impact**: low. The three `dispatch_strategy` TUs are fork-local;
+upstream Netflix/vmaf does not have `dispatch_strategy.c` files. No public
+headers, no meson sources, and no link-time symbols change — the new
+`gpu_dispatch_parse.h` is a header-only `static inline` and is not added to
+any meson source list.
+
+**Invariant to preserve on rebase**: `k_<backend>_strategy_names[]` index 0
+must equal the backend enum's default value (e.g. `VMAF_CUDA_DISPATCH_DIRECT =
+0`). When adding new strategy enum values, append to both the enum and the
+table; never reorder either.
+
+---
+
 ## `perf/chug-drop-ssimulacra2-cuda-self-vs-self-2026-05-16` — K150K/CHUG self-vs-self extraction schema v2
 
 **Branch**: `perf/chug-drop-ssimulacra2-cuda-self-vs-self-2026-05-16`
