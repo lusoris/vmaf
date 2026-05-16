@@ -211,9 +211,13 @@ _METRIC_ALIASES: dict[str, tuple[str, ...]] = {
     "motion": ("motion", "integer_motion"),
     "motion2": ("motion2", "integer_motion2"),
     "motion3": ("motion3", "integer_motion3"),
-    "psnr_y": ("psnr_y", "integer_psnr_y"),
-    "psnr_cb": ("psnr_cb", "integer_psnr_cb"),
-    "psnr_cr": ("psnr_cr", "integer_psnr_cr"),
+    # Neither psnr.c nor integer_psnr.c ever emits an "integer_psnr_*"
+    # key for per-plane values — they always emit "psnr_y"/"psnr_cb"/"psnr_cr"
+    # directly.  The stale second candidates were unreachable dead entries
+    # (wiring audit 2026-05-16, Layer 3).
+    "psnr_y": ("psnr_y",),
+    "psnr_cb": ("psnr_cb",),
+    "psnr_cr": ("psnr_cr",),
     "float_ssim": ("float_ssim",),
     "float_ms_ssim": ("float_ms_ssim",),
     "cambi": ("cambi",),
