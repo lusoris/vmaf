@@ -1,4 +1,4 @@
-# Research-0107: `vmaf-tune` x264 two-pass gap
+# Research 0107: `vmaf-tune` x264 two-pass gap
 
 ## Question
 
