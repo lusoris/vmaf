@@ -7,6 +7,14 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
+No rebase impact: `fix/chug-extractor-bit-depth-and-cleanups-2026-05-16` touches
+only `ai/scripts/extract_k150k_features.py` (fork-local extraction script),
+`ai/AGENTS.md` (fork-local invariant note), `ai/tests/` (fork-local tests),
+`docs/research/0137-*` (fork-local research digest), and
+`changelog.d/fixed/chug-extractor-bit-depth-and-cleanups.md` (fork-local
+changelog fragment). No upstream-shared code, headers, build files, or
+feature extractors are modified. No sync-upstream conflicts expected.
+
 No rebase impact: `fix/dev-mcp-stage3-and-bundled-fixes-2026-05-16` touches
 only `dev/Containerfile`, `dev/AGENTS.md`, `docs/research/0135-*`, and
 `changelog.d/fixed/dev-mcp-container-stage-3.md`. These are all fork-local

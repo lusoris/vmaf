@@ -587,6 +587,16 @@ threshold). When extending these scripts:
   metadata cells by default, and keep feature/MOS columns unchanged unless
   `--overwrite-metadata` is explicitly passed.
 
+## K150K-A sidecar `keep` invariant (Research-0137)
+
+All sidecar fields consumed by `_geometry_from_sidecar` (currently
+`chug_width_manifest`, `chug_height_manifest`, `chug_framerate_manifest`,
+and `chug_bit_depth`) **MUST** be listed in the `keep` tuple inside
+`_load_jsonl_metadata`. If a new geometry field is added to the sidecar
+JSONL schema, add it to `keep` in the same PR — omitting it silently
+drops the field and can corrupt pixel-format selection (e.g., 10-bit HDR
+clips being processed as 8-bit). Verify on every touch to either function.
+
 ## K150K-A corpus extraction (ADR-0362, ADR-0382)
 
 **Script:** `ai/scripts/extract_k150k_features.py`

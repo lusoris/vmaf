@@ -344,6 +344,13 @@ def _run_vmaf_json(
 
 def _merge_frame_metrics(primary: list[dict], residual: list[dict]) -> list[dict]:
     """Merge per-frame metric dictionaries from two vmaf invocations."""
+    if len(primary) != len(residual):
+        warnings.warn(
+            f"Frame count mismatch: primary={len(primary)}, residual={len(residual)}. "
+            f"Truncating to {min(len(primary), len(residual))} frames. "
+            "This may indicate a CUDA/CPU pass disagreement — inspect the clip.",
+            stacklevel=2,
+        )
     frame_count = min(len(primary), len(residual))
     merged: list[dict] = []
     for idx in range(frame_count):
@@ -404,10 +411,6 @@ def _run_feature_passes(
             ["--no_cuda", "--no_sycl", "--no_vulkan"],
         )
         frames = _merge_frame_metrics(cuda_frames, cpu_frames)
-        out_json.write_text(
-            json.dumps({"frames": [{"metrics": row} for row in frames]}),
-            encoding="utf-8",
-        )
         return frames
     finally:
         cuda_json.unlink(missing_ok=True)
@@ -492,6 +495,7 @@ def _load_jsonl_metadata(path: Path | None, *, split_seed: str) -> dict[str, dic
         "chug_content_name",
         "chug_height_manifest",
         "chug_width_manifest",
+        "chug_bit_depth",
     )
     out: dict[str, dict[str, Any]] = {}
     with path.open("r", encoding="utf-8") as fh:
