@@ -27,6 +27,28 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0375 — `float_ssim_hip` real kernel — batch-3 HIP promotion (ADR-0375)
+
+- **Touches**: `libvmaf/src/feature/hip/float_ssim_hip.c`,
+  `libvmaf/src/feature/hip/float_ssim_hip.h`,
+  `libvmaf/src/feature/hip/float_ssim/ssim_score.hip`,
+  `libvmaf/src/meson.build` (`hip_kernel_sources` dict).
+- **Invariant**: `ssim_score` entry in `hip_kernel_sources` must remain;
+  `calculate_ssim_hip_horiz_8bpc`, `calculate_ssim_hip_horiz_16bpc`,
+  `calculate_ssim_hip_vert_combine` must be exported as `extern "C"` for
+  `hipModuleGetFunction` name lookups. `SSIM_WARPS_PER_BLOCK=2` is
+  GCN/RDNA-specific (warp size 64); upstream CUDA equivalents use 4.
+  Do not merge upstream CUDA warp-size constants into the HIP kernel.
+- **Re-test on rebase**:
+
+```bash
+meson setup build_hip libvmaf -Denable_hip=true -Denable_hipcc=false \
+    -Denable_cuda=false -Denable_sycl=false
+ninja -C build_hip
+meson test -C build_hip --suite=fast
+# Expected: scaffold posture preserved; no -ENOSYS regressions in test suite.
+```
+
 ### 0086 — TransNet shot-metadata columns + HDR VMAF model port slot (Research-0086, ADR-0300 follow-up)
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/__init__.py`
