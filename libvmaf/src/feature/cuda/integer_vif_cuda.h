@@ -20,6 +20,7 @@
 #ifndef FEATURE_VIF_CUDA_H_
 #define FEATURE_VIF_CUDA_H_
 
+#include <stddef.h>
 #include <stdint.h>
 #include "integer_vif.h"
 #include "common.h"

@@ -20,6 +20,8 @@
 #ifndef ADM_DECOUPLE_INLINE_CUH_
 #define ADM_DECOUPLE_INLINE_CUH_
 
+#include <cstdint>
+
 /* Inline decouple helpers — shared between adm_csf.cu and adm_cm.cu to
  * eliminate d_decouple_r, d_decouple_a and d_csf_a intermediate buffers. */
 
