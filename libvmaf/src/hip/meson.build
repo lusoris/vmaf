@@ -88,6 +88,11 @@ hip_sources += files(
     # HSACO blob is embedded and the kernel runs on device; without it
     # init() returns -ENOSYS (same scaffold-posture as the other consumers).
     '../feature/hip/float_psnr_hip.c',
+    # psnr_hvs_hip: ninth kernel-template consumer. Port of the CUDA twin
+    # (integer_psnr_hvs_cuda.c). With `enable_hipcc=true` the HSACO blob
+    # is embedded; without it init() returns -ENOSYS. Emits four features:
+    # psnr_hvs_y, psnr_hvs_cb, psnr_hvs_cr, psnr_hvs.
+    '../feature/hip/integer_psnr_hvs_hip.c',
 )
 
 # T7-10b runtime linkage. ROCm ships `hip_runtime_api.h` under

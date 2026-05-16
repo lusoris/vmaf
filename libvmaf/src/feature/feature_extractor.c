@@ -144,6 +144,12 @@ extern VmafFeatureExtractor vmaf_fex_float_motion_hip;
  * `feature/cuda/integer_ssim_cuda.c` and pins the two-dispatch +
  * five intermediate float buffers shape. v1: scale=1 only. */
 extern VmafFeatureExtractor vmaf_fex_float_ssim_hip;
+/* HIP ninth-consumer kernel: psnr_hvs_hip. Direct port of the CUDA
+ * twin `feature/cuda/integer_psnr_hvs_cuda.c`. With `enable_hipcc=true`
+ * the HSACO is embedded and the kernel runs on device; without it
+ * init() returns -ENOSYS. Emits psnr_hvs_y, psnr_hvs_cb, psnr_hvs_cr,
+ * psnr_hvs (combined 0.8*Y + 0.1*(Cb+Cr)). */
+extern VmafFeatureExtractor vmaf_fex_psnr_hvs_hip;
 #endif
 #if HAVE_METAL
 /* Metal feature extractors — T8-1c through T8-1j / ADR-0421.
@@ -273,6 +279,11 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * float-partial readback); emits one feature (`float_ssim`)
      * once the runtime kernel arrives. v1 is scale=1 only. */
     &vmaf_fex_float_ssim_hip,
+    /* Ninth consumer: `psnr_hvs_hip` — direct port of the CUDA twin.
+     * With `enable_hipcc=true` the HSACO is loaded and the kernel runs
+     * on device; without it init() returns -ENOSYS. Emits four features:
+     * psnr_hvs_y, psnr_hvs_cb, psnr_hvs_cr, psnr_hvs. */
+    &vmaf_fex_psnr_hvs_hip,
 #endif
 #if HAVE_METAL
     /* T8-1 first consumer (ADR-0361): registration succeeds even on
