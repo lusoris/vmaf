@@ -59,7 +59,9 @@ ADR-0234) catches drift but only after a full GPU run.
 
 ## Rebase-sensitive invariants
 
-- **`psnr_vulkan.c` chroma plane loop** ([ADR-0216](../../../../docs/adr/0216-vulkan-chroma-psnr.md)).
+- **`psnr_vulkan.c` chroma plane loop and `enable_chroma` option**
+  ([ADR-0216](../../../../docs/adr/0216-vulkan-chroma-psnr.md) /
+  [ADR-0453](../../../../docs/adr/0453-psnr-enable-chroma-gpu-parity.md)).
   Carries `ref_in[3] / dis_in[3] / se_partials[3]` arrays in
   `PsnrVulkanState` (Y / Cb / Cr) and dispatches the same
   `psnr.comp` shader once per active plane in a single command
@@ -68,12 +70,12 @@ ADR-0234) catches drift but only after a full GPU run.
   fall-through and break the cross-backend parity gate. The
   descriptor pool is sized for 12 sets (4 frames in flight × 3
   planes) — do **not** shrink without re-checking lavapipe
-  behaviour under `frames-in-flight > 1`. YUV400 is the only
-  supported `n_planes = 1` path; the `pix_fmt` branch in `init`
-  mirrors the `enable_chroma = false` clamp in CPU
-  `integer_psnr.c::init` and must follow it on any future
-  divergence. See [`../../AGENTS.md §"Vulkan PSNR chroma
-  contract"`](../../AGENTS.md).
+  behaviour under `frames-in-flight > 1`. `n_planes` is clamped to
+  1 in two cases: (1) `pix_fmt == YUV400P` (chroma absent); (2)
+  `enable_chroma == false` (caller opted out). The latter is the
+  ADR-0453 addition. The `enable_chroma` option carries
+  `default_val.b = true`; do **not** flip the default. See
+  [`../../AGENTS.md §"Vulkan PSNR chroma contract"`](../../AGENTS.md).
 
 - **`ms_ssim_vulkan.c` honours the `enable_lcs` GPU contract**
   (ADR-0243). Emits 15 extra metrics
