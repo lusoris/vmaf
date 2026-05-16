@@ -594,6 +594,28 @@ threshold). When extending these scripts:
 
 ### Rebase-sensitive invariants
 
+- **Parquet writes are at-end only — never per-flush (Research-0135 Win 1).**
+  Rows are accumulated in memory throughout the run and appended to a JSONL
+  staging file (`<out>.rows.jsonl`) for crash durability.  The parquet is
+  written exactly once at the end via `_write_parquet_from_rows`.  The old
+  `_flush_parquet` helper (which read the growing parquet on every 200-clip
+  flush) has been removed.  Restartability is still guaranteed by the
+  `.done` checkpoint file; the staging file adds a second durability layer
+  so rows are not lost on an unclean exit.  Do not re-introduce per-flush
+  parquet writes — they make total parquet I/O O(N²) over the corpus size.
+- **Staging file is main-process-only (Research-0135).** `_append_row_to_staging`
+  is called only from the main process inside the `as_completed()` loop,
+  after `fut.result()` returns.  Worker subprocesses must never write to the
+  staging file.  Violating single-writer semantics on the staging file would
+  corrupt it without error.
+- **ffprobe is skipped when sidecar has geometry (Research-0135 Win 2).**
+  `_geometry_from_sidecar(meta)` reads `chug_width_manifest`,
+  `chug_height_manifest`, `chug_framerate_manifest`, and optionally
+  `chug_bit_depth` from the CHUG JSONL sidecar row.  The sidecar metadata
+  is already loaded in `jsonl_meta` for enrichment; no extra I/O is needed.
+  If any required field is absent (K150K-A clips, incomplete rows), the
+  function returns `None` and `_probe_geometry(mp4)` is called as fallback.
+  Do not remove the fallback — K150K-A clips have no sidecar.
 - **Binary requirement:** the script requires `libvmaf/build-cpu/tools/vmaf`
   (fork build); the system `/usr/local/bin/vmaf` v3.0.0 lacks `ssimulacra2`
   and `motion_v2`. The `--vmaf-bin` default (in `main()`) now points to
@@ -621,11 +643,18 @@ threshold). When extending these scripts:
   when ref == distorted (identity pair). All-NaN columns are **expected** —
   do not treat them as extraction failures. `np.errstate(all="ignore")`
   in `_aggregate_frames()` suppresses the numpy warning; preserve it.
-- **Column-order lock:** `FEATURE_NAMES` (line ~40) defines the 22-feature
-  column order that downstream loaders depend on. Appending is safe;
-  reordering or removing entries breaks existing parquets and any trained
-  model that consumed them. Increment the parquet schema version in a
-  separate ADR if reordering becomes necessary.
+- **Column-order lock:** `FEATURE_NAMES` (line ~35) defines the 21-feature
+  column order. Appending is safe; reordering or removing breaks existing
+  parquets and trained models. Increment parquet schema version in a separate
+  ADR if reordering becomes necessary. Per Research-0135, `vmaf` (model
+  output) is not included — only raw features the pipeline emits
+  (via `--feature` arguments, no `--model`).
+- **FEATURE_NAMES completeness invariant:** all `FEATURE_NAMES` entries must
+  map to JSON keys emitted by the pipeline (CUDA extractors, CPU residual, or
+  both). Never list unavailable features or outputs requiring `--model` flags.
+  For future VMAF model scores or learned approximations, add a new feature
+  with distinct name (e.g., `vmaf_model_v0_6_1`, `vmaf_tiny_approximation`)
+  and document in an ADR.
 - **Checkpoint format:** `.done` file is append-only, one clip name per
   line, no header. Changing the format without a migration breaks
   in-progress runs. The `_load_done_set()` / `_append_done()` helpers are
