@@ -82,6 +82,11 @@ struct MotionV2StateSycl {
      * (ADR-0192 / PR #851). */
     double motion_fps_weight;
 
+    /* fps-aware weight applied to the v2 SAD score in flush().
+     * Default 1.0 is a no-op. Mirrors motion_sycl and motion_cuda
+     * (ADR-0192 / PR #851). */
+    double motion_fps_weight;
+
     VmafDictionary *feature_name_dict;
 };
 
