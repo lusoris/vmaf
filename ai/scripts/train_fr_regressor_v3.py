@@ -65,12 +65,13 @@ ADR-0323 (this PR).
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 import time
 from pathlib import Path
 from typing import Any
+
+from aiutils.file_utils import sha256
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT / "ai" / "src") not in sys.path:
@@ -539,17 +540,6 @@ def export_onnx(model, onnx_path: Path) -> None:  # type: ignore[no-untyped-def]
         raise RuntimeError(f"torch vs onnxruntime drift {max_abs:g} exceeds atol 1e-4")
 
 
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        while True:
-            chunk = fh.read(1 << 20)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def write_sidecar_and_registry(
     *,
     onnx_path: Path,
@@ -562,8 +552,8 @@ def write_sidecar_and_registry(
     smoke: bool,
     gate_passed: bool,
 ) -> None:
-    digest = _sha256(onnx_path)
-    corpus_digest = _sha256(corpus_path) if corpus_path.is_file() else None
+    digest = sha256(onnx_path)
+    corpus_digest = sha256(corpus_path) if corpus_path.is_file() else None
     note_tail = (
         "v3 retrain pending — first attempt did not clear the v2 baseline gate."
         if not gate_passed
@@ -843,7 +833,7 @@ def main(argv: list[str] | None = None) -> int:
         gate_passed=gate_passed,
     )
     print(
-        f"[fr-v3] shipped: {args.out_onnx} (sha256={_sha256(args.out_onnx)})",
+        f"[fr-v3] shipped: {args.out_onnx} (sha256={sha256(args.out_onnx)})",
         flush=True,
     )
     return 0
