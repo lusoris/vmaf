@@ -563,17 +563,13 @@ shipped model still consumes; kept for back-compat with external callers.
 
 **Invocation** — `--feature float_ansnr`.
 
-**Output metrics** — `float_ansnr`, `float_anpsnr` (luma); optionally `float_ansnr_cb`, `float_ansnr_cr`, `float_anpsnr_cb`, `float_anpsnr_cr` when `enable_chroma=true`.
+**Output metrics** — `float_ansnr`, `float_anpsnr`.
 
 **Output range** — dB, saturated at `6 × bpc + 12` (same as PSNR).
 
 **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
 
-**Options**
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `enable_chroma` | bool | `false` | Compute ANSNR/ANPSNR for Cb and Cr planes, emitting `float_ansnr_cb`, `float_ansnr_cr`, `float_anpsnr_cb`, `float_anpsnr_cr`. Forced to `false` for YUV 4:0:0 input. |
+**Options** — none.
 
 **Backends** — scalar (CPU) plus CUDA, SYCL, Vulkan
 ([ADR-0194](../adr/0194-float-ansnr-gpu.md)). All three GPU
