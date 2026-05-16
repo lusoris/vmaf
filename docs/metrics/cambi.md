@@ -180,6 +180,16 @@ ninja -C build-cuda
     -p 420 -b 8 --backend cuda --feature cambi_cuda
 ```
 
+**Implementation note (PR #870):** `submit_fex_cuda` downloads the distorted
+picture from device memory to a transient host copy before passing it to
+`vmaf_cambi_preprocessing`. This is required because the host-side preprocessing
+path (`decimate_generic_uint8_and_convert_to_10b`) dereferences `pic->data[0]`
+as a host pointer; on a CUDA picture that field holds a `CUdeviceptr` (device
+address), causing SIGSEGV. The download uses `vmaf_cuda_picture_download_async`
+on the picture's private CUDA stream followed by `cuStreamSynchronize`. The host
+copy is unreferenced before `submit_fex_cuda` returns. Cross-backend parity
+versus CPU `cambi` is verified at `places=4` per ADR-0214.
+
 ### Vulkan
 
 ```bash
