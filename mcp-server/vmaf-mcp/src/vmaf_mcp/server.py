@@ -4,7 +4,7 @@ Exposes seven tools over the Model Context Protocol (stdio transport):
 
 - ``vmaf_score``            — score a (reference, distorted) pair.
 - ``list_models``           — enumerate the VMAF models registered with the build.
-- ``list_backends``         — report which backends (cpu/cuda/sycl) are available.
+- ``list_backends``         — report which backends (cpu/cuda/sycl/vulkan/hip/metal) are available.
 - ``run_benchmark``         — run the Netflix benchmark harness on a pair.
 - ``eval_model_on_split``   — run an ONNX tiny-AI model against a parquet feature
   cache on a deterministic split and report PLCC/SROCC/RMSE.
@@ -99,7 +99,8 @@ class ScoreRequest:
     pixfmt: str  # "420" | "422" | "444"
     bitdepth: int
     model: str = "version=vmaf_v0.6.1"
-    backend: str = "auto"  # "cpu" | "cuda" | "sycl" | "auto"
+    # "auto" | "cpu" | "cuda" | "sycl" | "vulkan" | "hip" | "metal"
+    backend: str = "auto"
     precision: str = "17"
 
 
@@ -135,12 +136,23 @@ async def _run_vmaf_score(req: ScoreRequest) -> dict[str, Any]:
             str(output),
             "--json",
         ]
+        # Backend selection passes the explicit `--no_<other>` flags to
+        # libvmaf's CLI (default is `auto`, which picks per host probe).
+        # The libvmaf CLI exposes one `--no_<backend>` toggle per backend
+        # (cli_parse.c) — when the user picks a single backend we disable
+        # every sibling so the host probe doesn't silently fall through.
         if req.backend == "cpu":
-            argv.extend(["--no_cuda", "--no_sycl"])
+            argv.extend(["--no_cuda", "--no_sycl", "--no_vulkan", "--no_hip", "--no_metal"])
         elif req.backend == "cuda":
-            argv.extend(["--no_sycl"])
+            argv.extend(["--no_sycl", "--no_vulkan", "--no_hip", "--no_metal"])
         elif req.backend == "sycl":
-            argv.extend(["--no_cuda"])
+            argv.extend(["--no_cuda", "--no_vulkan", "--no_hip", "--no_metal"])
+        elif req.backend == "vulkan":
+            argv.extend(["--no_cuda", "--no_sycl", "--no_hip", "--no_metal"])
+        elif req.backend == "hip":
+            argv.extend(["--no_cuda", "--no_sycl", "--no_vulkan", "--no_metal"])
+        elif req.backend == "metal":
+            argv.extend(["--no_cuda", "--no_sycl", "--no_vulkan", "--no_hip"])
 
         proc = await asyncio.create_subprocess_exec(
             *argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE
@@ -171,8 +183,16 @@ def _list_models() -> list[dict[str, Any]]:
 
 def _list_backends() -> dict[str, bool]:
     vmaf = _vmaf_binary()
+    empty = {
+        "cpu": False,
+        "cuda": False,
+        "sycl": False,
+        "vulkan": False,
+        "hip": False,
+        "metal": False,
+    }
     if not vmaf.exists():
-        return {"cpu": False, "cuda": False, "sycl": False, "hip": False}
+        return empty
     try:
         result = subprocess.run(
             [str(vmaf), "--version"], capture_output=True, text=True, timeout=5, check=False
@@ -184,7 +204,9 @@ def _list_backends() -> dict[str, bool]:
         "cpu": True,
         "cuda": "cuda" in blob,
         "sycl": "sycl" in blob or "oneapi" in blob,
+        "vulkan": "vulkan" in blob,
         "hip": "hip" in blob,
+        "metal": "metal" in blob,
     }
 
 
@@ -546,7 +568,7 @@ async def _list_tools() -> list[Tool]:
                     "model": {"type": "string", "default": "version=vmaf_v0.6.1"},
                     "backend": {
                         "type": "string",
-                        "enum": ["auto", "cpu", "cuda", "sycl"],
+                        "enum": ["auto", "cpu", "cuda", "sycl", "vulkan", "hip", "metal"],
                         "default": "auto",
                     },
                     "precision": {"type": "string", "default": "17"},
@@ -560,7 +582,7 @@ async def _list_tools() -> list[Tool]:
         ),
         Tool(
             name="list_backends",
-            description="Report which runtime backends (cpu / cuda / sycl / hip) the local vmaf binary was built with.",
+            description="Report which runtime backends (cpu / cuda / sycl / vulkan / hip / metal) the local vmaf binary was built with.",
             inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
@@ -639,7 +661,7 @@ async def _list_tools() -> list[Tool]:
                     "model": {"type": "string", "default": "version=vmaf_v0.6.1"},
                     "backend": {
                         "type": "string",
-                        "enum": ["auto", "cpu", "cuda", "sycl"],
+                        "enum": ["auto", "cpu", "cuda", "sycl", "vulkan", "hip", "metal"],
                         "default": "auto",
                     },
                     "n": {
