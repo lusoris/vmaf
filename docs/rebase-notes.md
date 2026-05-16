@@ -35137,3 +35137,14 @@ meson setup build -Denable_cuda=true -Denable_sycl=false
 ninja -C build src/liblibvmaf.a.p/libvmaf_src_libvmaf.c.o
 # Expected: compiles without error or warning
 ```
+---
+
+## 0471 — `integer_psnr_hip` `enable_chroma` (2026-05-16)
+
+**File**: `libvmaf/src/feature/hip/integer_psnr_hip.c`
+
+No rebase impact: the change is additive (new option + plane-loop). If
+upstream later changes the HIP PSNR submit/collect call-graph, re-check
+that the per-plane loop in `submit_fex_hip` and `collect_fex_hip` matches
+whatever new structure upstream introduces. The kernel (`psnr_score.hip`)
+is unchanged.
