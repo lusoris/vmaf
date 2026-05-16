@@ -453,3 +453,4 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0452](0452-cambi-calculate-c-values-avx512-neon.md) | Port `calculate_c_values_row` to AVX-512 (16-lane gather) and NEON (mask-zero fast-skip); bit-exact integer pipeline | Accepted | simd, cambi, perf |
 | [ADR-0453](0453-psnr-enable-chroma-gpu-parity.md) | PSNR `enable_chroma` option parity across CUDA, SYCL, Vulkan GPU backends | Accepted | cuda, sycl, vulkan, psnr, option-parity, bug |
 | [ADR-0460](0460-float-ansnr-enable-chroma.md) | Add `enable_chroma` option to `float_ansnr` (default false, mirrors integer_psnr pattern) | Accepted | feature-extractor, metrics |
+| [ADR-0482](0482-vmaf-pre-device-parity.md) | Expand `vmaf_pre` FFmpeg filter `device=` string table from 5 to 12 entries, matching full `VmafDnnDevice` enum | Accepted | ffmpeg, ai, build, bug |
