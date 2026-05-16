@@ -165,6 +165,19 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
   avoid casting through `uint8_t *` (UB even though it round-trips
   on x86-64 today).
 
+- **`integer_psnr_cuda.c` honours `enable_chroma` option parity** (ADR-0453).
+  The `enable_chroma` option (default `true`) clamps `n_planes` to 1 in
+  `init_fex_cuda` when set to `false`, matching CPU
+  `integer_psnr.c::init`'s behaviour. The clamp runs after the
+  `pix_fmt == YUV400P` guard so that YUV400 sources are always luma-only
+  regardless of the option. On rebase: if upstream Netflix adds an
+  `enable_chroma` option to the CPU path that behaves differently from the
+  fork's GPU guard, audit both and keep the GPU clamp semantically
+  equivalent. The SYCL and Vulkan twins carry the identical guard and must
+  move in lockstep with any change to this one. The cross-backend parity
+  gate at `places=4` covers both `enable_chroma=true` (default) and
+  `enable_chroma=false` paths.
+
 - **`integer_adm_cuda.c` must NOT include `feature/adm_options.h`
   directly.** `DEFAULT_ADM_NOISE_WEIGHT`, `DEFAULT_ADM_CSF_SCALE`,
   `DEFAULT_ADM_CSF_DIAG_SCALE`, and the full 4-member
