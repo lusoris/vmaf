@@ -241,7 +241,7 @@ The umbrella flag pulls in `dependency('vulkan')` + volk + glslc + VMA.
   behaviour. The invariant applies to all 13 migrated extractors (PR-A,
   PR-B, PR-C). Extractors in scope for PR-C:
   `cambi_vulkan.c`, `ssimulacra2_vulkan.c`, `float_ansnr_vulkan.c`,
-  `moment_vulkan.c`.
+  `float_moment_vulkan.c`.
 
 ## Governing ADRs
 

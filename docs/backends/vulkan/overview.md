@@ -39,7 +39,7 @@ three PRs (no file overlap, all independently gated at `places=4`):
 - **PR-B**: `ssim_vulkan.c`, `ciede_vulkan.c`, `ms_ssim_vulkan.c`,
   `motion_v2_vulkan.c`, `float_psnr_vulkan.c`, `float_motion_vulkan.c`.
 - **PR-C** (ADR-0354): `cambi_vulkan.c`, `ssimulacra2_vulkan.c`,
-  `float_ansnr_vulkan.c`, `moment_vulkan.c`.
+  `float_ansnr_vulkan.c`, `float_moment_vulkan.c`.
 
 Expected throughput improvement: 4–12 % on fence-dominated single-dispatch
 kernels (`float_ansnr`, `moment`). Multi-stage extractors (`cambi`,
