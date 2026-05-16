@@ -34878,3 +34878,31 @@ meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build
 meson test -C build --suite=fast
 ```
+
+---
+
+## feat/tiny-ai-netflix-training-scaffold-refresh-2026-05-16 (ADR-0453)
+
+**What changed**: Added research digest 0136
+(`docs/research/0136-tiny-ai-netflix-training-refresh-2026-05-16.md`),
+`changelog.d/added/tiny-ai-netflix-training-scaffold-refresh.md`, and
+cross-references in `docs/ai/training-data.md`. No loader code, test code,
+or `ai/` Python sources were modified.
+
+**Rebase impact**: low. All modified files are fork-local documentation and
+tooling surfaces. Upstream Netflix/vmaf does not maintain the `ai/` training
+harness, `mcp-server/`, or `docs/research/` tree; no conflicts expected.
+
+**Invariant to preserve on rebase**: The data path for the Netflix corpus is
+local-only (`.workingdir2/netflix/`). This path is gitignored; YUV files
+must never be committed. The `--data-root` CLI flag and the `VMAF_DATA_ROOT`
+environment variable are the only sanctioned ways to reference the corpus
+from training scripts. Any rebase that touches `ai/src/vmaf_train/` must
+verify that `NflxLocalDataset` still validates paths against `<data-root>/`
+(SEI CERT FIO02-C).
+
+**Smoke-test after rebase**:
+
+```bash
+cd mcp-server/vmaf-mcp && python -m pytest tests/test_smoke_e2e.py -v
+```
