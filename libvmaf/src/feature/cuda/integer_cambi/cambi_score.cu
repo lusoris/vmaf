@@ -23,7 +23,7 @@
  *        global reads total per block) and then each thread sums its 7x7
  *        window from SLM.  Global reads fall from 49*3 = 147 per thread to
  *        ~1.9 average (1452/768 effective lanes).  Bit-exact with
- *        cambi.c::get_spatial_mask_for_index.  (ADR-0453 / perf-audit win 3)
+ *        cambi.c::get_spatial_mask_for_index.  (ADR-0464 / perf-audit win 3)
  *
  *    cambi_decimate_kernel -- strict 2x stride-2 subsample of a uint16
  *        luma buffer. One thread per output pixel. Bit-exact with
@@ -68,7 +68,7 @@
 #define ZD_TILE_STRIDE 32u /* padded row stride (uint8 cols)           */
 
 /* ------------------------------------------------------------------
- * Kernel 1: Spatial mask  (ADR-0453 SLM-tile optimisation)
+ * Kernel 1: Spatial mask  (ADR-0464 SLM-tile optimisation)
  *
  * Input:  image  -- flat uint16 array, stride_words columns per row.
  * Output: mask   -- flat uint16 array, same layout; 1 = edge, 0 = flat.
