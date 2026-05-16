@@ -18,7 +18,6 @@
 
 #include <arm_neon.h>
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 
 void cambi_increment_range_neon(uint16_t *arr, int left, int right)
