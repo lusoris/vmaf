@@ -13,12 +13,16 @@ meson `error()` guard to `libvmaf/src/meson.build` for the
 fork-additive: upstream Netflix/vmaf does not enable NVTX, so no
 sync-upstream conflict is expected. If upstream ever adds their own
 NVTX guard, the merge is a no-op (both sides add the same intent).
-## fix/cpu-symbol-visibility-2026-05-16
+## perf/ort-meminfo-cache-vk6-desc-2026-05-16
 
-No rebase impact: touches only `libvmaf/src/meson.build` (adding `c_args :
-vmaf_cflags_common` to `libvmaf_cpu_static_lib`). This is a fork-local build
-rule; Netflix/vmaf does not use Meson. No upstream-shared C sources, headers,
-or feature extractors are modified. No sync-upstream conflicts expected.
+**`libvmaf/src/dnn/ort_backend.c`**: adds `cpu_mem_info` field to the internal
+`VmafOrtSession` struct. No upstream rebase conflict expected — the struct and its
+file are fork-local (Netflix upstream has no DNN/ORT backend). If upstream ever
+adds an ORT backend, the field must be merged.
+
+**`libvmaf/src/feature/vulkan/psnr_hvs_vulkan.c`**: moves `write_descriptor_set`
+call from `extract()` to `init()`. Entirely fork-local; no Netflix upstream
+equivalent.
 
 ## fix/saliency-per-mb-eval-2026-05-15 — integer_vif enable_chroma
 
