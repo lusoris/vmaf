@@ -107,7 +107,7 @@ of sharded JSONL files:
 
 ```bash
 python -m vmaftune.predictor_train \
-  --corpus .workingdir2/corpus_run \
+  --corpus .corpus/corpus_run \
   --codec libx264 \
   --output-dir .workingdir2/predictor-real
 ```
