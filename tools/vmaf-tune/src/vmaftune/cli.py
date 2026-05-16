@@ -106,8 +106,8 @@ def _build_parser() -> argparse.ArgumentParser:
     corpus.add_argument(
         "--encode-dir",
         type=Path,
-        default=Path(".workingdir2/encodes"),
-        help="scratch dir for encodes (default .workingdir2/encodes, gitignored)",
+        default=Path(".corpus/encodes"),
+        help="scratch dir for encodes (default .corpus/encodes, gitignored)",
     )
     corpus.add_argument(
         "--keep-encodes",
@@ -983,7 +983,7 @@ def _add_recommend_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--encode-dir",
         type=Path,
-        default=Path(".workingdir2/encodes"),
+        default=Path(".corpus/encodes"),
     )
     p.add_argument("--keep-encodes", action="store_true")
     p.add_argument("--vmaf-model", default="vmaf_v0.6.1")

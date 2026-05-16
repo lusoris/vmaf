@@ -85,7 +85,7 @@ class CorpusOptions:
 
     encoder: str = "libx264"
     output: Path = Path("corpus.jsonl")
-    encode_dir: Path = Path(".workingdir2/encodes")
+    encode_dir: Path = Path(".corpus/encodes")
     vmaf_model: str = "vmaf_v0.6.1"
     ffmpeg_bin: str = "ffmpeg"
     vmaf_bin: str = "vmaf"
@@ -539,12 +539,6 @@ def iter_rows(
                 out.unlink()
 
         yield row
-
-    # Flush the cache index after the sweep completes. This batches
-    # the LRU timestamp updates from get() and put() into a single
-    # final write, avoiding O(N) index rewrites per cell.
-    if tune_cache is not None:
-        tune_cache.flush()
 
 
 def _row_for(
