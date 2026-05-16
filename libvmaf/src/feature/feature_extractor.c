@@ -146,12 +146,11 @@ extern VmafFeatureExtractor vmaf_fex_float_motion_hip;
  * `feature/cuda/integer_ssim_cuda.c` and pins the two-dispatch +
  * five intermediate float buffers shape. v1: scale=1 only. */
 extern VmafFeatureExtractor vmaf_fex_float_ssim_hip;
-/* HIP ninth-consumer kernel — ADR-0285. Mirrors the CUDA twin
- * `feature/cuda/integer_ms_ssim_cuda.c`: 5-level pyramid,
- * three kernels (decimate, horiz, vert_lcs), per-scale l/c/s
- * float partial readbacks. Emits `float_ms_ssim` + optional
- * per-scale l/c/s triples when enable_lcs=true. */
-extern VmafFeatureExtractor vmaf_fex_integer_ms_ssim_hip;
+/* HIP ninth consumer: ssimulacra2_hip. Mirrors ssimulacra2_cuda.c
+ * pipeline (host YUV→XYB + GPU IIR blur + host double-precision
+ * combine). With `enable_hipcc=true` the two HSACO blobs are loaded
+ * and the kernels run on device; without it init() returns -ENOSYS. */
+extern VmafFeatureExtractor vmaf_fex_ssimulacra2_hip;
 #endif
 #if HAVE_METAL
 /* Metal feature extractors — T8-1c through T8-1j / ADR-0421.
@@ -289,12 +288,10 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * float-partial readback); emits one feature (`float_ssim`)
      * once the runtime kernel arrives. v1 is scale=1 only. */
     &vmaf_fex_float_ssim_hip,
-    /* Ninth consumer (ADR-0285): `integer_ms_ssim_hip` mirrors
-     * `integer_ms_ssim_cuda.c`'s call graph (5-level pyramid,
-     * decimate + horiz + vert_lcs kernels, per-scale l/c/s float
-     * partial readbacks); emits `float_ms_ssim` + optional per-scale
-     * l/c/s triples once the runtime kernel arrives. */
-    &vmaf_fex_integer_ms_ssim_hip,
+    /* Ninth consumer: `ssimulacra2_hip` mirrors `ssimulacra2_cuda.c`
+     * pipeline (host YUV→XYB + GPU IIR blur + host double-precision
+     * combine); emits `ssimulacra2` once the HSACO kernels arrive. */
+    &vmaf_fex_ssimulacra2_hip,
 #endif
 #if HAVE_METAL
     /* T8-1 first consumer (ADR-0361): registration succeeds even on
