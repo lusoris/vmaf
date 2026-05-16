@@ -452,4 +452,5 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0452](0452-cambi-calculate-c-values-avx512-neon.md) | Port `calculate_c_values_row` to AVX-512 (16-lane gather) and NEON (mask-zero fast-skip); bit-exact integer pipeline | Accepted | simd, cambi, perf |
 | [ADR-0453](0453-psnr-enable-chroma-gpu-parity.md) | PSNR `enable_chroma` option parity across CUDA, SYCL, Vulkan GPU backends | Accepted | cuda, sycl, vulkan, psnr, option-parity, bug |
 | [ADR-0462](0462-metal-float-vif-kernel.md) | Metal float_vif kernel (T8-1k) — 4-scale VIF on Apple Silicon Metal backend | Accepted | gpu, metal, apple-silicon, kernel, fork-local |
+| [ADR-0463](0463-float-vif-metal-cuda-parity.md) | float_vif_metal CUDA-parity gaps — vif_kernelscale + debug features | Accepted | gpu, metal, apple-silicon, kernel, parity, fork-local |
 | [ADR-0480](0480-bootstrap-name-builder-dedup.md) | Extract bootstrap score-name suffix constants into shared `bootstrap_names.h` | Accepted | refactor, predict, libvmaf |
