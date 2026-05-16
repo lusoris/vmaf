@@ -71,6 +71,9 @@ else
 endif
 is_avx512_enabled = get_option('enable_avx512') == true
 is_nvtx_enabled = get_option('enable_nvtx') == true
+if is_avx512_enabled and not is_asm_enabled
+    warning('enable_avx512=true has no effect when enable_asm=false')
+endif
 if is_nvtx_enabled and host_machine.system() == 'windows'
     warning('NVTX is not supported on Windows, disabling.')
     is_nvtx_enabled = false
@@ -88,6 +91,24 @@ subdir('dnn')
 # T5-2b runtime). When `enable_mcp=true`, `subdir('mcp')` exposes
 # `mcp_sources` + `mcp_defines`. When the umbrella flag is off the
 # variables stay empty and the libvmaf TU set is unchanged.
+# Validate MCP sub-flag combinations: the enable_mcp_sse/uds/stdio options
+# require the umbrella enable_mcp flag to be true. These options are only
+# evaluated inside subdir('mcp'), which is unreachable when enable_mcp=false.
+# Without this guard, users can set enable_mcp_sse=enabled + enable_mcp=false
+# and silently get a no-op (the promised error from mcp/meson.build:35 is
+# never reached). Same for enable_mcp_uds and enable_mcp_stdio.
+if not get_option('enable_mcp')
+    mcp_sse_opt = get_option('enable_mcp_sse')
+    if mcp_sse_opt.enabled()
+        error('enable_mcp_sse=enabled/true requires enable_mcp=true')
+    endif
+    if get_option('enable_mcp_uds')
+        error('enable_mcp_uds=true requires enable_mcp=true')
+    endif
+    if get_option('enable_mcp_stdio')
+        error('enable_mcp_stdio=true requires enable_mcp=true')
+    endif
+endif
 is_mcp_enabled = get_option('enable_mcp')
 mcp_sources = []
 mcp_defines = []
@@ -118,6 +139,9 @@ hip_sources = []
 hip_deps = []
 hip_hsaco_sources = []
 is_hipcc_enabled = get_option('enable_hipcc') == true
+if is_hipcc_enabled and not is_hip_enabled
+    warning('enable_hipcc=true has no effect when enable_hip=false')
+endif
 if is_hip_enabled
     cdata.set10('HAVE_HIP', true)
     subdir('hip')
