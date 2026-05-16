@@ -34878,3 +34878,24 @@ meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build
 meson test -C build --suite=fast
 ```
+
+---
+
+### fix/race-conditions-static-globals-getenv-2026-05-16 — `_Atomic` statics and `pthread_once` getenv caching (ADR-0453)
+
+- **Touches**: `libvmaf/src/log.c`, `libvmaf/src/cpu.c`,
+  `libvmaf/src/gpu_picture_pool.c`, `libvmaf/src/dnn/model_loader.c`,
+  `libvmaf/src/sycl/common.cpp`, `libvmaf/src/dnn/tiny_extractor_template.h`.
+- **Invariant**: Every mutable module-level `static` global in `libvmaf/src/` must
+  be `_Atomic`. Every `getenv()` call that can be reached from multiple threads must
+  be protected by `pthread_once` / `std::call_once`. If an upstream sync rewrites
+  any of these files and reintroduces plain (non-atomic) statics or bare `getenv()`
+  calls, the data races return and TSan will detect them. The
+  `concurrency-mt-unsafe` clang-tidy check is the gate; do not suppress it without
+  citing ADR-0453.
+- **Re-test**:
+
+  ```shell
+  meson setup build-tsan -Db_sanitize=thread -Denable_cuda=false -Denable_sycl=false
+  meson test -C build-tsan --suite=fast
+  ```

@@ -16,18 +16,26 @@
  *
  */
 
+#include <stdatomic.h>
+
 #include "config.h"
 #include "cpu.h"
 
-static unsigned flags = 0;
-static unsigned flags_mask = -1;
+/* _Atomic on flags and flags_mask avoids data races when vmaf_init_cpu() or
+ * vmaf_set_cpu_flags_mask() is called from one thread while vmaf_get_cpu_flags()
+ * is called from another.  Relaxed ordering is sufficient: both fields are
+ * independent read hints with no cross-memory synchronisation requirement.
+ * Zero overhead on x86-64 (aligned int-sized MOV is already atomic). */
+static _Atomic(unsigned) flags = 0u;
+static _Atomic(unsigned) flags_mask = (unsigned)-1;
 
 void vmaf_init_cpu(void)
 {
 #if ARCH_X86
-    flags = vmaf_get_cpu_flags_x86();
+    const unsigned detected = vmaf_get_cpu_flags_x86();
+    atomic_store_explicit(&flags, detected, memory_order_relaxed);
 #if HAVE_AVX512
-    if (flags & VMAF_X86_CPU_FLAG_AVX512) {
+    if (detected & VMAF_X86_CPU_FLAG_AVX512) {
         /* Warm up AVX-512 execution units. On Intel CPUs, the 512-bit
          * units power down after idle and take 10-20µs to reactivate.
          * Issuing a dummy instruction here avoids that latency penalty
@@ -40,16 +48,18 @@ void vmaf_init_cpu(void)
     }
 #endif
 #elif ARCH_AARCH64
-    flags = vmaf_get_cpu_flags_arm();
+    atomic_store_explicit(&flags, vmaf_get_cpu_flags_arm(), memory_order_relaxed);
 #endif
 }
 
 void vmaf_set_cpu_flags_mask(const unsigned mask)
 {
-    flags_mask = mask;
+    atomic_store_explicit(&flags_mask, mask, memory_order_relaxed);
 }
 
 unsigned vmaf_get_cpu_flags(void)
 {
-    return flags & flags_mask;
+    const unsigned f = atomic_load_explicit(&flags, memory_order_relaxed);
+    const unsigned m = atomic_load_explicit(&flags_mask, memory_order_relaxed);
+    return f & m;
 }

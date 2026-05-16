@@ -18,6 +18,11 @@ sycl/
 ## Ground rules
 
 - **Parent rules** apply in full (see [../../AGENTS.md](../../AGENTS.md)).
+- **`getenv()` calls in `common.cpp` MUST be cached via `std::call_once`**
+  ([ADR-0453](../../../docs/adr/0453-race-safe-static-globals-and-getenv.md)).
+  `VMAF_SYCL_PROFILE` and `VMAF_SYCL_TIMING` are captured once via
+  `sycl_profile_from_env()` / `sycl_timing_from_env()`. Do not add bare
+  `getenv()` calls in this TU; `concurrency-mt-unsafe` clang-tidy is the gate.
 - **Compiler is `icpx` (Intel oneAPI) or AdaptiveCpp `acpp` / `syclcc`
   (ADR-0335).** `clang++ -fsycl` is also accepted in spirit but is not
   CI-tested. Do not assume MSVC-style extensions.

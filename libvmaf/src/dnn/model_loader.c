@@ -33,6 +33,95 @@
 #include "model_loader.h"
 #include "onnx_scan.h"
 
+#ifndef _WIN32
+#include <pthread.h>
+#else
+#include <windows.h>
+#endif
+
+/* ============================================================
+ * pthread_once-protected environment variable caches.
+ *
+ * getenv() is not required to be thread-safe by C99 (POSIX.1-2008
+ * §2.2.2): a concurrent setenv/putenv/unsetenv from any thread
+ * can corrupt the returned pointer or the environ array.  Cache
+ * each variable once under pthread_once so that later callers only
+ * read a stable, heap-owned copy (or NULL when unset at snapshot
+ * time).
+ *
+ * Caller contract: set these variables before the first call to
+ * vmaf_dnn_validate_onnx / vmaf_dnn_verify_signature; later
+ * setenv calls are not observed.
+ * ============================================================ */
+#ifndef _WIN32
+static pthread_once_t g_tiny_model_dir_once = PTHREAD_ONCE_INIT;
+static pthread_once_t g_path_once = PTHREAD_ONCE_INIT;
+#else
+static INIT_ONCE g_tiny_model_dir_once = INIT_ONCE_STATIC_INIT;
+static INIT_ONCE g_path_once = INIT_ONCE_STATIC_INIT;
+#endif
+static const char *g_tiny_model_dir = NULL;
+static const char *g_path_env = NULL;
+
+static void cache_tiny_model_dir(void)
+{
+    /* Serialised by pthread_once — only one thread executes this.
+     * NOLINT(concurrency-mt-unsafe) — serialised by pthread_once; concurrent
+     * setenv is a caller-contract violation per POSIX.1-2008 §2.2.2. */
+    const char *val = getenv("VMAF_TINY_MODEL_DIR"); // NOLINT(concurrency-mt-unsafe)
+    if (val)
+        g_tiny_model_dir = strdup(val);
+}
+
+static void cache_path_env(void)
+{
+    /* NOLINT(concurrency-mt-unsafe) — serialised by pthread_once; concurrent
+     * setenv is a caller-contract violation per POSIX.1-2008 §2.2.2. */
+    const char *val = getenv("PATH"); // NOLINT(concurrency-mt-unsafe)
+    if (val)
+        g_path_env = strdup(val);
+}
+
+#ifdef _WIN32
+static BOOL CALLBACK cache_tiny_model_dir_w32(PINIT_ONCE once, PVOID param, PVOID *ctx)
+{
+    (void)once;
+    (void)param;
+    (void)ctx;
+    cache_tiny_model_dir();
+    return TRUE;
+}
+
+static BOOL CALLBACK cache_path_env_w32(PINIT_ONCE once, PVOID param, PVOID *ctx)
+{
+    (void)once;
+    (void)param;
+    (void)ctx;
+    cache_path_env();
+    return TRUE;
+}
+#endif
+
+static const char *get_tiny_model_dir(void)
+{
+#ifndef _WIN32
+    (void)pthread_once(&g_tiny_model_dir_once, cache_tiny_model_dir);
+#else
+    (void)InitOnceExecuteOnce(&g_tiny_model_dir_once, cache_tiny_model_dir_w32, NULL, NULL);
+#endif
+    return g_tiny_model_dir;
+}
+
+static const char *get_path_env(void)
+{
+#ifndef _WIN32
+    (void)pthread_once(&g_path_once, cache_path_env);
+#else
+    (void)InitOnceExecuteOnce(&g_path_once, cache_path_env_w32, NULL, NULL);
+#endif
+    return g_path_env;
+}
+
 /* Portable realpath wrapper: POSIX realpath() on Linux/macOS, _fullpath()
  * on MinGW/Windows. Both resolve symlinks and canonicalise the path in
  * place, returning NULL on failure. */
@@ -329,10 +418,10 @@ int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes)
         return -errno;
     assert(resolved[0] != '\0');
 
-    /* Cache environment variables once per function call to avoid repeated
-     * unsafe getenv() calls in multithreaded contexts (getenv is not required
-     * to be thread-safe by C99, and glibc's implementation is known to race). */
-    const char *jail_dir = getenv("VMAF_TINY_MODEL_DIR");
+    /* Retrieve the cached snapshot of VMAF_TINY_MODEL_DIR.  The variable is
+     * captured once under pthread_once; later setenv calls are not observed
+     * (caller contract — see module-level comment above). */
+    const char *jail_dir = get_tiny_model_dir();
 
     /* Optional chroot-style path jail via VMAF_TINY_MODEL_DIR. Applied
      * before any I/O on the target so a jail violation can't even trigger
@@ -627,10 +716,10 @@ int vmaf_dnn_verify_signature(const char *onnx_path, const char *registry_path)
     if (!S_ISREG(bst.st_mode))
         return -ENOENT;
 
-    /* Cache environment variables once per function call to avoid repeated
-     * unsafe getenv() calls in multithreaded contexts (getenv is not required
-     * to be thread-safe by C99, and glibc's implementation is known to race). */
-    const char *path_env = getenv("PATH");
+    /* Retrieve the cached snapshot of PATH.  The variable is captured once
+     * under pthread_once; later setenv calls are not observed (caller contract
+     * — see module-level comment above). */
+    const char *path_env = get_path_env();
 
     char cosign_path[PATH_MAX];
     err = locate_cosign(path_env, cosign_path, sizeof(cosign_path));
