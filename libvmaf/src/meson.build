@@ -78,15 +78,6 @@ if is_nvtx_enabled and host_machine.system() == 'windows'
     warning('NVTX is not supported on Windows, disabling.')
     is_nvtx_enabled = false
 endif
-# NVTX requires the CUDA toolkit headers even when enable_cuda=false because
-# nvToolsExt.h lives under /usr/local/cuda/include. Without this guard, meson
-# hard-errors on any host without a CUDA installation when enable_nvtx=true and
-# enable_cuda=false (the include_directories call at line ~484 fails with
-# "Include dir /usr/local/cuda/include does not exist").
-# Audit finding: build-matrix-symbols-audit-2026-05-16.md §1a.
-if is_nvtx_enabled and not is_cuda_enabled
-    error('enable_nvtx=true requires enable_cuda=true (NVTX headers reside in the CUDA toolkit)')
-endif
 
 # DNN runtime (ONNX Runtime) — defines dnn_sources / dnn_defines / dnn_deps.
 subdir('dnn')
@@ -231,20 +222,17 @@ if is_hipcc_enabled and is_hip_enabled
     # Batch-1b (ADR-0254): float_psnr_score (pre-existing, omitted from earlier
     #   meson.build edit; added here alongside the float_motion fix).
     # Batch-2 (ADR-0373): float_motion_score (temporal Gaussian SAD).
-    # Batch-3 (ADR-0375): moment_score (float_moment/ twin), ssim_score.
+    # Batch-3 (ADR-0375): moment_score, ssim_score.
     # Batch-4 (ADR-0377): ciede_score (CIEDE2000), motion_v2_score (integer SAD ping-pong).
-    # Batch-5 (ADR-0285): ms_ssim_score (5-level pyramid + l/c/s partials).
     hip_kernel_sources = {
         'psnr_score' : feature_src_dir + 'hip/integer_psnr/psnr_score.hip',
         'float_psnr_score' : feature_src_dir + 'hip/float_psnr/float_psnr_score.hip',
         'float_ansnr_score' : feature_src_dir + 'hip/float_ansnr/float_ansnr_score.hip',
         'float_motion_score' : feature_src_dir + 'hip/float_motion/float_motion_score.hip',
         'moment_score' : feature_src_dir + 'hip/float_moment/moment_score.hip',
-        'integer_moment_score' : feature_src_dir + 'hip/integer_moment/moment_score.hip',
         'ssim_score' : feature_src_dir + 'hip/float_ssim/ssim_score.hip',
         'ciede_score' : feature_src_dir + 'hip/integer_ciede/ciede_score.hip',
         'motion_v2_score' : feature_src_dir + 'hip/integer_motion_v2/motion_v2_score.hip',
-        'ms_ssim_score' : feature_src_dir + 'hip/integer_ms_ssim/ms_ssim_score.hip',
     }
     foreach name, src : hip_kernel_sources
         hsaco_target = custom_target('hip_hsaco_' + name,
@@ -506,15 +494,6 @@ libvmaf_cpu_static_lib = static_library(
     'libvmaf_cpu',
     libvmaf_cpu_sources,
     include_directories : [libvmaf_include],
-    # ADR-0379 / Research-0092: apply -fvisibility=hidden from vmaf_cflags_common
-    # so that internal helpers (vmaf_get_cpu_flags, vmaf_init_cpu,
-    # vmaf_set_cpu_flags_mask, vmaf_get_cpu_flags_x86) are hidden in the final
-    # libvmaf.so. Without this, the static lib omits -fvisibility=hidden and the
-    # linker exports these symbols as T entries even though they have no public
-    # header declaration and no VMAF_EXPORT annotation. They are internal
-    # dispatch helpers; exposing them creates de-facto ABI that prevents future
-    # renaming or removal without a soversion bump.
-    c_args : vmaf_cflags_common,
 )
 
 platform_specific_cpu_objects = []

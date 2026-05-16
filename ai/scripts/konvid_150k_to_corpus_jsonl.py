@@ -12,7 +12,7 @@ Shared infrastructure: :mod:`ai.src.corpus.base` (ADR-0371).
 
 Pipeline shape::
 
-    .corpus/konvid-150k/
+    .workingdir2/konvid-150k/
       +-- .download-progress.json
       +-- manifest.csv              # URL manifest layout, optional
       +-- clips/                    # URL manifest download cache
@@ -328,7 +328,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--konvid-dir",
         type=Path,
         default=_DEFAULT_KONVID_DIR,
-        help="Local KonViD-150k working directory (default: .corpus/konvid-150k/).",
+        help="Local KonViD-150k working directory (default: .workingdir2/konvid-150k/).",
     )
     ap.add_argument(
         "--manifest-csv",
@@ -348,7 +348,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=_DEFAULT_OUTPUT,
-        help="Output JSONL path (default: .corpus/konvid-150k/konvid_150k.jsonl).",
+        help="Output JSONL path (default: .workingdir2/konvid-150k/konvid_150k.jsonl).",
     )
     ap.add_argument(
         "--ffprobe-bin", default=os.environ.get("FFPROBE_BIN", "ffprobe"), help="ffprobe binary."

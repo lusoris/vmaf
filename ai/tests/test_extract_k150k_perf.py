@@ -242,14 +242,10 @@ class TestGeometryFromSidecar:
 
 
 class TestProcessClipFfprobeSkip:
-    """_process_clip geometry is overridden by sidecar when all required fields are present.
+    """_process_clip skips ffprobe when a valid sidecar geometry is provided."""
 
-    Note: _probe_geometry is always called to obtain color_meta for HDR detection.
-    The sidecar only overrides the geometry fields (width, height, pix_fmt, fps_str).
-    """
-
-    def test_sidecar_geometry_overrides_probe_geometry(self, tmp_path: Path) -> None:
-        """Sidecar geometry fields override _probe_geometry values for width/height."""
+    def test_ffprobe_skipped_when_sidecar_has_geometry(self, tmp_path: Path) -> None:
+        """ffprobe must NOT be called when _geometry_from_sidecar returns a result."""
         sidecar = {
             "chug_width_manifest": 960,
             "chug_height_manifest": 540,
@@ -260,7 +256,7 @@ class TestProcessClipFfprobeSkip:
         with (
             patch(
                 "extract_k150k_features._probe_geometry",
-                return_value=(1920, 1080, "yuv420p", "30/1", None),
+                side_effect=AssertionError("ffprobe must not be called"),
             ),
             patch(
                 "extract_k150k_features._decode_to_yuv",
@@ -293,7 +289,6 @@ class TestProcessClipFfprobeSkip:
                 sidecar,
             )
 
-        # Sidecar geometry (960x540) overrides probe geometry (1920x1080).
         assert row["width"] == 960
         assert row["height"] == 540
 
@@ -305,7 +300,7 @@ class TestProcessClipFfprobeSkip:
 
         def mock_probe(mp4: Path) -> tuple:
             probe_called.append(mp4)
-            return 1280, 720, "yuv420p", "30/1", None
+            return 1280, 720, "yuv420p", "30/1"
 
         with (
             patch("extract_k150k_features._probe_geometry", side_effect=mock_probe),
@@ -344,7 +339,7 @@ class TestProcessClipFfprobeSkip:
 
         def mock_probe(mp4: Path) -> tuple:
             probe_called.append(mp4)
-            return 854, 480, "yuv420p", "24/1", None
+            return 854, 480, "yuv420p", "24/1"
 
         with (
             patch("extract_k150k_features._probe_geometry", side_effect=mock_probe),

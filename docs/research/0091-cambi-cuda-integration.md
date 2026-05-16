@@ -1,4 +1,4 @@
-# Research-0091: CAMBI CUDA integration trade-offs
+# Research Digest 0091 — CAMBI CUDA integration trade-offs
 # Research-0091
 
 - **Status**: Active

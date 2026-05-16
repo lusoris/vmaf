@@ -19,7 +19,7 @@
 #
 # Usage:
 #   bash ai/scripts/extract_k150k_features.sh \
-#       --input  .corpus/konvid-150k/konvid_150k.jsonl \
+#       --input  .workingdir2/konvid-150k/konvid_150k.jsonl \
 #       --output runs/k150k_fr_corpus.jsonl
 #
 # Environment overrides:

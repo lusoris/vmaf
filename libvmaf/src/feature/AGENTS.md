@@ -679,11 +679,13 @@ after a port-upstream of any of these files.
 
 ## Newly-arrived shipped surfaces (rebase awareness)
 
-- **MS-SSIM `enable_lcs` GPU implementation (T7-35, PR #207 open)**
+- **MS-SSIM `enable_lcs` GPU implementation (T7-35, PR #207 MERGED)**
   — wires the existing CPU `enable_lcs` 15-extra-metrics through
-  CUDA + Vulkan + SYCL MS-SSIM kernels. On rebase: ensure the
-  option metadata stays declared on the GPU paths even if the
-  body is still TODO.
+  CUDA + Vulkan + SYCL MS-SSIM kernels. Additional GPU flags
+  (`enable_db`, `clip_db`) shipped via PR #933 (ADR-0460). On
+  rebase: ensure all three option-metadata declarations remain
+  consistent across `float_ms_ssim_cuda`, `float_ms_ssim_sycl`,
+  and `float_ms_ssim_vulkan`.
 - **`psnr` cross-backend `enable_chroma` option parity (ADR-0453)** —
   `psnr_cuda`, `psnr_sycl`, and `psnr_vulkan` now honour
   `enable_chroma` (default `true`) consistently with the CPU reference.
@@ -692,18 +694,10 @@ after a port-upstream of any of these files.
   default or the `n_planes` clamp logic requires a coordinated update
   across all three GPU twins. See CUDA AGENTS.md / Vulkan AGENTS.md
   invariant notes and [ADR-0453](../../../docs/adr/0453-psnr-enable-chroma-gpu-parity.md).
-- **MobileSal saliency extractor (T6-2a, PR #208 open, ADR-0218
-  placeholder)** — first half of T6-2 (encoder-side ROI bundle).
-  DNN-backed; opens sessions through
-  [`../dnn/`](../dnn/AGENTS.md).
-- **TransNet V2 shot-boundary extractor (T6-3a + T6-3a-followup,
-  ADR-0223 + ADR-0257)** — second half of T6-2 bundle. Now ships
-  real upstream weights via NTCHW adapter (see
-  `transnet_v2.c 100-frame-window contract` invariant above).
-- **MobileSal saliency extractor (T6-2a, ADR-0218; smoke-only
-  placeholder shipped, real-weights swap deferred per
+- **MobileSal saliency extractor (T6-2a, PR #208 MERGED, ADR-0218;
+  smoke-only placeholder shipped, real-weights swap deferred per
   [ADR-0257](../../../docs/adr/0257-mobilesal-real-weights-deferred.md)
-  + [ADR-0265](../../../docs/adr/0265-u2netp-saliency-replacement-blocked.md))**
+  and [ADR-0265](../../../docs/adr/0265-u2netp-saliency-replacement-blocked.md))**
   — first half of T6-2 (encoder-side ROI bundle). DNN-backed;
   opens sessions through [`../dnn/`](../dnn/AGENTS.md). Two
   real-weights swap attempts blocked: upstream MobileSal is
@@ -714,12 +708,14 @@ after a port-upstream of any of these files.
   `saliency_map` tensor-name contract is invariant across both
   blockers; any future drop-in replaces the `.onnx` and bumps the
   registry sha256 without touching this file.
-- **TransNet V2 shot-boundary extractor (T6-3a, PR #210 open)** —
-  second half of T6-2 bundle, ~1M params. DNN-backed.
-- **FastDVDnet temporal pre-filter (T6-7, PR #203 open, ADR-0215
-  placeholder)** — 5-frame window pre-filter feeding
-  ssim/ms_ssim. DNN-backed.
-- **SVE2 SIMD ports (T7-38, PR #201 open, ADR-0213 placeholder)**
+- **TransNet V2 shot-boundary extractor (T6-3a + T6-3a-followup,
+  PR #210 MERGED, ADR-0223 + ADR-0257)** — second half of T6-2
+  bundle, ~1M params. DNN-backed. Ships real upstream weights via
+  NTCHW adapter (see `transnet_v2.c 100-frame-window contract`
+  invariant above).
+- **FastDVDnet temporal pre-filter (T6-7, PR #203 MERGED, ADR-0215)**
+  — 5-frame window pre-filter feeding ssim/ms_ssim. DNN-backed.
+- **SVE2 SIMD ports (T7-38, PR #201 MERGED, ADR-0213)**
   — SSIMULACRA 2 PTLR + IIR-blur SVE2; same bit-exact contract
   as the existing NEON ports per
   [ADR-0161](../../../docs/adr/0161-ssimulacra2-simd-bitexact.md)
@@ -727,9 +723,6 @@ after a port-upstream of any of these files.
   / [ADR-0163](../../../docs/adr/0163-ssimulacra2-ptlr-simd.md).
 - **Upstream ports**: `feature/motion` options from `b949cebf`
   (T-NEW-1) MERGED via PR #197 (2026-04-29). `feature/speed`
-  port from `d3647c73` (`speed_chroma` + `speed_temporal`) is
-  PR #213 (open). 32-bit ADM/cpu fallbacks (`8a289703` +
-  `1b6c3886`) are PR #212 (open).
-- **`float_ansnr` `enable_chroma`**: fork-local option (default `false`). GPU
-  twins do not yet expose this option; if ported, ensure they emit the same
-  four chroma feature names (`float_ansnr_cb/cr`, `float_anpsnr_cb/cr`).
+  port from `d3647c73` (`speed_chroma` + `speed_temporal`) MERGED
+  via PR #213. 32-bit ADM/cpu fallbacks (`8a289703` +
+  `1b6c3886`) MERGED via PR #212.

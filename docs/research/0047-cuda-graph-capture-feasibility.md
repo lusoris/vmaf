@@ -1,4 +1,4 @@
-# Research-0047: CUDA graph capture feasibility for the per-frame submit chain
+# Research-0047 — CUDA graph capture feasibility for the per-frame submit chain
 
 | Field             | Value                                                                |
 |-------------------|----------------------------------------------------------------------|

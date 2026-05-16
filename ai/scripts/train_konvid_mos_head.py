@@ -39,10 +39,10 @@ Production (real KonViD JSONL drops or CHUG/K150K feature parquet)::
 
     python ai/scripts/train_konvid_mos_head.py \
         --konvid-1k .workingdir2/konvid-1k/konvid_1k.jsonl \
-        --konvid-150k .corpus/konvid-150k/konvid_150k.jsonl
+        --konvid-150k .workingdir2/konvid-150k/konvid_150k.jsonl
 
     python ai/scripts/train_konvid_mos_head.py \
-        --feature-parquet .corpus/chug/training/full_features_chug.parquet
+        --feature-parquet .workingdir2/chug/training/full_features_chug.parquet
 
 Production-flip gate (mirrors ADR-0303 / fr_regressor_v2_ensemble):
 

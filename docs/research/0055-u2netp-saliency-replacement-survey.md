@@ -1,4 +1,4 @@
-# Research-0055: U-2-Net `u2netp` saliency replacement survey
+# Research-0055 — U-2-Net `u2netp` saliency replacement survey
 
 | Field      | Value                                                       |
 | ---------- | ----------------------------------------------------------- |
