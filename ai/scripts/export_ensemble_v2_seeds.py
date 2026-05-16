@@ -39,7 +39,6 @@ See ADR-0321 + docs/ai/models/fr_regressor_v2_probabilistic.md.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 import time
@@ -65,18 +64,12 @@ from train_fr_regressor_v2_ensemble_loso import (  # noqa: E402  # type: ignore[
     _set_seed_all,
 )
 
+from aiutils.file_utils import sha256  # noqa: E402
+
 CODEC_BLOCK_LAYOUT: list[str] = [f"encoder_onehot[{e}]" for e in ENCODER_VOCAB] + [
     "preset_norm",
     "crf_norm",
 ]
-
-
-def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _train_full_corpus(
@@ -159,7 +152,7 @@ def _export_onnx(model, onnx_path: Path) -> str:  # type: ignore[no-untyped-def]
         },
         opset_version=17,
     )
-    return _sha256_file(onnx_path)
+    return sha256(onnx_path)
 
 
 def _build_sidecar(
@@ -313,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     print(f"[export-ens] loading corpus from {args.corpus}", flush=True)
-    corpus_sha = _sha256_file(args.corpus)
+    corpus_sha = sha256(args.corpus)
     corpus = _load_corpus(args.corpus)
     df = corpus["df"]
     feat_full = df[list(CANONICAL_6)].to_numpy(dtype=np.float64)
