@@ -178,6 +178,19 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
   gate at `places=4` covers both `enable_chroma=true` (default) and
   `enable_chroma=false` paths.
 
+- **Host-side preprocessing in CUDA feature extractor `submit` callbacks
+  must download GPU→host first.** Pictures passed to a CUDA extractor's
+  `submit()` have device pointers in `data[]`; the host cannot read them
+  directly. Use `vmaf_cuda_picture_download_async` followed by
+  `cuStreamSynchronize` on the picture's private stream (obtained via
+  `vmaf_cuda_picture_get_stream`) before passing the picture to any
+  host-side function that dereferences `data[]`. The CAMBI extractor
+  (`integer_cambi_cuda.c::submit_fex_cuda`) is the canonical example
+  of this pattern (Issue #857 fix). All other CUDA extractors in this
+  directory currently keep preprocessing on the GPU and are not affected,
+  but the rule applies to any future extractor that mixes GPU input
+  pictures with host-side preprocessing.
+
 - **`integer_adm_cuda.c` must NOT include `feature/adm_options.h`
   directly.** `DEFAULT_ADM_NOISE_WEIGHT`, `DEFAULT_ADM_CSF_SCALE`,
   `DEFAULT_ADM_CSF_DIAG_SCALE`, and the full 4-member
