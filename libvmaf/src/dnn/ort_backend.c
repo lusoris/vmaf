@@ -47,6 +47,8 @@ struct VmafOrtSession {
     bool fp16_io;
     /* EP actually attached, for diagnostics. "CPU" when nothing else bound. */
     const char *ep_name;
+    /* CPU memory descriptor (OrtMemoryInfo) cached at open time; released in close. */
+    OrtMemoryInfo *cpu_mem_info;
 };
 
 /* ------------------------------------------------------------------ */
@@ -464,6 +466,19 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
         sess->api->ReleaseTypeInfo(ti);
     }
 
+
+    /* Allocate CPU memory descriptor once for all future Run calls.
+     * ORT recommends caching this rather than recreating per-frame. */
+    OrtStatus *cpu_mem_st = sess->api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault,
+                                                           &sess->cpu_mem_info);
+    if (cpu_mem_st) {
+        assert(cpu_mem_st != NULL);
+        sess->api->ReleaseStatus(cpu_mem_st);
+        vmaf_ort_close(sess);
+        return -EIO;
+    }
+    assert(sess->cpu_mem_info != NULL);
+
     *out = sess;
     return 0;
 }
@@ -472,7 +487,7 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
  * FLOAT16 at this slot and fp16_io is enabled, we emit a scratch fp16 tensor
  * (ownership returned via @p scratch_out so the caller can free it after
  * Run()); otherwise the caller's buffer is wrapped directly as fp32. */
-static int build_input_tensor(VmafOrtSession *sess, OrtMemoryInfo *mem, size_t slot,
+static int build_input_tensor(VmafOrtSession *sess, const OrtMemoryInfo *mem, size_t slot,
                               const float *data, const int64_t *shape, size_t rank,
                               OrtValue **tensor_out, void **scratch_out)
 {
@@ -556,19 +571,12 @@ int vmaf_ort_infer(VmafOrtSession *sess, const float *input, const int64_t *inpu
 {
     if (!sess || !input || !input_shape || !output)
         return -EINVAL;
-
-    OrtMemoryInfo *mem = NULL;
-    OrtStatus *st = sess->api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &mem);
-    if (st) {
-        sess->api->ReleaseStatus(st);
-        return -EIO;
-    }
+    assert(sess->cpu_mem_info != NULL);
 
     OrtValue *in_tensor = NULL;
     void *in_scratch = NULL;
-    int rc =
-        build_input_tensor(sess, mem, 0u, input, input_shape, input_rank, &in_tensor, &in_scratch);
-    sess->api->ReleaseMemoryInfo(mem);
+    int rc = build_input_tensor(sess, sess->cpu_mem_info, 0u, input, input_shape, input_rank,
+                                &in_tensor, &in_scratch);
     if (rc != 0)
         return rc;
 
@@ -664,6 +672,8 @@ void vmaf_ort_close(VmafOrtSession *sess)
             sess->api->ReleaseSessionOptions(sess->opts);
         if (sess->env)
             sess->api->ReleaseEnv(sess->env);
+        if (sess->cpu_mem_info)
+            sess->api->ReleaseMemoryInfo(sess->cpu_mem_info);
     }
     free(sess->input_names);
     free(sess->output_names);
@@ -715,13 +725,9 @@ int vmaf_ort_run(VmafOrtSession *sess, const VmafOrtTensorIn *inputs, size_t n_i
     assert(outputs != NULL);
     if (n_inputs != sess->n_inputs || n_outputs != sess->n_outputs)
         return -EINVAL;
+    assert(sess->cpu_mem_info != NULL);
 
-    OrtMemoryInfo *mem = NULL;
-    OrtStatus *st0 = sess->api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &mem);
-    if (st0) {
-        sess->api->ReleaseStatus(st0);
-        return -EIO;
-    }
+    OrtMemoryInfo *mem = sess->cpu_mem_info;
 
     const char **in_names = (const char **)calloc(n_inputs, sizeof(char *));
     const char **out_names = (const char **)calloc(n_outputs, sizeof(char *));
@@ -808,7 +814,7 @@ cleanup:
         if (out_vals[i])
             sess->api->ReleaseValue(out_vals[i]);
     }
-    sess->api->ReleaseMemoryInfo(mem);
+    /* sess->api->ReleaseMemoryInfo(mem); */ /* mem is cached, released in vmaf_ort_close */
     free(in_names);
     free(out_names);
     free(in_vals);
