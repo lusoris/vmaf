@@ -35060,13 +35060,61 @@ fallback exists; unknown strings return `AVERROR(EINVAL)`.
 **Smoke-test after rebase**:
 
 ```bash
-ninja -C build src/liblibvmaf_feature.a.p/feature_float_ansnr.c.o
-# Expected: compiles without error
-# Verify the patch applies cleanly in series
-git -C /path/to/ffmpeg-8 reset --hard n8.1
-for p in ffmpeg-patches/0001-*.patch ffmpeg-patches/0002-*.patch; do
-    git -C /path/to/ffmpeg-8 am --3way "$p" || break
-done
-# Then confirm vmaf_pre device= help lists all 12 entries:
-grep -A1 "device" /path/to/ffmpeg-8/libavfilter/vf_vmaf_pre.c | head -20
+meson setup build -Denable_cuda=false -Denable_sycl=false
+ninja -C build
+meson test -C build --suite=fast
+```
+
+---
+
+## perf/adm-p-norm-fast-path-vif-arm64-malloc-2026-05-16 (ADR-0463)
+
+**What changed**: Added `adm_cm_s_p3`, `adm_csf_den_scale_s_p3`, and
+`adm_sum_cube_s_p3` fast-path variants in `adm_tools.c`; dispatch added in
+`adm.c:compute_adm`. Removed per-call `aligned_malloc` from the scalar
+fallback paths of `vif_filter1d_s`, `vif_filter1d_sq_s`, and
+`vif_filter1d_xy_s` in `vif_tools.c` — the caller-supplied `tmpbuf` is
+used instead.
+
+**Rebase impact**: low. All modified files (`adm_tools.c`, `adm_tools.h`,
+`adm.c`, `vif_tools.c`) are shared with upstream Netflix/vmaf. The ADM
+changes add new symbols (no existing signatures altered). The VIF changes
+only remove local malloc/free; the function signatures and caller-supplied
+`tmpbuf` contract are unchanged.
+
+**Invariant to preserve on rebase**: When upstream Netflix/vmaf modifies
+`adm_cm_s`, `adm_csf_den_scale_s`, or `adm_sum_cube_s`, the corresponding
+`_p3` variants in the fork must receive the same logic change (minus the
+`powf` path). When upstream modifies `vif_filter1d_*` scalar fallbacks,
+ensure they do not reintroduce `aligned_malloc` in the fallback body.
+See `libvmaf/src/feature/AGENTS.md` performance-invariant section.
+
+### fix/dispatch-strategy-registry-audit-2026-05-15 — dispatch registry deduplication + HIP/Metal fixes
+
+**Touches**: `libvmaf/src/feature/feature_extractor.c` (SYCL/Vulkan
+sections of `feature_extractor_list[]`), `libvmaf/src/hip/dispatch_strategy.c`,
+`libvmaf/src/metal/dispatch_strategy.c`.
+
+**Rebase impact**: low for the SYCL/Vulkan deduplication (purely
+cosmetic — first-match semantics mean behaviour is unchanged). Medium
+for HIP and Metal dispatch-supports: if an upstream sync adds new
+`feature_extractor_list[]` entries for HIP or Metal extractors, they
+must also be added to `g_hip_features[]` / `g_metal_features[]` in the
+same commit.
+
+**Invariant to preserve on rebase**: every `vmaf_fex_*_hip` extractor
+registered in `feature_extractor_list[]` must appear in `g_hip_features[]`
+in `libvmaf/src/hip/dispatch_strategy.c`.  Every `vmaf_fex_*_metal`
+extractor must appear (by extractor `.name` and all `provided_features[]`
+keys) in `g_metal_features[]` in `libvmaf/src/metal/dispatch_strategy.c`.
+The build does not enforce this — run `scripts/ci/check-dispatch-registry.sh`
+after any kernel addition.
+
+**Smoke-test after rebase**:
+
+```bash
+meson setup build -Denable_cuda=false -Denable_sycl=false
+ninja -C build
+meson test -C build
+scripts/ci/check-dispatch-registry.sh   # must exit 0
 ```
