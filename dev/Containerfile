@@ -69,8 +69,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vulkan-tools \
     mesa-vulkan-drivers \
     libglvnd-dev \
+    glslang-tools \
+    glslc \
     # Misc
     jq \
+    xxd \
     && rm -rf /var/lib/apt/lists/*
 
 # Ensure gcc-13 / clang-19 are the default compilers
@@ -144,6 +147,22 @@ ENV PATH=${DPCPP_ROOT}/bin:${PATH}
 ENV LD_LIBRARY_PATH=${DPCPP_ROOT}/lib:${LD_LIBRARY_PATH}
 ENV PKG_CONFIG_PATH=${ONEAPI_ROOT}/tbb/latest/lib/pkgconfig:${PKG_CONFIG_PATH}
 
+# ---------- Level Zero runtime (required by oneAPI SYCL backend) ------------
+# libze1 = Level Zero runtime loader; libze-dev = development headers.
+# Sourced from oneapi-src/level-zero GitHub releases v1.28.6 for Ubuntu 24.04.
+# The apt.repos.intel.com oneAPI repo ships only the icpx compiler and basekit;
+# it does NOT include Level Zero debs. We pull the matching release debs directly
+# from the GitHub releases page (amd64 Ubuntu 24.04 / noble builds).
+RUN LZVER=1.28.6 \
+    && curl -fsSL \
+        "https://github.com/oneapi-src/level-zero/releases/download/v${LZVER}/level-zero_${LZVER}+u24.04_amd64.deb" \
+        -o /tmp/libze1.deb \
+    && curl -fsSL \
+        "https://github.com/oneapi-src/level-zero/releases/download/v${LZVER}/level-zero-devel_${LZVER}+u24.04_amd64.deb" \
+        -o /tmp/libze-dev.deb \
+    && dpkg -i /tmp/libze1.deb /tmp/libze-dev.deb \
+    && rm /tmp/libze1.deb /tmp/libze-dev.deb
+
 # ---------- ROCm 6.x (HIP toolchain — build-only on NVIDIA host) -----------
 # AMD apt repo
 # NOTE: On an NVIDIA-only host HIP device kernels compile and embed but cannot
@@ -198,12 +217,24 @@ WORKDIR /build/vmaf
 COPY --chown=vmaf:vmaf . /build/vmaf/
 RUN chown vmaf:vmaf /build /build/vmaf
 
+# Install nv-codec-headers (provides ffnvcodec/dynlink_cuda.h).
+# Required by FFmpeg --enable-libvmaf-cuda and any code path that includes the
+# NVENC/NVDEC SDK headers. Must be installed as root before the USER switch.
+RUN git clone --depth=1 --branch n12.2.72.0 \
+        https://github.com/FFmpeg/nv-codec-headers.git /tmp/nv-codec-headers \
+    && make -C /tmp/nv-codec-headers install PREFIX=/usr/local \
+    && rm -rf /tmp/nv-codec-headers
+
 USER vmaf
 
 # Configure with all backends enabled.
 # -Denable_metal=auto  → auto-disabled on Linux (no Metal SDK present).
 # -Denable_mcp_sse=auto → auto-disabled until POSIX socket impl is complete.
-RUN meson setup build \
+# CC=icx CXX=icpx: required for meson to detect the SYCL backend via icpx.
+# `cd libvmaf && meson setup build`: nvcc resolves #include paths relative to
+# the source root; running meson from a subdirectory prevents broken relative
+# includes when the CUDA feature kernels are compiled.
+RUN cd libvmaf && CC=icx CXX=icpx meson setup build \
         -Denable_cuda=true \
         -Denable_sycl=true \
         -Denable_vulkan=enabled \
