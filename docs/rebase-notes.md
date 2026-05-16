@@ -34878,3 +34878,33 @@ meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build
 meson test -C build --suite=fast
 ```
+
+---
+
+## `perf/vif-cuda-smem-staging-2026-05-16` (ADR-0454)
+
+**Files touched**:
+`libvmaf/src/feature/cuda/integer_vif/filter1d.cu`,
+`libvmaf/src/feature/cuda/AGENTS.md`.
+
+**Rebase impact**: low. `filter1d.cu` is a fork-local CUDA kernel file
+(Netflix/vmaf does not maintain CUDA implementations). `AGENTS.md` is
+fork-local. No upstream-shared path, public header, or build file is modified.
+
+**Invariant to preserve on rebase**: the `__shared__` smem staging in all four
+filter template functions must be preserved verbatim (see canonical note added
+to `AGENTS.md`). If a future upstream commit adds a `filter1d.cu`-equivalent
+(unlikely — Netflix does not ship GPU VIF), reconcile by keeping the smem
+staging on our side. Do not remove the `__syncthreads()` between the cooperative
+load and the compute phase — that barrier is the only thing ordering the smem
+writes from all threads before any thread reads.
+
+**Smoke-test after rebase**:
+
+```bash
+meson setup build -Denable_cuda=true -Denable_sycl=false
+ninja -C build
+meson test -C build --suite=fast
+python3 scripts/ci/cross_backend_parity_gate.py \
+    --features vif --backends cpu cuda --places 4
+```
