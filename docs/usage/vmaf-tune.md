@@ -2227,6 +2227,41 @@ Winner statuses:
 cell is the next encode target, not a substitute for the final
 encode/score verification pass.
 
+### Execute mode (ADR-0454)
+
+After the planning pass, `--execute` drives real FFmpeg encodes and libvmaf scores
+for the selected cell(s):
+
+```shell
+vmaf-tune auto \
+    --src reference.mp4 \
+    --target-vmaf 93 \
+    --max-budget-bitrate 5000 \
+    --allow-codecs libx264,libx265 \
+    --output plan.json \
+    --execute \
+    --runs-dir runs/
+```
+
+`--execute` flags:
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--execute` | off | Enable execute mode; plan-only when absent. |
+| `--runs-dir PATH` | `runs/` | Destination for encoded files and `tune_results.jsonl`. |
+| `--execute-all` | off | Run every plan cell instead of only the `selected` winner. |
+
+Results are appended to `<runs-dir>/tune_results.jsonl` one row per executed
+cell. Each row carries the cell metadata (codec, preset, CRF, estimated
+VMAF/bitrate) merged with encode outcomes (size, encode time, FFmpeg version)
+and score outcomes (measured VMAF, per-feature means/stds, vmaf-binary version).
+The file appends on each run so partial runs and incremental re-runs do not
+overwrite previous results.
+
+The CLI exits with status 1 if at least one cell was executed but none scored
+successfully (encode failures, vmaf binary absent, etc.); it exits 0 on plan-only
+runs regardless of plan content.
+
 ### Confidence-aware fallbacks (F.3)
 
 F.2 treats the predictor's verdict as a binary GOSPEL / FALL_BACK gate

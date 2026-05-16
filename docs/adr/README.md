@@ -451,3 +451,4 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0451](0451-local-dev-mcp-container.md) | Local dev-MCP container for live probing — Docker, all 4 GPU backends (CUDA/SYCL/Vulkan/HIP), continuous 15-min smoke probe | Accepted | infra, docker, mcp, gpu, hip, cuda, sycl, vulkan, dev, fork-local |
 | [ADR-0452](0452-cambi-calculate-c-values-avx512-neon.md) | Port `calculate_c_values_row` to AVX-512 (16-lane gather) and NEON (mask-zero fast-skip); bit-exact integer pipeline | Accepted | simd, cambi, perf |
 | [ADR-0453](0453-psnr-enable-chroma-gpu-parity.md) | PSNR `enable_chroma` option parity across CUDA, SYCL, Vulkan GPU backends | Accepted | cuda, sycl, vulkan, psnr, option-parity, bug |
+| [ADR-0454](0454-vmaf-tune-auto-execute-mode.md) | `vmaf-tune auto --execute`: Phase F real encode/score execution mode, JSONL results, subprocess seam | Accepted | vmaf-tune, phase-f, encode, score, cli, fork-local |

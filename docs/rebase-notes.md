@@ -7,6 +7,14 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
+No rebase impact: `fix/vmaf-tune-auto-execute-mode-2026-05-16` (ADR-0454)
+adds `tools/vmaf-tune/src/vmaftune/executor.py` (fork-local) and extends
+`cli.py` with `--execute`/`--runs-dir`/`--execute-all` flags. All touched
+files are under `tools/vmaf-tune/`, which is entirely fork-local; upstream
+Netflix/vmaf does not maintain a `tools/vmaf-tune/` directory. No
+upstream-shared C/C++ sources, headers, build files, or feature extractors
+are modified. No sync-upstream conflicts expected.
+
 No rebase impact: `fix/dev-mcp-stage3-and-bundled-fixes-2026-05-16` touches
 only `dev/Containerfile`, `dev/AGENTS.md`, `docs/research/0135-*`, and
 `changelog.d/fixed/dev-mcp-container-stage-3.md`. These are all fork-local
