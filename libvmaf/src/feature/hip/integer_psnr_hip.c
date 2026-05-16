@@ -19,18 +19,20 @@
  *  lifecycle helper returns -ENOSYS, so the feature engine reports
  *  "runtime not ready" rather than crashing.
  *
- *  Algorithm (v1 luma-only, mirrors CPU `integer_psnr.c`):
- *      sse = sum_{i,j} (ref[i,j] - dis[i,j])^2;
- *      mse = sse / (w * h);
- *      psnr_y = MIN(10 * log10(peak^2 / max(mse, 1e-16)), psnr_max)
+ *  Algorithm (mirrors CPU `integer_psnr.c`):
+ *      sse = sum_{i,j} (ref[i,j] - dis[i,j])^2;       (per channel)
+ *      mse = sse / (w_p * h_p);
+ *      psnr = MIN(10 * log10(peak^2 / max(mse, 1e-16)), psnr_max)
  *  psnr_max = (6 * bpc) + 12  (CPU `integer_psnr.c::init` min_sse==0 branch).
  *
- *  Chroma extension (psnr_cb / psnr_cr) is a follow-up per ADR-0372
- *  Consequences — mirrors the CUDA twin's T3-15(a) extension.
+ *  enable_chroma option (ADR-0453 parity with CUDA / Vulkan / SYCL twins):
+ *  when false only the luma plane is dispatched (mirrors CPU init guard).
+ *  4:0:0 sources force n_planes=1 regardless of the option.
  */
 
 #include <errno.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -55,39 +57,52 @@ extern const unsigned char psnr_score_hsaco[];
 extern const unsigned int psnr_score_hsaco_len;
 #endif /* HAVE_HIPCC */
 
+#define PSNR_HIP_NUM_PLANES 3U
+
 typedef struct PsnrStateHip {
-    /* Lifecycle (private stream + submit/finished event pair) and the
-     * (device SSE accumulator, pinned host readback slot) pair are
-     * managed by `hip/kernel_template.h` (T7-10 first consumer /
-     * ADR-0241). The struct shape mirrors the CUDA twin's
-     * `PsnrStateCuda` — same fields in the same order, modulo the
-     * `*_hip` -> `*_cuda` type names. */
+    /* Lifecycle (private stream + submit/finished event pair) is shared
+     * across all active plane dispatches — they execute sequentially.
+     * Per-plane readback slots mirror the CUDA twin's multi-readback
+     * layout (one (device SSE accumulator, pinned host) pair per plane). */
     VmafHipKernelLifecycle lc;
-    VmafHipKernelReadback rb;
+    VmafHipKernelReadback rb[PSNR_HIP_NUM_PLANES];
     VmafHipContext *ctx;
     unsigned index;
-    unsigned frame_w;
-    unsigned frame_h;
+    unsigned width[PSNR_HIP_NUM_PLANES];
+    unsigned height[PSNR_HIP_NUM_PLANES];
     unsigned bpc;
     uint32_t peak;
-    double psnr_max_y;
+    /* `enable_chroma` option: when false, only luma is dispatched.
+     * Default true mirrors CPU integer_psnr.c — see ADR-0453. */
+    bool enable_chroma;
+    /* Number of active planes (1 for YUV400 or enable_chroma=false, 3 otherwise). */
+    unsigned n_planes;
+    /* Per-plane psnr_max — `(6 * bpc) + 12` (CPU init min_sse==0 branch). */
+    double psnr_max[PSNR_HIP_NUM_PLANES];
     /* HIP module handle and per-bpc kernel function handles.
      * Both are zero-initialised in the scaffold path (no HAVE_HIPCC). */
 #ifdef HAVE_HIPCC
     hipModule_t module;
     hipFunction_t funcbpc8;
     hipFunction_t funcbpc16;
-    /* Per-frame staging buffers: ref and dis luma planes copied from
-     * the VmafPicture device pointers into tightly-packed (width *
-     * bytes_per_pixel)-pitch device buffers before the kernel launch.
-     * Sized at init() time. */
-    void *ref_in;
-    void *dis_in;
+    /* Per-frame staging buffers: ref and dis planes copied from
+     * the VmafPicture device pointers into tightly-packed device
+     * buffers before the kernel launch. Sized at init() time.
+     * Three pointers cover luma + two chroma planes. */
+    void *ref_in[PSNR_HIP_NUM_PLANES];
+    void *dis_in[PSNR_HIP_NUM_PLANES];
 #endif /* HAVE_HIPCC */
     VmafDictionary *feature_name_dict;
 } PsnrStateHip;
 
-static const VmafOption options[] = {{0}};
+static const VmafOption options[] = {{
+                                         .name = "enable_chroma",
+                                         .help = "enable calculation for chroma channels",
+                                         .offset = offsetof(PsnrStateHip, enable_chroma),
+                                         .type = VMAF_OPT_TYPE_BOOL,
+                                         .default_val.b = true,
+                                     },
+                                     {0}};
 
 #define PSNR_HIP_BX 16
 #define PSNR_HIP_BY 16
@@ -138,37 +153,31 @@ static int psnr_hip_module_load(PsnrStateHip *s)
     return 0;
 }
 
-/* Launch the appropriate bpc kernel on `pic_stream`, then record the
- * submit event, wait on the private stream, DtoH copy the accumulator,
- * and record the finished event. */
-static int psnr_hip_launch(PsnrStateHip *s, uintptr_t pic_stream)
+/* Launch one plane's kernel on `pstr`, zero the accumulator, dispatch the
+ * grid, and DtoH copy the uint64 result into rb[p].host_pinned.
+ * All work is enqueued on `pstr`; the cross-stream wait + finished event
+ * are handled by the caller (submit_fex_hip) after all planes are queued. */
+static int psnr_hip_launch_plane(PsnrStateHip *s, unsigned p, uintptr_t pic_stream)
 {
-    hipStream_t str = (hipStream_t)s->lc.str;
     hipStream_t pstr = (hipStream_t)pic_stream;
 
-    /* Zero the uint64 SSE accumulator before the kernel touches it.
-     * Uses the picture stream so the memset is sequenced before the
-     * kernel launch on the same stream. */
-    hipError_t rc = hipMemsetAsync(s->rb.device, 0, sizeof(uint64_t), pstr);
+    hipError_t rc = hipMemsetAsync(s->rb[p].device, 0, sizeof(uint64_t), pstr);
     if (rc != hipSuccess)
         return psnr_hip_rc(rc);
 
-    const ptrdiff_t plane_pitch = (ptrdiff_t)(s->frame_w * (s->bpc <= 8u ? 1u : 2u));
-    const unsigned gx = (s->frame_w + PSNR_HIP_BX - 1u) / PSNR_HIP_BX;
-    const unsigned gy = (s->frame_h + PSNR_HIP_BY - 1u) / PSNR_HIP_BY;
+    const size_t bpp = (s->bpc <= 8u) ? 1u : 2u;
+    const ptrdiff_t plane_pitch = (ptrdiff_t)(s->width[p] * bpp);
+    const unsigned gx = (s->width[p] + PSNR_HIP_BX - 1u) / PSNR_HIP_BX;
+    const unsigned gy = (s->height[p] + PSNR_HIP_BY - 1u) / PSNR_HIP_BY;
 
-    unsigned long long *sse_dev = (unsigned long long *)s->rb.device;
-    unsigned w = s->frame_w;
-    unsigned h = s->frame_h;
-    const uint8_t *ref_dev = (const uint8_t *)s->ref_in;
-    const uint8_t *dis_dev = (const uint8_t *)s->dis_in;
+    unsigned long long *sse_dev = (unsigned long long *)s->rb[p].device;
+    unsigned w = s->width[p];
+    unsigned h = s->height[p];
+    const uint8_t *ref_dev = (const uint8_t *)s->ref_in[p];
+    const uint8_t *dis_dev = (const uint8_t *)s->dis_in[p];
 
     hipFunction_t func = (s->bpc == 8u) ? s->funcbpc8 : s->funcbpc16;
 
-    /* hipModuleLaunchKernel argument pack: pass pointers-to-args in
-     * the same order as the kernel's parameter list.
-     * calculate_psnr_hip_kernel_{8,16}bpc(ref, dis, ref_stride,
-     *   dis_stride, sse, width, height). */
     void *args[] = {
         (void *)&ref_dev, (void *)&dis_dev, (void *)&plane_pitch, (void *)&plane_pitch,
         (void *)&sse_dev, (void *)&w,       (void *)&h,
@@ -177,55 +186,64 @@ static int psnr_hip_launch(PsnrStateHip *s, uintptr_t pic_stream)
     if (rc != hipSuccess)
         return psnr_hip_rc(rc);
 
-    /* Record submit event on the picture stream, then wait for it on
-     * the private readback stream before the DtoH copy. */
-    rc = hipEventRecord((hipEvent_t)s->lc.submit, pstr);
-    if (rc != hipSuccess)
-        return psnr_hip_rc(rc);
-    rc = hipStreamWaitEvent(str, (hipEvent_t)s->lc.submit, 0);
-    if (rc != hipSuccess)
-        return psnr_hip_rc(rc);
-
-    rc = hipMemcpyAsync(s->rb.host_pinned, s->rb.device, sizeof(uint64_t), hipMemcpyDeviceToHost,
-                        str);
-    if (rc != hipSuccess)
-        return psnr_hip_rc(rc);
-
-    return vmaf_hip_kernel_submit_post_record(&s->lc, s->ctx);
+    return 0;
 }
 #endif /* HAVE_HIPCC */
+
+/* psnr_name[p] — matches CPU integer_psnr.c and the CUDA twin. */
+static const char *const psnr_name[PSNR_HIP_NUM_PLANES] = {"psnr_y", "psnr_cb", "psnr_cr"};
 
 static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                         unsigned w, unsigned h)
 {
-    (void)pix_fmt;
     PsnrStateHip *s = fex->priv;
 
-    /* Allocate a HIP context — the scaffold's `vmaf_hip_context_new`
-     * succeeds today (calloc + struct init); the runtime PR swaps in
-     * `hipSetDevice` + handle creation. */
+    /* Per-plane geometry — mirrors CPU integer_psnr.c::init and the CUDA twin. */
+    s->width[0] = w;
+    s->height[0] = h;
+    if (pix_fmt == VMAF_PIX_FMT_YUV400P) {
+        s->n_planes = 1U;
+        s->width[1] = s->width[2] = 0U;
+        s->height[1] = s->height[2] = 0U;
+    } else {
+        s->n_planes = PSNR_HIP_NUM_PLANES;
+        const int ss_hor = (pix_fmt != VMAF_PIX_FMT_YUV444P);
+        const int ss_ver = (pix_fmt == VMAF_PIX_FMT_YUV420P);
+        const unsigned cw = (w + (unsigned)ss_hor) >> ss_hor;
+        const unsigned ch = (h + (unsigned)ss_ver) >> ss_ver;
+        s->width[1] = s->width[2] = cw;
+        s->height[1] = s->height[2] = ch;
+    }
+    /* Mirror CPU integer_psnr.c::init's enable_chroma guard (ADR-0453):
+     * when the caller passes enable_chroma=false, skip chroma dispatches
+     * identically to the YUV400 path. */
+    if (!s->enable_chroma && s->n_planes > 1U) {
+        s->n_planes = 1U;
+        s->width[1] = s->width[2] = 0U;
+        s->height[1] = s->height[2] = 0U;
+    }
+
+    /* Allocate a HIP context. */
     int err = vmaf_hip_context_new(&s->ctx, 0);
     if (err != 0)
         return err;
 
-    /* Stream + event pair via the template. With HAVE_HIPCC this
-     * returns 0 (real HIP calls); without it, -ENOSYS surfaces to the
-     * caller as "runtime not ready". */
+    /* Stream + event pair via the template. */
     err = vmaf_hip_kernel_lifecycle_init(&s->lc, s->ctx);
     if (err != 0)
         goto fail_after_ctx;
 
     s->bpc = bpc;
-    s->frame_w = w;
-    s->frame_h = h;
     s->peak = (1u << bpc) - 1u;
-    /* psnr_max formula mirrors CPU integer_psnr.c::init min_sse==0 branch. */
-    s->psnr_max_y = (double)(6u * bpc) + 12.0;
+    for (unsigned p = 0U; p < PSNR_HIP_NUM_PLANES; p++)
+        s->psnr_max[p] = (double)(6U * bpc) + 12.0;
 
-    /* Readback pair (device uint64 SSE accumulator + pinned host slot). */
-    err = vmaf_hip_kernel_readback_alloc(&s->rb, s->ctx, sizeof(uint64_t));
-    if (err != 0)
-        goto fail_after_lc;
+    /* Per-plane readback pairs (device uint64 accumulator + pinned host slot). */
+    for (unsigned p = 0U; p < s->n_planes; p++) {
+        err = vmaf_hip_kernel_readback_alloc(&s->rb[p], s->ctx, sizeof(uint64_t));
+        if (err != 0)
+            goto fail_after_rb;
+    }
 
 #ifdef HAVE_HIPCC
     /* Load HSACO module and look up the two kernel entry points. */
@@ -233,20 +251,22 @@ static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
     if (err != 0)
         goto fail_after_rb;
 
-    /* Allocate tightly-pitched device staging buffers for ref + dis. */
+    /* Allocate tightly-pitched device staging buffers for each active plane. */
     const size_t bpp = (bpc <= 8u) ? 1u : 2u;
-    const size_t plane_bytes = (size_t)w * h * bpp;
-    hipError_t rc = hipMalloc(&s->ref_in, plane_bytes);
-    if (rc != hipSuccess) {
-        err = -ENOMEM;
-        goto fail_after_module;
-    }
-    rc = hipMalloc(&s->dis_in, plane_bytes);
-    if (rc != hipSuccess) {
-        (void)hipFree(s->ref_in);
-        s->ref_in = NULL;
-        err = -ENOMEM;
-        goto fail_after_module;
+    for (unsigned p = 0U; p < s->n_planes; p++) {
+        const size_t plane_bytes = (size_t)s->width[p] * s->height[p] * bpp;
+        hipError_t rc = hipMalloc(&s->ref_in[p], plane_bytes);
+        if (rc != hipSuccess) {
+            err = -ENOMEM;
+            goto fail_after_module;
+        }
+        rc = hipMalloc(&s->dis_in[p], plane_bytes);
+        if (rc != hipSuccess) {
+            (void)hipFree(s->ref_in[p]);
+            s->ref_in[p] = NULL;
+            err = -ENOMEM;
+            goto fail_after_module;
+        }
     }
 #endif /* HAVE_HIPCC */
 
@@ -265,13 +285,15 @@ static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
 
 #ifdef HAVE_HIPCC
 fail_after_bufs:
-    if (s->dis_in != NULL) {
-        (void)hipFree(s->dis_in);
-        s->dis_in = NULL;
-    }
-    if (s->ref_in != NULL) {
-        (void)hipFree(s->ref_in);
-        s->ref_in = NULL;
+    for (unsigned p = 0U; p < s->n_planes; p++) {
+        if (s->dis_in[p] != NULL) {
+            (void)hipFree(s->dis_in[p]);
+            s->dis_in[p] = NULL;
+        }
+        if (s->ref_in[p] != NULL) {
+            (void)hipFree(s->ref_in[p]);
+            s->ref_in[p] = NULL;
+        }
     }
 fail_after_module:
     if (s->module != NULL) {
@@ -280,8 +302,8 @@ fail_after_module:
     }
 #endif /* HAVE_HIPCC */
 fail_after_rb:
-    (void)vmaf_hip_kernel_readback_free(&s->rb, s->ctx);
-fail_after_lc:
+    for (unsigned p = 0U; p < s->n_planes; p++)
+        (void)vmaf_hip_kernel_readback_free(&s->rb[p], s->ctx);
     (void)vmaf_hip_kernel_lifecycle_close(&s->lc, s->ctx);
 fail_after_ctx:
     vmaf_hip_context_destroy(s->ctx);
@@ -297,41 +319,50 @@ static int submit_fex_hip(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafP
     PsnrStateHip *s = fex->priv;
 
     s->index = index;
-    s->frame_w = ref_pic->w[0];
-    s->frame_h = ref_pic->h[0];
 
 #ifdef HAVE_HIPCC
-    /* HtoD copy of ref and dis luma planes into the tightly-pitched
-     * staging buffers. The picture stream is passed to the kernel
-     * launch and readback sequence so all work is properly ordered. */
-    const ptrdiff_t plane_pitch = (ptrdiff_t)(s->frame_w * (s->bpc <= 8u ? 1u : 2u));
-    /* Use picture_stream = 0 for the cross-stream wait (no VmafPicture
-     * stream handle is exposed in the HIP scaffold yet — mirrors the
-     * scaffold posture in float_psnr_hip.c and the CUDA twin's
-     * `vmaf_cuda_picture_get_stream` wrapper). */
+    /* Use picture_stream = 0 (scaffold posture — mirrors float_psnr_hip.c). */
     const uintptr_t pic_stream_handle = 0;
+    hipStream_t pstr = (hipStream_t)pic_stream_handle;
+    hipStream_t str = (hipStream_t)s->lc.str;
+    const size_t bpp = (s->bpc <= 8u) ? 1u : 2u;
 
-    /* HtoD copy ref luma via 2D memcpy to handle arbitrary source stride. */
-    hipError_t rc =
-        hipMemcpy2DAsync(s->ref_in, (size_t)plane_pitch, ref_pic->data[0],
-                         (size_t)ref_pic->stride[0], (size_t)plane_pitch, (size_t)s->frame_h,
-                         hipMemcpyHostToDevice, (hipStream_t)pic_stream_handle);
+    /* HtoD copy each active plane, then launch its kernel. */
+    for (unsigned p = 0U; p < s->n_planes; p++) {
+        const ptrdiff_t pitch = (ptrdiff_t)(s->width[p] * bpp);
+        hipError_t rc = hipMemcpy2DAsync(s->ref_in[p], (size_t)pitch, ref_pic->data[p],
+                                         (size_t)ref_pic->stride[p], (size_t)pitch,
+                                         (size_t)s->height[p], hipMemcpyHostToDevice, pstr);
+        if (rc != hipSuccess)
+            return -EIO;
+        rc = hipMemcpy2DAsync(s->dis_in[p], (size_t)pitch, dist_pic->data[p],
+                              (size_t)dist_pic->stride[p], (size_t)pitch, (size_t)s->height[p],
+                              hipMemcpyHostToDevice, pstr);
+        if (rc != hipSuccess)
+            return -EIO;
+        int err = psnr_hip_launch_plane(s, p, pic_stream_handle);
+        if (err != 0)
+            return err;
+    }
+
+    /* Record submit on the picture stream, wait on the private readback
+     * stream, then DtoH copy each plane's accumulator. */
+    hipError_t rc = hipEventRecord((hipEvent_t)s->lc.submit, pstr);
     if (rc != hipSuccess)
-        return -EIO;
-
-    rc = hipMemcpy2DAsync(s->dis_in, (size_t)plane_pitch, dist_pic->data[0],
-                          (size_t)dist_pic->stride[0], (size_t)plane_pitch, (size_t)s->frame_h,
-                          hipMemcpyHostToDevice, (hipStream_t)pic_stream_handle);
+        return psnr_hip_rc(rc);
+    rc = hipStreamWaitEvent(str, (hipEvent_t)s->lc.submit, 0);
     if (rc != hipSuccess)
-        return -EIO;
-
-    return psnr_hip_launch(s, pic_stream_handle);
+        return psnr_hip_rc(rc);
+    for (unsigned p = 0U; p < s->n_planes; p++) {
+        rc = hipMemcpyAsync(s->rb[p].host_pinned, s->rb[p].device, sizeof(uint64_t),
+                            hipMemcpyDeviceToHost, str);
+        if (rc != hipSuccess)
+            return psnr_hip_rc(rc);
+    }
+    return vmaf_hip_kernel_submit_post_record(&s->lc, s->ctx);
 #else
-    /* Scaffold posture: the pre-launch helper returns -ENOSYS, which
-     * surfaces as "runtime not ready" without any device work being
-     * scheduled. Once HAVE_HIPCC is defined and the module is loaded,
-     * the path above handles the real dispatch. */
-    int err = vmaf_hip_kernel_submit_pre_launch(&s->lc, s->ctx, &s->rb,
+    /* Scaffold posture: surfaces -ENOSYS as "runtime not ready". */
+    int err = vmaf_hip_kernel_submit_pre_launch(&s->lc, s->ctx, &s->rb[0],
                                                 /* picture_stream */ 0,
                                                 /* dist_ready_event */ 0);
     if (err != 0)
@@ -345,28 +376,29 @@ static int collect_fex_hip(VmafFeatureExtractor *fex, unsigned index,
 {
     PsnrStateHip *s = fex->priv;
 
-    /* Drain the private readback stream so the host pinned buffer is
-     * safe to read. Mirrors the CUDA twin. */
+    /* Drain the private readback stream so all host pinned buffers are safe. */
     int err = vmaf_hip_kernel_collect_wait(&s->lc, s->ctx);
     if (err != 0)
         return err;
 
 #ifdef HAVE_HIPCC
-    /* Read the uint64 SSE from the pinned host buffer. */
-    const double sse = (double)*(const uint64_t *)s->rb.host_pinned;
-    const double n_pixels = (double)s->frame_w * (double)s->frame_h;
-    const double mse = sse / n_pixels;
-    /* Match CPU integer_psnr.c::extract: clamp at psnr_max via
-     * MIN(10*log10(peak^2 / max(mse, 1e-16)), psnr_max). The 1e-16
-     * floor guards against sse == 0 (identical frames). */
     const double peak_sq = (double)s->peak * (double)s->peak;
-    const double mse_clamped = (mse > 1e-16) ? mse : 1e-16;
-    double psnr = 10.0 * log10(peak_sq / mse_clamped);
-    if (psnr > s->psnr_max_y)
-        psnr = s->psnr_max_y;
+    int rc = 0;
+    for (unsigned p = 0U; p < s->n_planes; p++) {
+        const double sse = (double)*(const uint64_t *)s->rb[p].host_pinned;
+        const double n_pixels = (double)s->width[p] * (double)s->height[p];
+        const double mse = sse / n_pixels;
+        const double mse_clamped = (mse > 1e-16) ? mse : 1e-16;
+        double psnr = 10.0 * log10(peak_sq / mse_clamped);
+        if (psnr > s->psnr_max[p])
+            psnr = s->psnr_max[p];
 
-    return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "psnr_y", psnr, index);
+        const int e = vmaf_feature_collector_append_with_dict(
+            feature_collector, s->feature_name_dict, psnr_name[p], psnr, index);
+        if (e != 0 && rc == 0)
+            rc = e;
+    }
+    return rc;
 #else
     (void)feature_collector;
     (void)index;
@@ -378,22 +410,23 @@ static int close_fex_hip(VmafFeatureExtractor *fex)
 {
     PsnrStateHip *s = fex->priv;
 
-    /* Lifecycle teardown via the template (sync → destroy stream →
-     * destroy events). Best-effort error aggregation matches the
-     * CUDA twin's close path. */
     int rc = vmaf_hip_kernel_lifecycle_close(&s->lc, s->ctx);
-    int err = vmaf_hip_kernel_readback_free(&s->rb, s->ctx);
-    if (err != 0 && rc == 0)
-        rc = err;
+    for (unsigned p = 0U; p < PSNR_HIP_NUM_PLANES; p++) {
+        const int err = vmaf_hip_kernel_readback_free(&s->rb[p], s->ctx);
+        if (err != 0 && rc == 0)
+            rc = err;
+    }
 
 #ifdef HAVE_HIPCC
-    if (s->dis_in != NULL) {
-        (void)hipFree(s->dis_in);
-        s->dis_in = NULL;
-    }
-    if (s->ref_in != NULL) {
-        (void)hipFree(s->ref_in);
-        s->ref_in = NULL;
+    for (unsigned p = 0U; p < PSNR_HIP_NUM_PLANES; p++) {
+        if (s->dis_in[p] != NULL) {
+            (void)hipFree(s->dis_in[p]);
+            s->dis_in[p] = NULL;
+        }
+        if (s->ref_in[p] != NULL) {
+            (void)hipFree(s->ref_in[p]);
+            s->ref_in[p] = NULL;
+        }
     }
     if (s->module != NULL) {
         hipError_t hip_err = hipModuleUnload(s->module);
@@ -404,7 +437,7 @@ static int close_fex_hip(VmafFeatureExtractor *fex)
 #endif /* HAVE_HIPCC */
 
     if (s->feature_name_dict != NULL) {
-        err = vmaf_dictionary_free(&s->feature_name_dict);
+        const int err = vmaf_dictionary_free(&s->feature_name_dict);
         if (err != 0 && rc == 0)
             rc = err;
     }
@@ -415,7 +448,11 @@ static int close_fex_hip(VmafFeatureExtractor *fex)
     return rc;
 }
 
-static const char *provided_features[] = {"psnr_y", NULL};
+/* Provided features — full luma + chroma. For YUV400 sources or
+ * enable_chroma=false, init() clamps n_planes to 1 and chroma dispatches
+ * are skipped at runtime, but the static list claims chroma so the
+ * dispatcher can route psnr_cb / psnr_cr requests through this extractor. */
+static const char *provided_features[] = {"psnr_y", "psnr_cb", "psnr_cr", NULL};
 
 /* Load-bearing: the feature extractor is registered via
  * `extern VmafFeatureExtractor vmaf_fex_psnr_hip;` in
@@ -446,7 +483,7 @@ VmafFeatureExtractor vmaf_fex_psnr_hip = {
     .flags = 0,
     .chars =
         {
-            .n_dispatches_per_frame = 1,
+            .n_dispatches_per_frame = 3,
             .is_reduction_only = true,
             .min_useful_frame_area = 1920U * 1080U,
             .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
