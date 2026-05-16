@@ -11,6 +11,15 @@ psnr_hvs, ADM, VIF, SSIM) measure "identity" — they return null / floor at the
 trivial value — while content-sensitive metrics (cambi, motion, vmaf teacher) remain
 informative.  The NaN columns are expected and documented in ADR-0362.
 
+``vmaf`` column: computed via the ``vmaf_v0.6.1`` model (SDR-trained).  The model
+is mis-calibrated on PQ HDR clips because it was trained on SDR content; scores from
+HDR inputs should be interpreted as a relative comparison baseline only, not as an
+absolute quality prediction.  Replace with the Netflix HDR model when it ships.  The
+~5–10 % CUDA wall-clock overhead of the model dispatch is acknowledged in
+Research-0135 as an acceptable trade-off for preserving the vmaf relationship across
+bitrate-ladder rungs.  See Research-0135 for the full analysis and the Option A vs
+Option B decision matrix (supersedes PR #898 Option A / Research-0135 draft).
+
 Output: ``runs/full_features_k150k.parquet`` (one row per clip, gitignored).
 
 Schema (46 columns, parquet schema version v2):
@@ -363,7 +372,19 @@ def _run_feature_passes(
     threads: int,
     use_cuda: bool,
 ) -> list[dict]:
-    """Run vmaf feature extraction, splitting CUDA mode where required."""
+    """Run vmaf feature extraction, splitting CUDA mode where required.
+
+    The ``vmaf_v0.6.1`` model is dispatched on every invocation so that the
+    ``vmaf`` JSON key is populated in the output.  The model is SDR-trained and
+    is mis-calibrated on PQ HDR clips; its score is kept as a relative
+    comparison baseline only.  See the module docstring and Research-0135 for
+    the rationale (Option B, supersedes PR #898 Option A).
+    """
+    # The --model arg causes libvmaf to run the vmaf_v0.6.1 model dispatch and
+    # emit a per-frame "vmaf" key.  Without this, the JSON contains only the
+    # raw feature values and no composite score.
+    _MODEL_ARGS: list[str] = ["--model", "version=vmaf_v0.6.1"]
+
     if not use_cuda:
         return _run_vmaf_json(
             vmaf_bin,
@@ -374,7 +395,7 @@ def _run_feature_passes(
             out_json,
             threads,
             EXTRACTOR_NAMES,
-            ["--no_cuda", "--no_sycl", "--no_vulkan"],
+            ["--no_cuda", "--no_sycl", "--no_vulkan", *_MODEL_ARGS],
         )
 
     cuda_json = out_json.with_name(out_json.stem + ".cuda.json")
@@ -389,7 +410,7 @@ def _run_feature_passes(
             cuda_json,
             threads,
             CUDA_EXTRACTOR_NAMES,
-            ["--backend", "cuda"],
+            ["--backend", "cuda", *_MODEL_ARGS],
         )
         cpu_frames = _run_vmaf_json(
             cpu_vmaf_bin,
