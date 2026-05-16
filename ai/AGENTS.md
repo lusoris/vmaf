@@ -655,6 +655,21 @@ threshold). When extending these scripts:
   (difference-based ssimulacra2, ciede2000, psnr_hvs, ADM, VIF) degenerate; see
   ADR-0362 §Negative consequences. CPU-only ssimulacra2 extraction remains
   available for genuine FR pairs where it is informative.
+- **FEATURE_NAMES completeness invariant:** all `FEATURE_NAMES` entries must
+  map to JSON keys emitted by the pipeline (CUDA extractors, CPU residual, or
+  `--model` dispatch).  The `vmaf` entry is the model composite score emitted
+  via the `--model` arg in `_run_feature_passes`; all other entries are raw
+  features emitted via `--feature` arguments.
+- **vmaf column is computed via vmaf_v0.6.1 (Research-0135):** the `vmaf`
+  column in CHUG/K150K output parquets is computed by dispatching the SDR
+  `vmaf_v0.6.1` model via `--model version=vmaf_v0.6.1` in the libvmaf CLI
+  invocation.  This model is SDR-trained and is mis-calibrated on PQ HDR
+  clips; scores are valid for relative bitrate-ladder comparison within a
+  content group but are not meaningful as absolute HDR quality targets.
+  Replace with the Netflix HDR model when it ships (change the `--model` arg
+  in `_run_feature_passes`; no schema change required).  Do NOT remove the
+  `--model` arg without an ADR — the vmaf relationship across ladder rungs
+  is a required training feature per user direction 2026-05-16.
 - **Checkpoint format:** `.done` file is append-only, one clip name per
   line, no header. Changing the format without a migration breaks
   in-progress runs. The `_load_done_set()` / `_append_done()` helpers are
