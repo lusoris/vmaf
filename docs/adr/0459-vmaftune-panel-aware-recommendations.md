@@ -1,4 +1,4 @@
-# ADR-0445: vmaf-tune panel/display-aware recommendation workstream
+# ADR-0459: vmaf-tune panel/display-aware recommendation workstream
 
 - **Status**: Proposed
 - **Date**: 2026-05-15

@@ -1,1 +1,0 @@
-| [ADR-0445](0445-vmaftune-panel-aware-recommendations.md) | vmaf-tune panel/display-aware recommendation workstream (HDRSDR-VQA) | Proposed | vmaf-tune, ai, hdr, training, panel, display, fork-local |

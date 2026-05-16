@@ -6,4 +6,4 @@
   access or license; 1 BLOCKED on infrastructure. HDRSDR-VQA's
   6-display pairwise design surfaces a new panel/display-aware
   workstream scoped in
-  [ADR-0445](../docs/adr/0445-vmaftune-panel-aware-recommendations.md).
+  [ADR-0459](../docs/adr/0459-vmaftune-panel-aware-recommendations.md).

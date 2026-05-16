@@ -3,7 +3,7 @@
 **Status:** Complete
 **Date:** 2026-05-15
 **Branch:** `research/hdr-ugc-dataset-license-audit-2026-05-15`
-**Related ADR:** [ADR-0445](../adr/0445-vmaftune-panel-aware-recommendations.md) (panel-aware workstream)
+**Related ADR:** [ADR-0459](../adr/0459-vmaftune-panel-aware-recommendations.md) (panel-aware workstream)
 **Companion task:** Batch 16 of the 2026-05-15 Gap-Fill Plan
 
 ---
@@ -17,7 +17,7 @@ infrastructure investment before they become useful.
 
 **Results:** 6 datasets are ACTIONABLE-NOW, 5 are BLOCKED (access or license restrictions),
 1 is ASPIRATIONAL-scale (needs infrastructure), and 1 (CHUG) is already active. HDRSDR-VQA
-introduced a new panel/display-aware workstream scoped in ADR-0445.
+introduced a new panel/display-aware workstream scoped in ADR-0459.
 
 ---
 
@@ -29,7 +29,7 @@ introduced a new panel/display-aware workstream scoped in ADR-0445.
 | 1 | [Beyond8Bits](https://shreshthsaini.github.io/Beyond8Bits) | ~44k clips, ~1.5M crowd ratings | CC BY-SA 4.0 (metadata); NC restriction on video payload ("non-commercial research" + no redistribution + no commercial deployment) | Direct download via AWS S3; no sign-up wall | HDR-only — PQ/BT.2020, 10-bit HEVC ladder | 24/25/30/60 fps | 10-bit | 360p–1080p + source ref | Single-stimulus ACR, AMT workers, SUREAL-MLE aggregation | ACTIONABLE-NOW | Direct S3 download of metadata + selected clips; cite Chen et al. + comply with NC clause |
 | 2 | [CHUG](https://shreshthsaini.github.io/CHUG/) | 856 source / 5,992 distorted videos, 211k ratings | CC BY-SA 4.0 | Direct download via AWS S3; no sign-up | UGC HDR (PQ 10-bit HEVC) | 120 fps clips confirmed (~189 clips); mixed 24/30/60/120 fps | 10-bit | Mixed 360p–1080p portrait + landscape | Single-stimulus ACR, AMT workers | **Already active** — local pipeline running | HFR normalisation patch; add `--metadata-jsonl` to live invocation |
 | 3 | [YouTube SFV+HDR](https://media.withyoutube.com/sfv-hdr) | ~4k source contents, ~2k native HDR (per paper) | YouTube Terms of Service — research use only; no redistribution | JavaScript-rendered landing page; access appears to require YouTube research partner agreement | Mixed HDR + SDR | Unknown (YouTube typical: 24/30/60 fps) | 10-bit (HDR) | Up to 4K | Unknown — no public methodology doc found | BLOCKED-on-access | Contact YouTube Research team at media.withyoutube.com; partnership or signed agreement likely required |
-| 4 | [HDRSDR-VQA](https://live.ece.utexas.edu/research/Bowen_SDRHDR/sdr-hdr-bowen.html) | 558 clips (31 open-sourced), 145 subjects; 22k pairwise JOD scores across 6 displays | Custom academic — "no royalty, no written agreement; use + distribute freely with citation" (Chen et al. 2025) | Google Form sign-up required; no NDA | Mixed HDR10 + SDR matched pairs | 50/60 fps clips documented | Not explicitly stated | Not explicitly stated | Paired comparison across 6 HDR TVs; JOD (Just-Objectionable-Difference) scores | ACTIONABLE-NOW | Complete Google Form; download open-sourced 31-video subset; begin panel-aware tuning design (ADR-0445) |
+| 4 | [HDRSDR-VQA](https://live.ece.utexas.edu/research/Bowen_SDRHDR/sdr-hdr-bowen.html) | 558 clips (31 open-sourced), 145 subjects; 22k pairwise JOD scores across 6 displays | Custom academic — "no royalty, no written agreement; use + distribute freely with citation" (Chen et al. 2025) | Google Form sign-up required; no NDA | Mixed HDR10 + SDR matched pairs | 50/60 fps clips documented | Not explicitly stated | Not explicitly stated | Paired comparison across 6 HDR TVs; JOD (Just-Objectionable-Difference) scores | ACTIONABLE-NOW | Complete Google Form; download open-sourced 31-video subset; begin panel-aware tuning design (ADR-0459) |
 | 5 | [LIVE HDR Database](https://live.ece.utexas.edu/research/LIVEHDR/LIVEHDR_index.html) | 310 videos, 31 content sources, 66 subjects (40 for quality), 20k+ opinion scores | Custom academic — "no royalty, no written agreement; use + distribute freely with citation" (Shang et al. ICIP 2022) | Google Form sign-up; password protected | HDR10 only | 50/60 fps | Not stated | Not stated | Controlled-lab ACR; two ambient lighting conditions (dark lab + bright living room) | ACTIONABLE-NOW | Complete Google Form to receive password + link; download and ingest |
 | 6 | [AVT-VQDB-UHD-2-HDR](https://github.com/Telecommunication-Telemedia-Assessment/AVT-VQDB-UHD-2-HDR) | 31 source videos (8K UHD-2 HDR) | CC BY-NC 4.0 (TU Ilmenau content) | Google Form sign-up for video sources; objective metrics and metadata on GitHub; checksums provided | HDR full — 8K UHD-2 | Not specified | Not specified (8K HDR → likely 10-bit) | 8K (UHD-2 = 7680×4320) | Not fully specified (paper in QoMEX 2024) | BLOCKED-on-access | Complete Google Form; note that 8K decode requires significant compute — assess infra fit before download |
 | 7 | [IPI-MobileHDRVQA](https://zenodo.org/records/11544387) | 60 source videos, AV1 codec variants; 1.2 GB download (27.4 GB this version) | CC BY 4.0 | Direct Zenodo download; no sign-up required | UGC mobile HDR | Not specified | Not specified | Mixed mobile resolutions | ACR-HR (ACR with Hidden Reference); MOS + DMOS + 95% CI provided; lab study at Nantes University | ACTIONABLE-NOW | Direct Zenodo download — `curl https://zenodo.org/records/11544387/files/...` |
@@ -96,7 +96,7 @@ distinguishing feature is the six-display pairwise evaluation design: 145 partic
 HDR10 versus matched SDR versions on six distinct HDR televisions, producing scaled JOD
 scores. This introduces display-type variability data that no other dataset in the cohort
 provides, making it the unique resource for the panel-aware vmaf-tune training workstream
-scoped in ADR-0445. The license is permissive academic (no NDA, no royalty, citation
+scoped in ADR-0459. The license is permissive academic (no NDA, no royalty, citation
 required). Accessing the 31 open-sourced videos via Google Form is the immediate action.
 The 10 VoD clips and 10 live sports clips remain unavailable due to third-party copyright.
 
@@ -224,14 +224,14 @@ FR-pair adaptation to handle AV1 bitstreams. Open a BACKLOG entry: T-IPIHDRVQA-I
 
 **Why second:** Unique data. No other dataset in the cohort provides per-display-type pairwise
 HDR-vs-SDR quality scores. This data is the direct prerequisite for the panel-aware vmaf-tune
-workstream (ADR-0445). The Google Form gate is minutes of friction. The 31 open-sourced clips
+workstream (ADR-0459). The Google Form gate is minutes of friction. The 31 open-sourced clips
 are available immediately after form submission; the 145-participant JOD score files likely
 accompany them.
 
 **Concrete action (this week):** Submit Google Form at
 `https://live.ece.utexas.edu/research/Bowen_SDRHDR/sdr-hdr-bowen.html`; download the
 open-source 31-clip subset; extract VMAF features and JOD scores; design the panel-aware
-MOS-head schema (see ADR-0445 §Context).
+MOS-head schema (see ADR-0459 §Context).
 
 ### Priority 3 — HDR-VDC (Cambridge Apollo, CC BY 4.0) — Download this week
 
@@ -273,5 +273,5 @@ CLI integration 2 days, docs 1 day). Not blocked on any open PR.
 
 ### ADR Reference
 
-See [ADR-0445](../adr/0445-vmaftune-panel-aware-recommendations.md) (Status: Proposed) for
+See [ADR-0459](../adr/0459-vmaftune-panel-aware-recommendations.md) (Status: Proposed) for
 the full decision scaffold, alternatives considered, and consequences.
