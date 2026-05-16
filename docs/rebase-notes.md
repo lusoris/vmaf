@@ -7,28 +7,16 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
-No rebase impact: `fix/nvtx-cuda-dependency-guard-2026-05-16` adds a
-meson `error()` guard to `libvmaf/src/meson.build` for the
-`enable_nvtx=true` + `enable_cuda=false` combination. The guard is
-fork-additive: upstream Netflix/vmaf does not enable NVTX, so no
-sync-upstream conflict is expected. If upstream ever adds their own
-NVTX guard, the merge is a no-op (both sides add the same intent).
-## fix/cpu-symbol-visibility-2026-05-16
+## fix/cli-validate-dimensions-chroma-2026-05-16
 
-No rebase impact: touches only `libvmaf/src/meson.build` (adding `c_args :
-vmaf_cflags_common` to `libvmaf_cpu_static_lib`). This is a fork-local build
-rule; Netflix/vmaf does not use Meson. No upstream-shared C sources, headers,
-or feature extractors are modified. No sync-upstream conflicts expected.
-
-## fix/saliency-per-mb-eval-2026-05-15 — integer_vif enable_chroma
-
-**`libvmaf/src/feature/integer_vif.c`**: adds `enable_chroma` bool field to
-`VifState`, a new `VmafOption` entry, a YUV400 clamp in `init`, and eight new
-keys in `provided_features`. If upstream Netflix ever adds chroma support to
-`integer_vif`, resolve by keeping their implementation and dropping the fork's
-`extract_plane` helper, or rebasing it if the upstream approach differs.
-
-No rebase conflict expected on the luma path — only additive changes.
+**`libvmaf/tools/vmaf.c`**: `validate_videos()` gains two helper calls —
+`validate_video_info()` (bitdepth range + positive dimensions per stream)
+and `validate_chroma_alignment()` (even width/height for 4:2:0 / 4:2:2).
+If a future upstream sync adds equivalent guards inside `validate_videos()`
+directly, merge the upstream body and drop the duplicated checks; the
+two static helpers should remain as the canonical implementations and be
+called from the merged function. See ADR-0461 and
+`libvmaf/tools/AGENTS.md` §Governing ADRs.
 
 ## fix/sycl-motion-fps-weight-vulkan-import-status-2026-05-16
 
