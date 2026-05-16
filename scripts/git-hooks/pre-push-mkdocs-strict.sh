@@ -7,7 +7,7 @@
 # prints the exact mkdocs error lines on failure, and exits non-zero to block
 # the push.
 #
-# Rationale (ADR-0457): audit slice G found that 38 of 50 master pushes failed
+# Rationale (ADR-0466): audit slice G found that 38 of 50 master pushes failed
 # the docs.yml CI lane for trivial mkdocs strict-mode breakage (broken anchors,
 # orphan pages, missing nav entries). Each CI round-trip costs ~6 minutes. A
 # 5-second local pre-push check eliminates the entire failure mode.
@@ -100,7 +100,7 @@ Bypass (this check only): SKIP=mkdocs-strict git push
 Bypass (all pre-push checks): git push --no-verify
 
 See docs/development/pre-push-mkdocs-strict.md for troubleshooting.
-ADR-0457: docs/adr/0457-mkdocs-strict-pre-push-hook.md
+ADR-0466: docs/adr/0457-mkdocs-strict-pre-push-hook.md
 FOOTER
   exit 1
 fi
