@@ -24,7 +24,8 @@
       "opset": 17,
       "sha256": "eb9444cf6f07eefdc7f4f68d09131074dbd1dcee6f88a331ba684dd2fb5937d4",
       "sigstore_bundle": "fastdvdnet_pre.onnx.sigstore.json",
-      "smoke": false
+      "smoke": false,
+      "release_url": "https://github.com/lusoris/vmaf/releases/download/tiny-blobs-v1/fastdvdnet_pre.onnx"
     },
     {
       "id": "fr_regressor_v1",
@@ -146,7 +147,8 @@
       "onnx": "lpips_sq.onnx",
       "opset": 18,
       "sha256": "1402626680d5b69a793e647edda2c32f04e192f5cf1e7837bec8bde14187a261",
-      "sigstore_bundle": "lpips_sq.onnx.sigstore.json"
+      "sigstore_bundle": "lpips_sq.onnx.sigstore.json",
+      "release_url": "https://github.com/lusoris/vmaf/releases/download/tiny-blobs-v1/lpips_sq.onnx"
     },
     {
       "id": "mobilesal_placeholder_v0",
@@ -237,7 +239,8 @@
       "onnx": "transnet_v2.onnx",
       "opset": 17,
       "sha256": "89280a199327871a0eb2c52914449ce339b7d8e8846a6245e4eb72d23d21cfc9",
-      "sigstore_bundle": "transnet_v2.onnx.sigstore.json"
+      "sigstore_bundle": "transnet_v2.onnx.sigstore.json",
+      "release_url": "https://github.com/lusoris/vmaf/releases/download/tiny-blobs-v1/transnet_v2.onnx"
     },
     {
       "description": "Tiny VMAF fusion regressor \u2014 canonical-6 features + bundled StandardScaler + mlp_small (~257 params).",

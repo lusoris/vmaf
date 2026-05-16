@@ -99,6 +99,14 @@ libvmaf/subprojects/.wraplock
 # Per-run training output (per-epoch ONNX checkpoints)
 model/tiny/training_runs/
 
+# Tiny-AI ONNX blobs >= 1 MB are hosted as GitHub Release attachments
+# (ADR-0453) and fetched on demand by scripts/ai/fetch-tiny-blobs.sh.
+# Listed explicitly here to prevent re-introduction via `git add .` after
+# the fetcher writes them locally.
+model/tiny/transnet_v2.onnx
+model/tiny/fastdvdnet_pre.onnx
+model/tiny/lpips_sq.onnx
+
 # u2netp fork-local mirror (ADR-0325). Binary lives only in GitHub
 # Releases; the scaffold (license, model card, operator doc, release
 # workflow guard) is tracked, the binary itself is not.
