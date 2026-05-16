@@ -155,14 +155,16 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import datetime as _dt
 import json
 import logging
 import math
 import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
+
+from aiutils.jsonl_utils import iter_jsonl
+from aiutils.time_utils import now_iso_8601
 
 _LOG = logging.getLogger("aggregate_corpora")
 
@@ -236,24 +238,6 @@ _REQUIRED_INPUT_KEYS: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
-
-
-def _utc_now_iso() -> str:
-    """Return current time as ISO-8601 UTC, second-precision."""
-    return _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat()
-
-
-def _iter_jsonl(path: Path) -> Iterator[tuple[int, dict]]:
-    """Yield ``(line_no, row)`` tuples from a JSONL file. Skips blank lines."""
-    with path.open("r", encoding="utf-8") as fp:
-        for line_no, line in enumerate(fp, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                yield line_no, json.loads(stripped)
-            except json.JSONDecodeError as exc:
-                raise SystemExit(f"error: {path}:{line_no}: invalid JSON ({exc})") from exc
 
 
 def _resolve_corpus_source(row: dict, override: str | None) -> str | None:
@@ -390,7 +374,7 @@ def aggregate(
     output: Path,
     *,
     corpus_source_overrides: dict[Path, str] | None = None,
-    now_fn: callable = _utc_now_iso,  # type: ignore[valid-type]
+    now_fn: callable = now_iso_8601,  # type: ignore[valid-type]
 ) -> dict[str, int]:
     """Stream-aggregate ``inputs`` into ``output``.
 
@@ -428,7 +412,7 @@ def aggregate(
             continue
         counters["inputs_seen"] += 1
         override = overrides.get(path)
-        for line_no, raw in _iter_jsonl(path):
+        for line_no, raw in iter_jsonl(path):
             counters["rows_in"] += 1
             _validate_input_row(path, line_no, raw)
 
