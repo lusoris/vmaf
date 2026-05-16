@@ -5,17 +5,11 @@
  *  float_ansnr feature kernel on the CUDA backend (T7-23 / batch 3
  *  part 2b — ADR-0192 / ADR-0194). CUDA twin of float_ansnr_vulkan.
  *
- *  Single-dispatch kernel (per active plane) produces per-block
- *  (sig, noise) float partials; host accumulates in `double` and
- *  applies the CPU formulas:
+ *  Single-dispatch kernel produces per-block (sig, noise) float
+ *  partials; host accumulates in `double` and applies the CPU
+ *  formulas:
  *    float_ansnr  = 10 * log10(sig / noise)   (or psnr_max if noise == 0)
  *    float_anpsnr = MIN(10*log10(peak² · w · h / max(noise, 1e-10)), psnr_max)
- *
- *  enable_chroma (default false) mirrors the CPU float_ansnr.c
- *  enable_chroma option added in PR #947.  When true the extractor
- *  loops over planes 0-2 and emits float_ansnr_cb/cr and
- *  float_anpsnr_cb/cr in addition to the luma scores.  YUV400P
- *  clamps to luma-only regardless of the flag.
  *
  *  Pattern reference: integer_ciede_cuda.c (per-block float partials
  *  + double host reduction). Uses submit/collect async stream pattern.
@@ -23,14 +17,12 @@
 
 #include <errno.h>
 #include <math.h>
-#include <stddef.h>
 #include <string.h>
 
 #include "common.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature_name.h"
-#include "opt.h"
 
 #include "cuda/float_ansnr_cuda.h"
 #include "cuda/kernel_template.h"
@@ -38,36 +30,24 @@
 #include "picture.h"
 #include "picture_cuda.h"
 
-#define ANSNR_MAX_PLANES 3U
-
 typedef struct FloatAnsnrStateCuda {
     /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
      * (ADR-0246). */
     VmafCudaKernelLifecycle lc;
-    /* Per-plane per-block (sig, noise) interleaved float partials:
-     * device + pinned host.  One readback slot per active plane. */
-    VmafCudaKernelReadback rb[ANSNR_MAX_PLANES];
+    /* Per-block (sig, noise) interleaved float partials: device +
+     * pinned host. Owned by the template's readback bundle. */
+    VmafCudaKernelReadback rb;
 
     CUfunction funcbpc8;
     CUfunction funcbpc16;
-    CUmodule module;
 
-    /* Per-plane upload buffers (ref + dis raw pixels). */
-    VmafCudaBuffer *ref_in[ANSNR_MAX_PLANES];
-    VmafCudaBuffer *dis_in[ANSNR_MAX_PLANES];
-    /* Number of work-groups per plane (may differ for chroma). */
-    unsigned wg_count[ANSNR_MAX_PLANES];
+    /* Per-frame upload of ref + dis raw pixels. */
+    VmafCudaBuffer *ref_in;
+    VmafCudaBuffer *dis_in;
+    unsigned wg_count;
 
-    /* Per-plane geometry. */
-    unsigned plane_w[ANSNR_MAX_PLANES];
-    unsigned plane_h[ANSNR_MAX_PLANES];
-
-    /* `enable_chroma` option: when false, only luma is dispatched.
-     * Default false mirrors CPU float_ansnr.c PR #947. */
-    bool enable_chroma;
-    /* Number of active planes (1 when luma-only, 3 for chroma). */
-    unsigned n_planes;
-
+    unsigned frame_w;
+    unsigned frame_h;
     unsigned bpc;
     double peak;
     double psnr_max;
@@ -75,30 +55,18 @@ typedef struct FloatAnsnrStateCuda {
     VmafDictionary *feature_name_dict;
 } FloatAnsnrStateCuda;
 
-static const VmafOption options[] = {
-    {
-        .name = "enable_chroma",
-        .help = "enable ANSNR/ANPSNR calculation for chroma (Cb/Cr) channels",
-        .offset = offsetof(FloatAnsnrStateCuda, enable_chroma),
-        .type = VMAF_OPT_TYPE_BOOL,
-        .default_val.b = false,
-    },
-    {0}};
-
-static const char *const ansnr_name[ANSNR_MAX_PLANES] = {"float_ansnr", "float_ansnr_cb",
-                                                         "float_ansnr_cr"};
-static const char *const anpsnr_name[ANSNR_MAX_PLANES] = {"float_anpsnr", "float_anpsnr_cb",
-                                                          "float_anpsnr_cr"};
-
 #define ANSNR_BX 16
 #define ANSNR_BY 16
 
 static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
 {
+    (void)pix_fmt;
     FloatAnsnrStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
 
+    s->frame_w = w;
+    s->frame_h = h;
     s->bpc = bpc;
 
     if (bpc == 8u) {
@@ -117,25 +85,6 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         return -EINVAL;
     }
 
-    /* Mirror CPU float_ansnr.c PR #947: YUV400P forces luma-only,
-     * as does enable_chroma == false (the default). */
-    if (pix_fmt == VMAF_PIX_FMT_YUV400P)
-        s->enable_chroma = false;
-
-    s->n_planes = s->enable_chroma ? ANSNR_MAX_PLANES : 1U;
-
-    /* Derive per-plane geometry (matches picture.c subsampling logic). */
-    s->plane_w[0] = w;
-    s->plane_h[0] = h;
-    if (s->n_planes > 1U) {
-        const int ss_hor = (pix_fmt != VMAF_PIX_FMT_YUV444P);
-        const int ss_ver = (pix_fmt == VMAF_PIX_FMT_YUV420P);
-        const unsigned cw = (w + (unsigned)ss_hor) >> ss_hor;
-        const unsigned ch = (h + (unsigned)ss_ver) >> ss_ver;
-        s->plane_w[1] = s->plane_w[2] = cw;
-        s->plane_h[1] = s->plane_h[2] = ch;
-    }
-
     int err = vmaf_cuda_kernel_lifecycle_init(&s->lc, fex->cu_state);
     if (err)
         return err;
@@ -145,7 +94,8 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
 
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, float_ansnr_score_ptx), fail);
+    CUmodule module;
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, float_ansnr_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc8, module, "float_ansnr_kernel_8bpc"),
                     fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc16, module, "float_ansnr_kernel_16bpc"),
@@ -153,22 +103,20 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
 
     const size_t bytes_per_pixel = (bpc <= 8u) ? 1u : 2u;
+    const size_t plane_bytes = (size_t)w * h * bytes_per_pixel;
+    const unsigned gx = (w + ANSNR_BX - 1u) / ANSNR_BX;
+    const unsigned gy = (h + ANSNR_BY - 1u) / ANSNR_BY;
+    s->wg_count = gx * gy;
+    const size_t partials_bytes = (size_t)s->wg_count * 2u * sizeof(float);
 
     int ret = 0;
-    for (unsigned p = 0; p < s->n_planes; p++) {
-        const size_t plane_bytes = (size_t)s->plane_w[p] * s->plane_h[p] * bytes_per_pixel;
-        ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->ref_in[p], plane_bytes);
-        ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->dis_in[p], plane_bytes);
-        if (ret)
-            goto free_buffers;
-        const unsigned gx = (s->plane_w[p] + ANSNR_BX - 1u) / ANSNR_BX;
-        const unsigned gy = (s->plane_h[p] + ANSNR_BY - 1u) / ANSNR_BY;
-        s->wg_count[p] = gx * gy;
-        const size_t partials_bytes = (size_t)s->wg_count[p] * 2u * sizeof(float);
-        ret = vmaf_cuda_kernel_readback_alloc(&s->rb[p], fex->cu_state, partials_bytes);
-        if (ret)
-            goto free_buffers;
-    }
+    ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->ref_in, plane_bytes);
+    ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->dis_in, plane_bytes);
+    if (ret)
+        goto free_buffers;
+    ret = vmaf_cuda_kernel_readback_alloc(&s->rb, fex->cu_state, partials_bytes);
+    if (ret)
+        goto free_buffers;
 
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
@@ -180,17 +128,15 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     return 0;
 
 free_buffers:
-    for (unsigned p = 0; p < s->n_planes; p++) {
-        if (s->ref_in[p]) {
-            (void)vmaf_cuda_buffer_free(fex->cu_state, s->ref_in[p]);
-            free(s->ref_in[p]);
-        }
-        if (s->dis_in[p]) {
-            (void)vmaf_cuda_buffer_free(fex->cu_state, s->dis_in[p]);
-            free(s->dis_in[p]);
-        }
-        (void)vmaf_cuda_kernel_readback_free(&s->rb[p], fex->cu_state);
+    if (s->ref_in) {
+        (void)vmaf_cuda_buffer_free(fex->cu_state, s->ref_in);
+        free(s->ref_in);
     }
+    if (s->dis_in) {
+        (void)vmaf_cuda_buffer_free(fex->cu_state, s->dis_in);
+        free(s->dis_in);
+    }
+    (void)vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
     (void)vmaf_dictionary_free(&s->feature_name_dict);
     (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     return ret;
@@ -212,76 +158,69 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     FloatAnsnrStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
 
+    s->frame_w = ref_pic->w[0];
+    s->frame_h = ref_pic->h[0];
+    const ptrdiff_t plane_pitch = (ptrdiff_t)(s->frame_w * (s->bpc <= 8u ? 1u : 2u));
+
+    /* Pack ref and dis Y planes from VmafPicture device pointers
+     * (which may have arbitrary stride) into our tightly-packed
+     * staging buffers. */
     CUstream pic_stream = vmaf_cuda_picture_get_stream(ref_pic);
     CHECK_CUDA_RETURN(cu_f,
                       cuStreamWaitEvent(pic_stream, vmaf_cuda_picture_get_ready_event(dist_pic),
                                         CU_EVENT_WAIT_DEFAULT));
 
-    for (unsigned p = 0; p < s->n_planes; p++) {
-        const unsigned pw = ref_pic->w[p];
-        const unsigned ph = ref_pic->h[p];
-        const ptrdiff_t plane_pitch = (ptrdiff_t)(pw * (s->bpc <= 8u ? 1u : 2u));
+    CUDA_MEMCPY2D cpy_ref = {0};
+    cpy_ref.srcMemoryType = CU_MEMORYTYPE_DEVICE;
+    cpy_ref.srcDevice = (CUdeviceptr)ref_pic->data[0];
+    cpy_ref.srcPitch = ref_pic->stride[0];
+    cpy_ref.dstMemoryType = CU_MEMORYTYPE_DEVICE;
+    cpy_ref.dstDevice = (CUdeviceptr)s->ref_in->data;
+    cpy_ref.dstPitch = plane_pitch;
+    cpy_ref.WidthInBytes = plane_pitch;
+    cpy_ref.Height = s->frame_h;
+    CHECK_CUDA_RETURN(cu_f, cuMemcpy2DAsync(&cpy_ref, pic_stream));
 
-        /* Pack ref and dis plane from VmafPicture device pointers
-         * (which may have arbitrary stride) into tightly-packed staging
-         * buffers. */
-        CUDA_MEMCPY2D cpy_ref = {0};
-        cpy_ref.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-        cpy_ref.srcDevice = (CUdeviceptr)ref_pic->data[p];
-        cpy_ref.srcPitch = ref_pic->stride[p];
-        cpy_ref.dstMemoryType = CU_MEMORYTYPE_DEVICE;
-        cpy_ref.dstDevice = (CUdeviceptr)s->ref_in[p]->data;
-        cpy_ref.dstPitch = plane_pitch;
-        cpy_ref.WidthInBytes = plane_pitch;
-        cpy_ref.Height = ph;
-        CHECK_CUDA_RETURN(cu_f, cuMemcpy2DAsync(&cpy_ref, pic_stream));
+    CUDA_MEMCPY2D cpy_dis = {0};
+    cpy_dis.srcMemoryType = CU_MEMORYTYPE_DEVICE;
+    cpy_dis.srcDevice = (CUdeviceptr)dist_pic->data[0];
+    cpy_dis.srcPitch = dist_pic->stride[0];
+    cpy_dis.dstMemoryType = CU_MEMORYTYPE_DEVICE;
+    cpy_dis.dstDevice = (CUdeviceptr)s->dis_in->data;
+    cpy_dis.dstPitch = plane_pitch;
+    cpy_dis.WidthInBytes = plane_pitch;
+    cpy_dis.Height = s->frame_h;
+    CHECK_CUDA_RETURN(cu_f, cuMemcpy2DAsync(&cpy_dis, pic_stream));
 
-        CUDA_MEMCPY2D cpy_dis = {0};
-        cpy_dis.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-        cpy_dis.srcDevice = (CUdeviceptr)dist_pic->data[p];
-        cpy_dis.srcPitch = dist_pic->stride[p];
-        cpy_dis.dstMemoryType = CU_MEMORYTYPE_DEVICE;
-        cpy_dis.dstDevice = (CUdeviceptr)s->dis_in[p]->data;
-        cpy_dis.dstPitch = plane_pitch;
-        cpy_dis.WidthInBytes = plane_pitch;
-        cpy_dis.Height = ph;
-        CHECK_CUDA_RETURN(cu_f, cuMemcpy2DAsync(&cpy_dis, pic_stream));
+    /* Reset partials buffer. */
+    CHECK_CUDA_RETURN(cu_f, cuMemsetD8Async(s->rb.device->data, 0,
+                                            (size_t)s->wg_count * 2u * sizeof(float), pic_stream));
 
-        /* Reset partials buffer for this plane. */
-        CHECK_CUDA_RETURN(cu_f,
-                          cuMemsetD8Async(s->rb[p].device->data, 0,
-                                          (size_t)s->wg_count[p] * 2u * sizeof(float), pic_stream));
+    const unsigned grid_x = (s->frame_w + ANSNR_BX - 1u) / ANSNR_BX;
+    const unsigned grid_y = (s->frame_h + ANSNR_BY - 1u) / ANSNR_BY;
 
-        const unsigned grid_x = (pw + ANSNR_BX - 1u) / ANSNR_BX;
-        const unsigned grid_y = (ph + ANSNR_BY - 1u) / ANSNR_BY;
-
-        if (s->bpc == 8u) {
-            void *args[] = {
-                &s->ref_in[p]->data,  &s->dis_in[p]->data,     (void *)&plane_pitch,
-                (void *)&plane_pitch, (void *)s->rb[p].device, (void *)&pw,
-                (void *)&ph,
-            };
-            CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->funcbpc8, grid_x, grid_y, 1, ANSNR_BX,
-                                                   ANSNR_BY, 1, 0, pic_stream, args, NULL));
-        } else {
-            void *args[] = {
-                &s->ref_in[p]->data,  &s->dis_in[p]->data,     (void *)&plane_pitch,
-                (void *)&plane_pitch, (void *)s->rb[p].device, (void *)&pw,
-                (void *)&ph,          (void *)&s->bpc,
-            };
-            CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->funcbpc16, grid_x, grid_y, 1, ANSNR_BX,
-                                                   ANSNR_BY, 1, 0, pic_stream, args, NULL));
-        }
+    if (s->bpc == 8u) {
+        void *args[] = {
+            &s->ref_in->data,     &s->dis_in->data,    (void *)&plane_pitch, (void *)&plane_pitch,
+            (void *)s->rb.device, (void *)&s->frame_w, (void *)&s->frame_h,
+        };
+        CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->funcbpc8, grid_x, grid_y, 1, ANSNR_BX, ANSNR_BY,
+                                               1, 0, pic_stream, args, NULL));
+    } else {
+        void *args[] = {
+            &s->ref_in->data,     &s->dis_in->data,    (void *)&plane_pitch, (void *)&plane_pitch,
+            (void *)s->rb.device, (void *)&s->frame_w, (void *)&s->frame_h,  (void *)&s->bpc,
+        };
+        CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->funcbpc16, grid_x, grid_y, 1, ANSNR_BX, ANSNR_BY,
+                                               1, 0, pic_stream, args, NULL));
     }
 
     CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.submit, pic_stream));
     CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->lc.str, s->lc.submit, CU_EVENT_WAIT_DEFAULT));
 
-    for (unsigned p = 0; p < s->n_planes; p++) {
-        CHECK_CUDA_RETURN(
-            cu_f, cuMemcpyDtoHAsync(s->rb[p].host_pinned, (CUdeviceptr)s->rb[p].device->data,
-                                    (size_t)s->wg_count[p] * 2u * sizeof(float), s->lc.str));
-    }
+    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(((float *)s->rb.host_pinned),
+                                              (CUdeviceptr)s->rb.device->data,
+                                              (size_t)s->wg_count * 2u * sizeof(float), s->lc.str));
     return vmaf_cuda_kernel_submit_post_record(&s->lc, fex->cu_state);
 }
 
@@ -294,97 +233,65 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
     if (sync_err)
         return sync_err;
 
-    int rc = 0;
-    for (unsigned p = 0; p < s->n_planes; p++) {
-        const float *partials_host = s->rb[p].host_pinned;
-        double sig = 0.0;
-        double noise = 0.0;
-        for (unsigned i = 0; i < s->wg_count[p]; i++) {
-            sig += (double)partials_host[2u * i + 0u];
-            noise += (double)partials_host[2u * i + 1u];
-        }
-
-        const double score = (noise == 0.0) ? s->psnr_max : 10.0 * log10(sig / noise);
-        const double eps = 1e-10;
-        const double n_pix = (double)s->plane_w[p] * (double)s->plane_h[p];
-        const double max_noise = noise > eps ? noise : eps;
-        double score_psnr = 10.0 * log10(s->peak * s->peak * n_pix / max_noise);
-        if (score_psnr > s->psnr_max)
-            score_psnr = s->psnr_max;
-
-        int err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                          ansnr_name[p], score, index);
-        if (err && rc == 0)
-            rc = err;
-        err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                      anpsnr_name[p], score_psnr, index);
-        if (err && rc == 0)
-            rc = err;
+    const float *partials_host = s->rb.host_pinned;
+    double sig = 0.0;
+    double noise = 0.0;
+    for (unsigned i = 0; i < s->wg_count; i++) {
+        sig += (double)partials_host[2 * i + 0];
+        noise += (double)partials_host[2 * i + 1];
     }
-    return rc;
+
+    const double score = (noise == 0.0) ? s->psnr_max : 10.0 * log10(sig / noise);
+    const double eps = 1e-10;
+    const double n_pix = (double)s->frame_w * (double)s->frame_h;
+    const double max_noise = noise > eps ? noise : eps;
+    double score_psnr = 10.0 * log10(s->peak * s->peak * n_pix / max_noise);
+    if (score_psnr > s->psnr_max)
+        score_psnr = s->psnr_max;
+
+    int err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                      "float_ansnr", score, index);
+    if (err)
+        return err;
+    return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "float_anpsnr", score_psnr, index);
 }
 
 static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     FloatAnsnrStateCuda *s = fex->priv;
     int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
-    if (s->module)
-        (void)fex->cu_state->f->cuModuleUnload(s->module);
 
-    for (unsigned p = 0; p < s->n_planes; p++) {
-        if (s->ref_in[p]) {
-            const int e = vmaf_cuda_buffer_free(fex->cu_state, s->ref_in[p]);
-            free(s->ref_in[p]);
-            if (rc == 0)
-                rc = e;
-        }
-        if (s->dis_in[p]) {
-            const int e = vmaf_cuda_buffer_free(fex->cu_state, s->dis_in[p]);
-            free(s->dis_in[p]);
-            if (rc == 0)
-                rc = e;
-        }
-        const int rb_rc = vmaf_cuda_kernel_readback_free(&s->rb[p], fex->cu_state);
+    if (s->ref_in) {
+        const int e = vmaf_cuda_buffer_free(fex->cu_state, s->ref_in);
+        free(s->ref_in);
         if (rc == 0)
-            rc = rb_rc;
+            rc = e;
     }
+    if (s->dis_in) {
+        const int e = vmaf_cuda_buffer_free(fex->cu_state, s->dis_in);
+        free(s->dis_in);
+        if (rc == 0)
+            rc = e;
+    }
+    const int rb_rc = vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
+    if (rc == 0)
+        rc = rb_rc;
     const int dict_rc = vmaf_dictionary_free(&s->feature_name_dict);
     if (rc == 0)
         rc = dict_rc;
     return rc;
 }
 
-/* Provided features — luma + chroma.  When enable_chroma == false
- * (the default) only the luma dispatches run at runtime, but the
- * static list claims chroma so the dispatcher can route
- * float_ansnr_cb/cr requests through this CUDA twin. */
-static const char *provided_features[] = {"float_ansnr",
-                                          "float_anpsnr",
-                                          "float_ansnr_cb",
-                                          "float_anpsnr_cb",
-                                          "float_ansnr_cr",
-                                          "float_anpsnr_cr",
-                                          NULL};
+static const char *provided_features[] = {"float_ansnr", "float_anpsnr", NULL};
 
-static const VmafOption options[] = {{0}};
-
-// NOLINTNEXTLINE(misc-use-internal-linkage): extern symbol referenced by feature_extractor.c registry.
 VmafFeatureExtractor vmaf_fex_float_ansnr_cuda = {
     .name = "float_ansnr_cuda",
     .init = init_fex_cuda,
     .submit = submit_fex_cuda,
     .collect = collect_fex_cuda,
     .close = close_fex_cuda,
-    .options = options,
     .priv_size = sizeof(FloatAnsnrStateCuda),
     .provided_features = provided_features,
-    .options = options,
     .flags = VMAF_FEATURE_EXTRACTOR_CUDA,
-    .chars =
-        {
-            .n_dispatches_per_frame = 1,
-            .is_reduction_only = false,
-            .min_useful_frame_area = 1920U * 1080U,
-            .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
-        },
 };

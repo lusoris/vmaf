@@ -88,7 +88,6 @@ struct vif_accums {
 typedef struct {
     /* Options. */
     bool debug;
-    bool vif_skip_scale0;
     double vif_enhn_gain_limit;
 
     /* Frame geometry. */
