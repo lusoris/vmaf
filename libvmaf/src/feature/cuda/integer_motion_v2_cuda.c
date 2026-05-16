@@ -59,9 +59,23 @@ typedef struct MotionV2StateCuda {
     unsigned frame_h;
     unsigned bpc;
     size_t plane_bytes;
+    double motion_fps_weight;
 
     VmafDictionary *feature_name_dict;
 } MotionV2StateCuda;
+
+static const VmafOption options[] = {{
+                                         .name = "motion_fps_weight",
+                                         .alias = "mfw",
+                                         .help = "fps-aware multiplicative weight/correction",
+                                         .offset = offsetof(MotionV2StateCuda, motion_fps_weight),
+                                         .type = VMAF_OPT_TYPE_DOUBLE,
+                                         .default_val.d = 1.0,
+                                         .min = 0.0,
+                                         .max = 5.0,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {0}};
 
 static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
@@ -256,7 +270,7 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
 
 static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
-    (void)fex;
+    MotionV2StateCuda *s = fex->priv;
 
     unsigned n_frames = 0;
     double dummy;
@@ -272,11 +286,15 @@ static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *featu
         double score_next;
         vmaf_feature_collector_get_score(feature_collector,
                                          "VMAF_integer_feature_motion_v2_sad_score", &score_cur, i);
+        /* Apply fps weight — mirrors CPU integer_motion_v2.c flush logic.
+         * Bit-exact when motion_fps_weight = 1.0 (default). */
+        score_cur *= s->motion_fps_weight;
 
         double motion2;
         if (i + 1 < n_frames) {
             vmaf_feature_collector_get_score(
                 feature_collector, "VMAF_integer_feature_motion_v2_sad_score", &score_next, i + 1);
+            score_next *= s->motion_fps_weight;
             motion2 = score_cur < score_next ? score_cur : score_next;
         } else {
             motion2 = score_cur;
@@ -327,6 +345,7 @@ VmafFeatureExtractor vmaf_fex_integer_motion_v2_cuda = {
     .collect = collect_fex_cuda,
     .flush = flush_fex_cuda,
     .close = close_fex_cuda,
+    .options = options,
     .priv_size = sizeof(MotionV2StateCuda),
     .provided_features = provided_features,
     .flags = VMAF_FEATURE_EXTRACTOR_TEMPORAL | VMAF_FEATURE_EXTRACTOR_CUDA,

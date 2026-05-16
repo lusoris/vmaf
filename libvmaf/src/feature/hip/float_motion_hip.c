@@ -89,6 +89,7 @@ typedef struct FloatMotionStateHip {
     unsigned frame_h;
     unsigned bpc;
     double prev_motion_score;
+    double motion_fps_weight;
     bool debug;
     bool motion_force_zero;
 
@@ -109,6 +110,17 @@ static const VmafOption options[] = {
         .offset = offsetof(FloatMotionStateHip, motion_force_zero),
         .type = VMAF_OPT_TYPE_BOOL,
         .default_val.b = false,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_fps_weight",
+        .alias = "mfw",
+        .help = "fps-aware multiplicative weight/correction",
+        .offset = offsetof(FloatMotionStateHip, motion_fps_weight),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 1.0,
+        .min = 0.0,
+        .max = 5.0,
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {0},
@@ -490,9 +502,12 @@ static int collect_fex_hip(VmafFeatureExtractor *fex, unsigned index,
     }
 
     /* index >= 2: emit motion2_score = min(prev, cur) at index-1, then
-     * (debug) motion_score at current index. Same order as CUDA twin. */
-    const double motion2 =
-        (motion_score < s->prev_motion_score) ? motion_score : s->prev_motion_score;
+     * (debug) motion_score at current index. Same order as CUDA twin.
+     * Apply fps weight to both operands before the min so the weight
+     * scales the motion2 output; identity when motion_fps_weight = 1.0. */
+    const double w_cur = motion_score * s->motion_fps_weight;
+    const double w_prev = s->prev_motion_score * s->motion_fps_weight;
+    const double motion2 = (w_cur < w_prev) ? w_cur : w_prev;
     err = vmaf_feature_collector_append_with_dict(
         feature_collector, s->feature_name_dict, "VMAF_feature_motion2_score", motion2, index - 1u);
     if (s->debug && err == 0) {
@@ -527,11 +542,12 @@ static int flush_fex_hip(VmafFeatureExtractor *fex, VmafFeatureCollector *featur
         return 1;
     }
 
-    /* Emit the tail motion2 = prev_motion_score at the last frame index.
-     * Mirrors the CUDA twin's flush_fex_cuda shape exactly. */
-    int err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                      "VMAF_feature_motion2_score",
-                                                      s->prev_motion_score, s->index);
+    /* Emit the tail motion2 = prev_motion_score * fps_weight at the last
+     * frame index.  Mirrors the CUDA twin's flush_fex_cuda shape exactly;
+     * identity when motion_fps_weight = 1.0. */
+    int err = vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "VMAF_feature_motion2_score",
+        s->prev_motion_score * s->motion_fps_weight, s->index);
     return (err != 0) ? err : 1;
 #endif /* HAVE_HIPCC */
 }
