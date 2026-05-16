@@ -288,12 +288,12 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * float-partial readback); emits one feature (`float_ssim`)
      * once the runtime kernel arrives. v1 is scale=1 only. */
     &vmaf_fex_float_ssim_hip,
-    /* Ninth consumer (ADR-0285): `integer_ms_ssim_hip` mirrors
-     * `integer_ms_ssim_cuda.c`'s call graph (5-level pyramid,
-     * decimate + horiz + vert_lcs kernels, per-scale l/c/s float
-     * partial readbacks); emits `float_ms_ssim` + optional per-scale
-     * l/c/s triples once the runtime kernel arrives. */
-    &vmaf_fex_integer_ms_ssim_hip,
+    /* Ninth consumer (ADR-0379): `float_vif_hip` directly ports
+     * `float_vif_cuda.c`'s 4-scale separable VIF with per-block
+     * (num, den) partial reduction; emits the four vif_scale scores.
+     * With `enable_hipcc=true` the HSACO runs on device; without it
+     * init() returns -ENOSYS (scaffold posture). */
+    &vmaf_fex_float_vif_hip,
 #endif
 #if HAVE_METAL
     /* T8-1 first consumer (ADR-0361): registration succeeds even on
