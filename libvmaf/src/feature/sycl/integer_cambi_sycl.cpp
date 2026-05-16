@@ -32,7 +32,7 @@
  *            GPU launch_decimate d_mask  → d_tmp, swap.
  *         b. GPU launch_filter_mode H: d_image → d_tmp.
  *         c. GPU launch_filter_mode V: d_tmp   → d_image.
- *         d. q.wait() to drain; D2H memcpy → pics[0], pics[1].
+ *         d. D2H memcpy (in-order, chained); q.wait() before CPU.
  *         e. Host vmaf_cambi_calculate_c_values + vmaf_cambi_spatial_pooling.
  *    5. Host vmaf_cambi_weight_scores_per_scale → final score.
  *    6. Store score; collect() emits "Cambi_feature_cambi_score".
@@ -717,8 +717,10 @@ free_ref:
 /* ------------------------------------------------------------------ */
 /* submit_fex_sycl                                                      */
 /*                                                                      */
-/* Synchronous per-scale loop (matches CUDA v1 posture). GPU work and  */
-/* CPU residual both run in submit(); collect() only emits the score.   */
+/* Hybrid GPU+CPU per-scale loop.  GPU work is chained via the          */
+/* in-order queue (no per-step q.wait()); one q.wait() per scale        */
+/* synchronises just before the CPU residual reads h_image/h_mask.      */
+/* collect() only emits the pre-computed score.  (SY-1, ADR-0458)       */
 /* ------------------------------------------------------------------ */
 static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                            VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index)
@@ -740,7 +742,9 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     if (err)
         return err;
 
-    /* Step 2: H2D upload pics[0].data[0] → d_image (stride-aware). */
+    /* Step 2: H2D upload pics[0].data[0] → d_image (stride-aware).
+     * All row memcpys are in-order; no q.wait() needed here — the
+     * spatial-mask launch below chains on the same in-order queue. */
     {
         const ptrdiff_t src_stride_bytes = s->pics[0].stride[0];
         const uint8_t *src = static_cast<const uint8_t *>(s->pics[0].data[0]);
@@ -748,19 +752,19 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
         for (unsigned row = 0; row < s->proc_height; row++) {
             const uint8_t *src_row = src + (size_t)row * (size_t)src_stride_bytes;
             uint16_t *dst_row = s->d_image + (size_t)row * s->proc_width;
-            /* Synchronous row memcpy via USM (d_image is device USM). */
             q.memcpy(dst_row, src_row, row_bytes);
         }
-        q.wait();
+        /* No q.wait() — in-order queue chains H2D → spatial_mask. */
     }
 
-    /* Step 3: GPU spatial mask at full scale. */
+    /* Step 3: GPU spatial mask at full scale.
+     * In-order: executes after all H2D memcpys complete.
+     * No q.wait() — decimate / filter_mode launchers below chain on. */
     {
         const unsigned mask_index = (unsigned)cambi_sycl_get_mask_index(
             s->proc_width, s->proc_height, CAMBI_SYCL_MASK_FILTER_SIZE);
         launch_spatial_mask(q, s->d_image, s->d_mask, s->proc_width, s->proc_height, s->proc_width,
                             mask_index);
-        q.wait();
     }
 
     /* Step 4: per-scale loop. */
@@ -777,19 +781,20 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
 
     for (int scale = 0; scale < CAMBI_SYCL_NUM_SCALES; scale++) {
         if (scale > 0) {
-            /* GPU decimate cur_image → cur_tmp. */
+            /* GPU decimate cur_image → cur_tmp (in-order, chains after mask). */
             const unsigned new_w = (scaled_w + 1u) >> 1;
             const unsigned new_h = (scaled_h + 1u) >> 1;
             launch_decimate(q, cur_image, cur_tmp, new_w, new_h, scaled_w, new_w);
-            q.wait();
+            /* Pointer swap is host-side metadata; the in-order queue ensures
+             * the decimate kernel above completes before the next launch reads
+             * cur_tmp.  No q.wait() required. */
             {
                 uint16_t *t = cur_image;
                 cur_image = cur_tmp;
                 cur_tmp = t;
             }
-            /* GPU decimate cur_mask → cur_tmp. */
+            /* GPU decimate cur_mask → cur_tmp (in-order). */
             launch_decimate(q, cur_mask, cur_tmp, new_w, new_h, scaled_w, new_w);
-            q.wait();
             {
                 uint16_t *t = cur_mask;
                 cur_mask = cur_tmp;
@@ -799,14 +804,15 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
             scaled_h = new_h;
         }
 
-        /* GPU filter_mode H: cur_image → cur_tmp. */
+        /* GPU filter_mode H: cur_image → cur_tmp (in-order). */
         launch_filter_mode(q, cur_image, cur_tmp, scaled_w, scaled_h, scaled_w, 0);
-        q.wait();
-        /* GPU filter_mode V: cur_tmp → cur_image. */
+        /* GPU filter_mode V: cur_tmp → cur_image (in-order, no wait). */
         launch_filter_mode(q, cur_tmp, cur_image, scaled_w, scaled_h, scaled_w, 1);
-        q.wait();
 
-        /* D2H: cur_image → h_image, cur_mask → h_mask. */
+        /* D2H: cur_image → h_image, cur_mask → h_mask (in-order, no waits
+         * between rows).  q.wait() below is the first mandatory sync point:
+         * it drains H2D + mask + decimate + filter + all D2H rows before the
+         * CPU residual reads h_image / h_mask.  (SY-1 ADR-0458) */
         {
             const size_t row_bytes = scaled_w * sizeof(uint16_t);
             for (unsigned row = 0; row < scaled_h; row++) {
@@ -815,8 +821,9 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
                 q.memcpy(s->h_mask + (size_t)row * scaled_w, cur_mask + (size_t)row * scaled_w,
                          row_bytes);
             }
-            q.wait();
         }
+        /* Single mandatory sync per scale: CPU residual reads h_image/h_mask. */
+        q.wait();
 
         /* Copy h_image / h_mask → pics[0] / pics[1] (stride-aware). */
         {
