@@ -190,7 +190,7 @@ The Wave-1 C1 baseline trainer is
 [`ai/scripts/train_fr_regressor.py`](scripts/train_fr_regressor.py). It
 consumes `runs/full_features_netflix.parquet` (produced by
 `ai/scripts/extract_full_features.py` over the local Netflix Public
-drop at `.corpus/netflix/`), runs 9-fold leave-one-source-out
+drop at `.workingdir2/netflix/`), runs 9-fold leave-one-source-out
 (LOSO), and exports `model/tiny/fr_regressor_v1.onnx` only when mean
 LOSO PLCC ≥ 0.95 against the `vmaf_v0.6.1` per-frame teacher.
 
@@ -533,7 +533,7 @@ threshold). When extending these scripts:
 
 ### Rebase-sensitive invariants
 
-- The adapter accepts two local layouts under `.corpus/konvid-150k/`:
+- The adapter accepts two local layouts under `.workingdir2/konvid-150k/`:
   a URL `manifest.csv` plus `clips/`, or the split score-drop layout
   `k150ka_scores.csv` / `k150kb_scores.csv` plus
   `k150ka_extracted/` / `k150kb_extracted/`. Do not remove the split
@@ -551,7 +551,7 @@ threshold). When extending these scripts:
 
 ### Rebase-sensitive invariants
 
-- CHUG data is local-only under `.corpus/chug/`. Do not commit the
+- CHUG data is local-only under `.workingdir2/chug/`. Do not commit the
   public `chug.csv`, downloaded MP4s, emitted JSONL, trained local
   CHUG heads, or derived features. The README/license mismatch is
   handled by treating the dataset as non-commercial/share-alike until
@@ -587,7 +587,7 @@ threshold). When extending these scripts:
   metadata cells by default, and keep feature/MOS columns unchanged unless
   `--overwrite-metadata` is explicitly passed.
 
-## K150K-A corpus extraction (ADR-0362, ADR-0382, ADR-0431)
+## K150K-A corpus extraction (ADR-0362, ADR-0382)
 
 **Script:** `ai/scripts/extract_k150k_features.py`
 **Branch:** `chore/ensemble-kit-gdrive-quickstart`
@@ -643,33 +643,18 @@ threshold). When extending these scripts:
   when ref == distorted (identity pair). All-NaN columns are **expected** —
   do not treat them as extraction failures. `np.errstate(all="ignore")`
   in `_aggregate_frames()` suppresses the numpy warning; preserve it.
-- **Column-order lock:** `FEATURE_NAMES` (line ~121) defines the 21-feature
-  column order (parquet schema v2) that downstream loaders depend on. Appending
-  is safe; reordering or removing entries breaks existing parquets and any
-  trained model that consumed them. Increment the parquet schema version in a
-  separate ADR if reordering becomes necessary. **Schema v2 invariant (ADR-0431):**
-  `ssimulacra2` is omitted from K150K/CHUG self-vs-self extraction because in
-  identity pairs (ref == distorted) it produces a constant ~100, yielding zero
-  training signal while consuming 30–50% of GPU time per clip. When operating in
-  FR-from-NR mode (same video on both sides), all difference-based metrics
-  (difference-based ssimulacra2, ciede2000, psnr_hvs, ADM, VIF) degenerate; see
-  ADR-0362 §Negative consequences. CPU-only ssimulacra2 extraction remains
-  available for genuine FR pairs where it is informative.
+- **Column-order lock:** `FEATURE_NAMES` (line ~35) defines the 21-feature
+  column order. Appending is safe; reordering or removing breaks existing
+  parquets and trained models. Increment parquet schema version in a separate
+  ADR if reordering becomes necessary. Per Research-0135, `vmaf` (model
+  output) is not included — only raw features the pipeline emits
+  (via `--feature` arguments, no `--model`).
 - **FEATURE_NAMES completeness invariant:** all `FEATURE_NAMES` entries must
   map to JSON keys emitted by the pipeline (CUDA extractors, CPU residual, or
-  `--model` dispatch).  The `vmaf` entry is the model composite score emitted
-  via the `--model` arg in `_run_feature_passes`; all other entries are raw
-  features emitted via `--feature` arguments.
-- **vmaf column is computed via vmaf_v0.6.1 (Research-0135):** the `vmaf`
-  column in CHUG/K150K output parquets is computed by dispatching the SDR
-  `vmaf_v0.6.1` model via `--model version=vmaf_v0.6.1` in the libvmaf CLI
-  invocation.  This model is SDR-trained and is mis-calibrated on PQ HDR
-  clips; scores are valid for relative bitrate-ladder comparison within a
-  content group but are not meaningful as absolute HDR quality targets.
-  Replace with the Netflix HDR model when it ships (change the `--model` arg
-  in `_run_feature_passes`; no schema change required).  Do NOT remove the
-  `--model` arg without an ADR — the vmaf relationship across ladder rungs
-  is a required training feature per user direction 2026-05-16.
+  both). Never list unavailable features or outputs requiring `--model` flags.
+  For future VMAF model scores or learned approximations, add a new feature
+  with distinct name (e.g., `vmaf_model_v0_6_1`, `vmaf_tiny_approximation`)
+  and document in an ADR.
 - **Checkpoint format:** `.done` file is append-only, one clip name per
   line, no header. Changing the format without a migration breaks
   in-progress runs. The `_load_done_set()` / `_append_done()` helpers are

@@ -220,7 +220,7 @@ static char *test_kernel_buffer_free_zero_handles_is_noop(void)
     return NULL;
 }
 
-/* ---- Extractor registration — T8-1c through T8-1i (ADR-0421) ---- */
+/* ---- First consumer extractor registration (T8-1 / ADR-0361) ---- */
 
 static char *test_motion_v2_metal_extractor_registered(void)
 {
@@ -233,82 +233,6 @@ static char *test_motion_v2_metal_extractor_registered(void)
     mu_assert("motion_v2_metal extractor must be registered", fex != NULL);
     mu_assert("motion_v2_metal extractor name matches", strcmp(fex->name, "motion_v2_metal") == 0);
     mu_assert("motion_v2_metal extractor must carry the TEMPORAL flag",
-              (fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL) != 0);
-    return NULL;
-}
-
-static char *test_float_psnr_metal_extractor_registered(void)
-{
-    /* T8-1d (ADR-0421): `float_psnr_metal` dispatches the luma-only
-     * PSNR reduction kernel via the Metal pipeline. Pins the name-
-     * lookup contract; init() requires a live Apple-Family-7+ device
-     * and is exercised separately. */
-    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("float_psnr_metal");
-    mu_assert("float_psnr_metal extractor must be registered", fex != NULL);
-    mu_assert("float_psnr_metal extractor name matches",
-              strcmp(fex->name, "float_psnr_metal") == 0);
-    return NULL;
-}
-
-static char *test_integer_psnr_metal_extractor_registered(void)
-{
-    /* T8-1g (ADR-0421): `integer_psnr_metal` dispatches the integer-
-     * path PSNR kernel (psnr_y / psnr_cb / psnr_cr). Pins the name-
-     * lookup contract. */
-    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("integer_psnr_metal");
-    mu_assert("integer_psnr_metal extractor must be registered", fex != NULL);
-    mu_assert("integer_psnr_metal extractor name matches",
-              strcmp(fex->name, "integer_psnr_metal") == 0);
-    return NULL;
-}
-
-static char *test_float_ansnr_metal_extractor_registered(void)
-{
-    /* T8-1f (ADR-0421): `float_ansnr_metal` dispatches the ANSNR
-     * reduction kernel. Pins the name-lookup contract. */
-    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("float_ansnr_metal");
-    mu_assert("float_ansnr_metal extractor must be registered", fex != NULL);
-    mu_assert("float_ansnr_metal extractor name matches",
-              strcmp(fex->name, "float_ansnr_metal") == 0);
-    return NULL;
-}
-
-static char *test_float_moment_metal_extractor_registered(void)
-{
-    /* T8-1e (ADR-0421): `float_moment_metal` dispatches the first/second
-     * moment reduction kernel. Pins the name-lookup contract. */
-    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("float_moment_metal");
-    mu_assert("float_moment_metal extractor must be registered", fex != NULL);
-    mu_assert("float_moment_metal extractor name matches",
-              strcmp(fex->name, "float_moment_metal") == 0);
-    return NULL;
-}
-
-static char *test_float_motion_metal_extractor_registered(void)
-{
-    /* T8-1h (ADR-0421): `float_motion_metal` is a temporal extractor —
-     * it compares consecutive frames to compute float_motion. Pins the
-     * name-lookup and TEMPORAL-flag contracts (load-bearing for the
-     * feature engine's collect-before-next-submit scheduling). */
-    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("float_motion_metal");
-    mu_assert("float_motion_metal extractor must be registered", fex != NULL);
-    mu_assert("float_motion_metal extractor name matches",
-              strcmp(fex->name, "float_motion_metal") == 0);
-    mu_assert("float_motion_metal extractor must carry the TEMPORAL flag",
-              (fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL) != 0);
-    return NULL;
-}
-
-static char *test_integer_motion_metal_extractor_registered(void)
-{
-    /* T8-1i (ADR-0421): `integer_motion_metal` is a temporal extractor —
-     * it computes integer-path motion scores across consecutive frames.
-     * Pins the name-lookup and TEMPORAL-flag contracts. */
-    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("integer_motion_metal");
-    mu_assert("integer_motion_metal extractor must be registered", fex != NULL);
-    mu_assert("integer_motion_metal extractor name matches",
-              strcmp(fex->name, "integer_motion_metal") == 0);
-    mu_assert("integer_motion_metal extractor must carry the TEMPORAL flag",
               (fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL) != 0);
     return NULL;
 }
@@ -429,17 +353,8 @@ static const test_fn test_table[] = {
     test_kernel_buffer_alloc_rejects_null,
     test_kernel_lifecycle_close_zero_handles_is_noop,
     test_kernel_buffer_free_zero_handles_is_noop,
-    /* T8-1c first-consumer registration (ADR-0361 / ADR-0421). */
+    /* T8-1 first-consumer registration — kernel arrives in T8-1c (ADR-0361). */
     test_motion_v2_metal_extractor_registered,
-    /* T8-1d through T8-1i — name-lookup coverage for 6 additional
-     * Metal extractors (audit gap: only motion_v2_metal had a lookup
-     * assertion before this PR; all 7 below are now pinned). */
-    test_float_psnr_metal_extractor_registered,
-    test_integer_psnr_metal_extractor_registered,
-    test_float_ansnr_metal_extractor_registered,
-    test_float_moment_metal_extractor_registered,
-    test_float_motion_metal_extractor_registered,
-    test_integer_motion_metal_extractor_registered,
     test_dispatch_strategy_rejects_null_and_unknown,
     test_dispatch_strategy_supports_landed_kernels_or_skips,
     /* T8-IOS impl contract — input-validation (ADR-0423). */

@@ -1,0 +1,1 @@
+| [ADR-0453](0453-tiny-ai-netflix-training-scaffold-refresh.md) | Tiny-AI training scaffold — second iteration (Netflix corpus prep, 2026-05-16): research digest update, CHANGELOG fragment, rebase note, training-data.md cross-reference | Proposed | ai, training, mcp, fork-local, onnx, docs |

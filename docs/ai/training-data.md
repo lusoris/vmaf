@@ -11,7 +11,7 @@ Training data is **never committed**. All YUV files are gitignored. The
 canonical local path for the Netflix corpus is:
 
 ```
-.corpus/netflix/
+.workingdir2/netflix/
   ref/    # 9 reference YUVs
   dis/    # 70 distorted YUVs
 ```
@@ -62,12 +62,12 @@ When `--data-root` points to a directory with the layout above, the loader:
 ```bash
 # Extract features from the local Netflix corpus.
 vmaf-train extract-features \
-    --data-root .corpus/netflix \
+    --data-root .workingdir2/netflix \
     --dataset nflx-local \
     --output ai/data/nflx_local_features.parquet
 
 # If VMAF_DATA_ROOT is set instead:
-export VMAF_DATA_ROOT=.corpus/netflix
+export VMAF_DATA_ROOT=.workingdir2/netflix
 vmaf-train extract-features --dataset nflx-local \
     --output ai/data/nflx_local_features.parquet
 ```
@@ -132,9 +132,13 @@ Determinism`.
 - [inference.md](inference.md) — running the trained ONNX model via C API or CLI
 - [ADR-0242](../adr/0242-tiny-ai-netflix-training-corpus.md) — architecture
   and distillation policy decisions
-- [ADR-0417](../adr/0417-tiny-ai-netflix-training-scaffold-pr.md) — draft PR
-  registration; consult before triggering a training run
+- [ADR-0417](../adr/0417-tiny-ai-netflix-training-scaffold-pr.md) — first
+  scaffold PR registration (PR #759, merged 2026-05-15)
+- [ADR-0453](../adr/0453-tiny-ai-netflix-training-scaffold-refresh.md) —
+  second scaffold iteration (2026-05-16); adds research digest 0136
 - [Research digest 0019](../research/0019-tiny-ai-netflix-training.md) —
   VMAF methodology survey and distillation literature (2026-04-27)
 - [Research digest 0099](../research/0099-tiny-ai-netflix-training-update.md) —
-  2024–2026 distillation, ONNX Runtime, and lightweight FR regressor update
+  2025 distillation, ONNX Runtime, and lightweight FR regressor survey
+- [Research digest 0136](../research/0136-tiny-ai-netflix-training-refresh-2026-05-16.md) —
+  2024–2026 literature refresh: distillation loss choices, ORT 1.19/1.20, architecture review
