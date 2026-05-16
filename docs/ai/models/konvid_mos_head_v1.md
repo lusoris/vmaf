@@ -92,7 +92,7 @@ python ai/scripts/train_konvid_mos_head.py --smoke
 # Production — real KonViD JSONL drops on disk:
 python ai/scripts/train_konvid_mos_head.py \
     --konvid-1k   .workingdir2/konvid-1k/konvid_1k.jsonl \
-    --konvid-150k .corpus/konvid-150k/konvid_150k.jsonl \
+    --konvid-150k .workingdir2/konvid-150k/konvid_150k.jsonl \
     --out-onnx    model/konvid_mos_head_v1.onnx \
     --out-manifest model/konvid_mos_head_v1.json
 
