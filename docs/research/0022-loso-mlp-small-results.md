@@ -1,4 +1,4 @@
-# Research Digest 0022 — LOSO results for `mlp_small` on the Netflix corpus
+# Research-0022: LOSO results for `mlp_small` on the Netflix corpus
 
 **Date**: 2026-04-28
 **Author**: Lusoris / Claude (Anthropic)

@@ -1,4 +1,4 @@
-# Research 0129: ensemble training kit doc status
+# Research-0129: ensemble training kit doc status
 
 ## Scope
 

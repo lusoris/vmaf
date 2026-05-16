@@ -1,4 +1,4 @@
-# Research digest 0091 — cambi × {CUDA, SYCL, HIP} GPU port planning
+# Research-0091: cambi × {CUDA, SYCL, HIP} GPU port planning
 
 - **Date**: 2026-05-09
 - **Author**: Lusoris + Claude (Anthropic)

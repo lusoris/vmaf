@@ -1,4 +1,4 @@
-# ChatGPT vision + Claude-bias audit — lusoris/vmaf fork
+# Research-0087: ChatGPT vision + Claude-bias audit — lusoris/vmaf fork
 
 Date: 2026-05-08. Repo state: branch `chore/ensemble-kit-gdrive-quickstart`,
 master tip `4c170667`.

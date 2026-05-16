@@ -1,4 +1,4 @@
-# Research 0125: Tiny-AI RGB Extractors High-Bit-Depth Input
+# Research-0125: Tiny-AI RGB Extractors High-Bit-Depth Input
 
 Date: 2026-05-15
 

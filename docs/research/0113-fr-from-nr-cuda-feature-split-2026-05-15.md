@@ -1,4 +1,4 @@
-# Research 0113: FR-from-NR CUDA Feature Split
+# Research-0113: FR-from-NR CUDA Feature Split
 # Research-0113
 
 ## Summary

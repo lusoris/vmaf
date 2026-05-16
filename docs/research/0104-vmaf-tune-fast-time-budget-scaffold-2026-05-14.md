@@ -1,4 +1,4 @@
-# Research 0104 — `vmaf-tune fast --time-budget-s` Scaffold Closure
+# Research-0104: `vmaf-tune fast --time-budget-s` Scaffold Closure
 
 Date: 2026-05-14
 

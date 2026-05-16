@@ -1,4 +1,4 @@
-# Research 0108 — KonViD-150k Split Score Layout
+# Research-0108: KonViD-150k Split Score Layout
 # Research-0108
 
 Date: 2026-05-14

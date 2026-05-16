@@ -1,4 +1,4 @@
-# Research 0090 — T3-15 GPU coverage long-tail batch 4: actual gap re-audit + per-kernel ordering
+# Research-0090: T3-15 GPU coverage long-tail batch 4: actual gap re-audit + per-kernel ordering
 
 - **Date**: 2026-05-09
 - **Author**: Lusoris, Claude (Opus 4.7)

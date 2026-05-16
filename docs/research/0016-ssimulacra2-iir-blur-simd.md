@@ -1,4 +1,4 @@
-# Research digest 0016 — SSIMULACRA 2 IIR blur SIMD (T3-1 phase 2)
+# Research-0016: SSIMULACRA 2 IIR blur SIMD (T3-1 phase 2)
 
 - **Status**: Active (captures the decision path for ADR-0162)
 - **Related ADRs**: [ADR-0161](../adr/0161-ssimulacra2-simd-bitexact.md)
