@@ -155,10 +155,10 @@ ENV PKG_CONFIG_PATH=${ONEAPI_ROOT}/tbb/latest/lib/pkgconfig:${PKG_CONFIG_PATH}
 # from the GitHub releases page (amd64 Ubuntu 24.04 / noble builds).
 RUN LZVER=1.28.6 \
     && curl -fsSL \
-        "https://github.com/oneapi-src/level-zero/releases/download/v${LZVER}/level-zero_${LZVER}+u24.04_amd64.deb" \
+        "https://github.com/oneapi-src/level-zero/releases/download/v${LZVER}/libze1_${LZVER}%2Bu24.04_amd64.deb" \
         -o /tmp/libze1.deb \
     && curl -fsSL \
-        "https://github.com/oneapi-src/level-zero/releases/download/v${LZVER}/level-zero-devel_${LZVER}+u24.04_amd64.deb" \
+        "https://github.com/oneapi-src/level-zero/releases/download/v${LZVER}/libze-dev_${LZVER}%2Bu24.04_amd64.deb" \
         -o /tmp/libze-dev.deb \
     && dpkg -i /tmp/libze1.deb /tmp/libze-dev.deb \
     && rm /tmp/libze1.deb /tmp/libze-dev.deb
