@@ -144,6 +144,12 @@ extern VmafFeatureExtractor vmaf_fex_float_motion_hip;
  * `feature/cuda/integer_ssim_cuda.c` and pins the two-dispatch +
  * five intermediate float buffers shape. v1: scale=1 only. */
 extern VmafFeatureExtractor vmaf_fex_float_ssim_hip;
+/* HIP CAMBI banding-detector — port of integer_cambi_cuda.c (ADR-0360).
+ * Strategy II hybrid: three GPU kernels + CPU residual via cambi_internal.h.
+ * With `enable_hipcc=true` the HSACO is loaded and the kernels run on device;
+ * without it init() returns -ENOSYS. Bit-exact at places=4 w.r.t. the CPU
+ * and CUDA twins. */
+extern VmafFeatureExtractor vmaf_fex_cambi_hip;
 #endif
 #if HAVE_METAL
 /* Metal feature extractors — T8-1c through T8-1j / ADR-0421.
@@ -272,6 +278,10 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * float-partial readback); emits one feature (`float_ssim`)
      * once the runtime kernel arrives. v1 is scale=1 only. */
     &vmaf_fex_float_ssim_hip,
+    /* HIP CAMBI banding-detector (ADR-0360 port): Strategy II hybrid,
+     * three GPU kernels + CPU residual via cambi_internal.h. Bit-exact
+     * at places=4 w.r.t. the CPU and CUDA twins. */
+    &vmaf_fex_cambi_hip,
 #endif
 #if HAVE_METAL
     /* T8-1 first consumer (ADR-0361): registration succeeds even on

@@ -88,6 +88,10 @@ hip_sources += files(
     # HSACO blob is embedded and the kernel runs on device; without it
     # init() returns -ENOSYS (same scaffold-posture as the other consumers).
     '../feature/hip/float_psnr_hip.c',
+    # HIP CAMBI banding-detector twin of integer_cambi_cuda.c (ADR-0360).
+    # Strategy II hybrid: three GPU kernels (cambi_score.hip) + CPU residual
+    # (cambi_internal.h). Bit-exact at places=4 w.r.t. the CPU and CUDA twins.
+    '../feature/hip/integer_cambi_hip.c',
 )
 
 # T7-10b runtime linkage. ROCm ships `hip_runtime_api.h` under
