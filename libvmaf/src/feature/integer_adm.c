@@ -2489,11 +2489,18 @@ static float i4_adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_s
     float f_accum_v = (float)(accum_v / final_shift[scale - 1]);
     float f_accum_d = (float)(accum_d / final_shift[scale - 1]);
 
-    // TODO: if we integrate adm_p_norm, adm_p_norm=3.0f here
-    // This would mean:
-    // float num_scale_h = powf(f_accum_h, 1.0f / adm_p_norm) + powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / adm_p_norm);
-    // float num_scale_v = powf(f_accum_v, 1.0f / adm_p_norm) + powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / adm_p_norm);
-    // float num_scale_d = powf(f_accum_d, 1.0f / adm_p_norm) + powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / adm_p_norm);
+    /* DEFERRED (ADR-0481): adm_p_norm is hardcoded to 3.0f throughout the ADM
+     * integer pipeline.  The Python training harness in quality_runner.py also
+     * fixes adm_p_norm=3.0f, so making this value user-configurable via the
+     * `adm_p_norm` option (which exists on AdmState.adm_p_norm but is not wired
+     * here) would produce scores outside the Netflix-golden model's training
+     * distribution.  The option is intentionally left unwired until a retrained
+     * model that varies p_norm is shipped.  Do not wire adm_p_norm here without
+     * an accompanying model-card update and snapshot regeneration.
+     * The parameterised form would be:
+     *   num_scale_h = powf(f_accum_h, 1.0f / adm_p_norm)
+     *               + powf((bottom - top) * (right - left) * adm_noise_weight,
+     *                      1.0f / adm_p_norm); */
     float num_scale_h = powf(f_accum_h, 1.0f / 3.0f) +
                         powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / 3.0f);
     float num_scale_v = powf(f_accum_v, 1.0f / 3.0f) +
