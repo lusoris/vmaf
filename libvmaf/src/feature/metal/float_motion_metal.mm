@@ -6,16 +6,23 @@
  *  Dispatches `float_motion_kernel_{8,16}bpc` from float_motion.metal.
  *
  *  Temporal: keeps a ping-pong float MTLBuffer for the blurred ref frame.
- *  Frame 0: blur into prev_blurred; emit motion=0, motion2=0.
+ *  Frame 0: blur into prev_blurred; emit motion2=0 (motion_score only if debug).
  *  Frame N: SAD(cur_blurred, prev_blurred); emit motion and motion2.
  *
  *  Score: sad_sum / (W * H). motion2 = min(prev, cur).
  *  Feature names: VMAF_feature_motion_score, VMAF_feature_motion2_score.
+ *
+ *  Parity with float_motion_cuda.c (ADR-0421):
+ *  - motion_force_zero option: skip kernel dispatch, emit zeros for all frames.
+ *  - debug option: conditionally emit VMAF_feature_motion_score.
+ *  - min-frame-size guard: 5-tap reflect-101 requires w >= 3 && h >= 3.
+ *  - flush idempotency: probe before appending the trailing motion2 score.
  */
 
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 
 #import <Foundation/Foundation.h>
@@ -27,6 +34,7 @@ extern "C" {
 #include "feature_extractor.h"
 #include "feature_name.h"
 #include "libvmaf/picture.h"
+#include "log.h"
 
 #include "../../metal/common.h"
 #include "../../metal/kernel_template.h"
@@ -57,10 +65,28 @@ typedef struct FloatMotionStateMetal {
     unsigned frame_h;
     unsigned bpc;
 
+    bool debug;
+    bool motion_force_zero;
+
     VmafDictionary *feature_name_dict;
 } FloatMotionStateMetal;
 
 static const VmafOption options[] = {
+    {
+        .name    = "debug",
+        .help    = "debug mode: enable additional output",
+        .offset  = offsetof(FloatMotionStateMetal, debug),
+        .type    = VMAF_OPT_TYPE_BOOL,
+        .default_val = {.b = true},
+    },
+    {
+        .name    = "motion_force_zero",
+        .help    = "force motion score to zero",
+        .offset  = offsetof(FloatMotionStateMetal, motion_force_zero),
+        .type    = VMAF_OPT_TYPE_BOOL,
+        .default_val = {.b = false},
+        .flags   = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
     {
         .name    = "motion_fps_weight",
         .alias   = "mfw",
@@ -74,6 +100,25 @@ static const VmafOption options[] = {
     },
     {0},
 };
+
+static int extract_force_zero(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
+                              VmafPicture *ref_pic_90, VmafPicture *dist_pic,
+                              VmafPicture *dist_pic_90, unsigned index,
+                              VmafFeatureCollector *feature_collector)
+{
+    (void)ref_pic; (void)ref_pic_90; (void)dist_pic; (void)dist_pic_90;
+    FloatMotionStateMetal *s = (FloatMotionStateMetal *)fex->priv;
+
+    int err = vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict,
+        "VMAF_feature_motion2_score", 0.0, index);
+    if (s->debug && err == 0) {
+        err = vmaf_feature_collector_append_with_dict(
+            feature_collector, s->feature_name_dict,
+            "VMAF_feature_motion_score", 0.0, index);
+    }
+    return err;
+}
 
 static int build_pipelines(FloatMotionStateMetal *s, id<MTLDevice> device)
 {
@@ -108,6 +153,18 @@ static int init_fex_metal(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fm
 {
     (void)pix_fmt;
     FloatMotionStateMetal *s = (FloatMotionStateMetal *)fex->priv;
+
+    /* The 5-tap Metal float_motion kernel uses reflect-101 mirror padding;
+     * skip_mirror returns 2*(sup-1)-idx which is negative when sup < 3.
+     * Refuse smaller frames up front to prevent out-of-bounds reads on device.
+     * Minimum: filter_half + 1 = 3. Mirrors float_motion_cuda.c init guard. */
+    if (h < 3u || w < 3u) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                 "float_motion_metal: frame %ux%u is below the 5-tap filter minimum 3x3; "
+                 "refusing to avoid out-of-bounds mirror reads on device\n",
+                 w, h);
+        return -EINVAL;
+    }
 
     s->frame_w          = w;
     s->frame_h          = h;
@@ -152,6 +209,15 @@ static int init_fex_metal(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fm
         vmaf_feature_name_dict_from_provided_features(fex->provided_features,
                                                       fex->options, s);
     if (s->feature_name_dict == NULL) { err = -ENOMEM; goto fail_pso; }
+
+    if (s->motion_force_zero) {
+        fex->extract = extract_force_zero;
+        fex->submit  = NULL;
+        fex->collect = NULL;
+        fex->flush   = NULL;
+        fex->close   = NULL;
+    }
+
     return 0;
 
 fail_pso:
@@ -251,61 +317,81 @@ static int collect_fex_metal(VmafFeatureExtractor *fex, unsigned index,
                              VmafFeatureCollector *feature_collector)
 {
     FloatMotionStateMetal *s = (FloatMotionStateMetal *)fex->priv;
+    int err = 0;
 
-    double motion_score = 0.0;
-    if (index > 0) {
-        const float *parts = (const float *)s->rb.host_view;
-        double sad_sum = 0.0;
-        if (parts != NULL) {
-            for (size_t i = 0; i < s->partials_count; ++i) {
-                sad_sum += (double)parts[i];
-            }
-        }
-        const double n_pix = (double)s->frame_w * (double)s->frame_h;
-        motion_score = (n_pix > 0.0) ? (sad_sum / n_pix) : 0.0;
-    }
-
-    int err = vmaf_feature_collector_append_with_dict(
-        feature_collector, s->feature_name_dict,
-        "VMAF_feature_motion_score", motion_score, index);
-    if (err != 0) { return err; }
-
-    double motion2 = 0.0;
     if (index == 0) {
-        motion2 = 0.0;
-    } else if (index == 1) {
-        motion2 = 0.0;
+        /* Frame 0: no SAD computed yet. Emit motion2=0 to anchor the index.
+         * Conditionally emit motion_score=0 under debug — mirrors CUDA collect. */
         err = vmaf_feature_collector_append_with_dict(
             feature_collector, s->feature_name_dict,
-            "VMAF_feature_motion2_score", motion2, index);
-        if (err != 0) { return err; }
+            "VMAF_feature_motion2_score", 0.0, index);
+        if (s->debug && err == 0) {
+            err = vmaf_feature_collector_append_with_dict(
+                feature_collector, s->feature_name_dict,
+                "VMAF_feature_motion_score", 0.0, index);
+        }
+        return err;
+    }
+
+    const float *parts = (const float *)s->rb.host_view;
+    double sad_sum = 0.0;
+    if (parts != NULL) {
+        for (size_t i = 0; i < s->partials_count; ++i) {
+            sad_sum += (double)parts[i];
+        }
+    }
+    const double n_pix = (double)s->frame_w * (double)s->frame_h;
+    const double motion_score = (n_pix > 0.0) ? (sad_sum / n_pix) : 0.0;
+
+    if (index == 1) {
+        /* Frame 1: first real SAD. Emit motion_score under debug; skip motion2
+         * (it requires two consecutive SAD values — emitted at flush). */
+        if (s->debug) {
+            err = vmaf_feature_collector_append_with_dict(
+                feature_collector, s->feature_name_dict,
+                "VMAF_feature_motion_score", motion_score, index);
+        }
     } else {
-        /* Apply fps weight to both operands before the min; identity when
-         * motion_fps_weight = 1.0.  Mirrors the HIP and CUDA twin patterns. */
+        /* Frame >= 2: apply fps weight before min — mirrors CUDA collect path.
+         * Bit-exact when motion_fps_weight = 1.0 (default). */
         const double w_cur  = motion_score * s->motion_fps_weight;
         const double w_prev = s->prev_motion_score * s->motion_fps_weight;
-        motion2 = (w_cur < w_prev) ? w_cur : w_prev;
+        const double motion2 = (w_cur < w_prev) ? w_cur : w_prev;
         err = vmaf_feature_collector_append_with_dict(
             feature_collector, s->feature_name_dict,
             "VMAF_feature_motion2_score", motion2, index - 1);
-        if (err != 0) { return err; }
+        if (s->debug && err == 0) {
+            err = vmaf_feature_collector_append_with_dict(
+                feature_collector, s->feature_name_dict,
+                "VMAF_feature_motion_score", motion_score, index);
+        }
     }
 
     s->prev_motion_score = motion_score;
-    return 0;
+    return err;
 }
 
 static int flush_fex_metal(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
     FloatMotionStateMetal *s = (FloatMotionStateMetal *)fex->priv;
-    if (s->frame_index >= 1) {
-        /* Tail emission: apply fps weight; identity when motion_fps_weight = 1.0. */
-        (void)vmaf_feature_collector_append_with_dict(
-            feature_collector, s->feature_name_dict,
-            "VMAF_feature_motion2_score",
-            s->prev_motion_score * s->motion_fps_weight, s->frame_index);
+    int ret = 0;
+    if (s->frame_index > 0) {
+        /* Idempotency guard: the post-flush pending-collect may have already
+         * written motion2_score[frame_index].  Probe and skip in that case —
+         * re-append would trip the "cannot be overwritten" warning.
+         * Mirrors float_motion_cuda.c flush idempotency pattern. */
+        double existing;
+        if (vmaf_feature_collector_get_score(feature_collector,
+                                             "VMAF_feature_motion2_score",
+                                             &existing, s->frame_index) != 0) {
+            /* Tail emission: apply fps weight; identity when motion_fps_weight = 1.0. */
+            ret = vmaf_feature_collector_append_with_dict(
+                feature_collector, s->feature_name_dict,
+                "VMAF_feature_motion2_score",
+                s->prev_motion_score * s->motion_fps_weight, s->frame_index);
+        }
     }
-    return 1;
+    return (ret < 0) ? ret : !ret;
 }
 
 static int close_fex_metal(VmafFeatureExtractor *fex)

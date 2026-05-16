@@ -98,10 +98,11 @@ static int init_fex_metal(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fm
     s->bpc         = bpc;
     s->plane_bytes = (size_t)w * h * (bpc <= 8u ? 1u : 2u);
 
-    if (bpc == 8)       { s->peak = 255.0;         s->psnr_max = 60.0; }
-    else if (bpc == 10) { s->peak = 255.75;        s->psnr_max = 72.0; }
-    else if (bpc == 12) { s->peak = 255.9375;      s->psnr_max = 84.0; }
-    else                { s->peak = 255.99609375;  s->psnr_max = 108.0; }
+    if (bpc == 8u)       { s->peak = 255.0;         s->psnr_max = 60.0;  }
+    else if (bpc == 10u) { s->peak = 255.75;        s->psnr_max = 72.0;  }
+    else if (bpc == 12u) { s->peak = 255.9375;      s->psnr_max = 84.0;  }
+    else if (bpc == 16u) { s->peak = 255.99609375;  s->psnr_max = 108.0; }
+    else                 { return -EINVAL; }
 
     int err = vmaf_metal_context_new(&s->ctx, 0);
     if (err != 0) { return err; }
