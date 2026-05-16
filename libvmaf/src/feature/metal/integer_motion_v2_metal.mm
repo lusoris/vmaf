@@ -75,11 +75,24 @@ typedef struct MotionV2StateMetal {
     unsigned frame_w;
     unsigned frame_h;
     unsigned bpc;
+    double motion_fps_weight;
 
     VmafDictionary *feature_name_dict;
 } MotionV2StateMetal;
 
-static const VmafOption options[] = {{0}};
+static const VmafOption options[] = {
+    {
+        .name = "motion_fps_weight",
+        .alias = "mfw",
+        .help = "fps-aware multiplicative weight/correction",
+        .offset = offsetof(MotionV2StateMetal, motion_fps_weight),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 1.0,
+        .min = 0.0,
+        .max = 5.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {0}};
 
 static int build_pipelines(MotionV2StateMetal *s, id<MTLDevice> device)
 {
@@ -348,7 +361,11 @@ static int collect_fex_metal(VmafFeatureExtractor *fex, unsigned index,
     }
 
     if (s->have_last) {
-        const double m2 = (s->last_score < score) ? s->last_score : score;
+        /* Apply fps weight — mirrors CPU integer_motion_v2.c flush logic.
+         * Bit-exact when motion_fps_weight = 1.0 (default). */
+        const double w_score      = score * s->motion_fps_weight;
+        const double w_last_score = s->last_score * s->motion_fps_weight;
+        const double m2 = (w_last_score < w_score) ? w_last_score : w_score;
         err = vmaf_feature_collector_append_with_dict(
             feature_collector, s->feature_name_dict,
             "VMAF_integer_feature_motion2_v2_score", m2, index - 1);
@@ -364,12 +381,13 @@ static int collect_fex_metal(VmafFeatureExtractor *fex, unsigned index,
 static int flush_fex_metal(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
     MotionV2StateMetal *s = (MotionV2StateMetal *)fex->priv;
-    /* Final motion2_v2 frame: copy last motion_v2 score verbatim
-     * (same convention as the HIP / CUDA twins). */
+    /* Final motion2_v2 frame: apply fps weight then emit.
+     * Bit-exact when motion_fps_weight = 1.0 (default). */
     if (s->have_last) {
+        const double weighted = s->last_score * s->motion_fps_weight;
         (void)vmaf_feature_collector_append_with_dict(
             feature_collector, s->feature_name_dict,
-            "VMAF_integer_feature_motion2_v2_score", s->last_score, s->index);
+            "VMAF_integer_feature_motion2_v2_score", weighted, s->index);
     }
     return 1;
 }
