@@ -142,7 +142,11 @@ typedef struct MsSsimStateCuda {
     unsigned index;
     VmafDictionary *feature_name_dict;
 
-    bool enable_lcs; /* T7-35 / ADR-0243: emit per-scale L/C/S triples. */
+    bool enable_lcs;    /* T7-35 / ADR-0243: emit per-scale L/C/S triples. */
+    bool enable_chroma; /* mirrors SSIM CUDA PR #950; MS-SSIM is luma-only
+                         * by construction, so n_planes is clamped to 1
+                         * unless a future extension lifts that. */
+    unsigned n_planes;  /* active plane count: always 1 once clamped. */
 } MsSsimStateCuda;
 
 static const VmafOption options[] = {
@@ -153,14 +157,32 @@ static const VmafOption options[] = {
         .type = VMAF_OPT_TYPE_BOOL,
         .default_val.b = false,
     },
+    {
+        .name = "enable_chroma",
+        .help = "enable MS-SSIM calculation for chroma channels (Cb and Cr); "
+                "currently MS-SSIM is luma-only, so this flag is accepted but "
+                "always clamps n_planes to 1 until a chroma extension lands",
+        .offset = offsetof(MsSsimStateCuda, enable_chroma),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+    },
     {0},
 };
 
 static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
 {
-    (void)pix_fmt;
     MsSsimStateCuda *s = fex->priv;
+
+    /* Clamp n_planes to 1: MS-SSIM is luma-only by construction (Wang et al.
+     * 2003 pyramid is applied to the luma plane only).  Mirror the SSIM CUDA
+     * PR #950 pattern so the option is accepted without error for callers that
+     * set enable_chroma=true for consistency with sister extractors; the guard
+     * also covers YUV400P where chroma planes are absent. */
+    if (pix_fmt == VMAF_PIX_FMT_YUV400P || !s->enable_chroma)
+        s->n_planes = 1U;
+    else
+        s->n_planes = 1U; /* reserved: MS-SSIM chroma extension not yet impl. */
 
     /* ADR-0153 minimum resolution check. */
     const unsigned min_dim = (unsigned)MS_SSIM_GAUSSIAN_LEN << (MS_SSIM_SCALES - 1);
