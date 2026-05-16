@@ -69,6 +69,7 @@ typedef struct MotionV2StateHip {
     unsigned frame_w;
     unsigned frame_h;
     unsigned bpc;
+    double motion_fps_weight;
 
     VmafDictionary *feature_name_dict;
 } MotionV2StateHip;
@@ -76,7 +77,18 @@ typedef struct MotionV2StateHip {
 #define MV2H_BX 16u
 #define MV2H_BY 16u
 
-static const VmafOption options[] = {{0}};
+static const VmafOption options[] = {{
+                                         .name = "motion_fps_weight",
+                                         .alias = "mfw",
+                                         .help = "fps-aware multiplicative weight/correction",
+                                         .offset = offsetof(MotionV2StateHip, motion_fps_weight),
+                                         .type = VMAF_OPT_TYPE_DOUBLE,
+                                         .default_val.d = 1.0,
+                                         .min = 0.0,
+                                         .max = 5.0,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {0}};
 
 #ifdef HAVE_HIPCC
 /* Translate a HIP error code to a negative errno. */
@@ -366,7 +378,7 @@ static int flush_fex_hip(VmafFeatureExtractor *fex, VmafFeatureCollector *featur
     (void)feature_collector;
     return 1;
 #else
-    (void)fex;
+    MotionV2StateHip *s = fex->priv;
 
     /* Host-only post-pass: motion2_v2 = min(score[i], score[i+1]).
      * Mirrors the CUDA twin's flush_fex_cuda shape exactly. */
@@ -384,11 +396,15 @@ static int flush_fex_hip(VmafFeatureExtractor *fex, VmafFeatureCollector *featur
         double score_next;
         vmaf_feature_collector_get_score(feature_collector,
                                          "VMAF_integer_feature_motion_v2_sad_score", &score_cur, i);
+        /* Apply fps weight — mirrors CPU integer_motion_v2.c flush logic.
+         * Bit-exact when motion_fps_weight = 1.0 (default). */
+        score_cur *= s->motion_fps_weight;
 
         double motion2;
         if (i + 1u < n_frames) {
             vmaf_feature_collector_get_score(
                 feature_collector, "VMAF_integer_feature_motion_v2_sad_score", &score_next, i + 1u);
+            score_next *= s->motion_fps_weight;
             motion2 = score_cur < score_next ? score_cur : score_next;
         } else {
             motion2 = score_cur;
