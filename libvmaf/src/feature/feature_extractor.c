@@ -154,7 +154,7 @@ extern VmafFeatureExtractor vmaf_fex_float_ssim_hip;
 extern VmafFeatureExtractor vmaf_fex_integer_ms_ssim_hip;
 #endif
 #if HAVE_METAL
-/* Metal feature extractors — T8-1c through T8-1k / ADR-0421 + ADR-0445.
+/* Metal feature extractors — T8-1c through T8-1k / ADR-0421 + ADR-0462.
  * All consumers are fully implemented as Obj-C++ .mm dispatch
  * files in feature/metal/; the -ENOSYS scaffold .c stubs have been
  * removed. Kernels live under feature/metal/, compiled via xcrun
@@ -290,7 +290,7 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     &vmaf_fex_float_moment_metal,
     /* T8-2a / ADR-0424: float_adm Metal twin. */
     &vmaf_fex_float_adm_metal,
-    /* T8-1k (ADR-0445): float_vif_metal — 4-scale VIF on Metal. */
+    /* T8-1k (ADR-0462): float_vif_metal — 4-scale VIF on Metal. */
     &vmaf_fex_float_vif_metal,
 #endif
     &vmaf_fex_speed_qa, &vmaf_fex_lpips, &vmaf_fex_dists_sq, &vmaf_fex_fastdvdnet_pre,
