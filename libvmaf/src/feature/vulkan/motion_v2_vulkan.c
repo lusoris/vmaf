@@ -94,9 +94,23 @@ typedef struct {
     unsigned wg_count;
 
     unsigned frame_index;
+    double motion_fps_weight;
 
     VmafDictionary *feature_name_dict;
 } MotionV2VulkanState;
+
+static const VmafOption options[] = {{
+                                         .name = "motion_fps_weight",
+                                         .alias = "mfw",
+                                         .help = "fps-aware multiplicative weight/correction",
+                                         .offset = offsetof(MotionV2VulkanState, motion_fps_weight),
+                                         .type = VMAF_OPT_TYPE_DOUBLE,
+                                         .default_val.d = 1.0,
+                                         .min = 0.0,
+                                         .max = 5.0,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {0}};
 
 /* Push constants — must mirror `Params` in motion_v2.comp. */
 typedef struct {
@@ -388,7 +402,7 @@ cleanup:
 
 static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
-    (void)fex;
+    MotionV2VulkanState *s = fex->priv;
 
     unsigned n_frames = 0;
     double dummy;
@@ -404,11 +418,15 @@ static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collec
         double score_next;
         vmaf_feature_collector_get_score(feature_collector,
                                          "VMAF_integer_feature_motion_v2_sad_score", &score_cur, i);
+        /* Apply fps weight — mirrors CPU integer_motion_v2.c flush logic.
+         * Bit-exact when motion_fps_weight = 1.0 (default). */
+        score_cur *= s->motion_fps_weight;
 
         double motion2;
         if (i + 1 < n_frames) {
             vmaf_feature_collector_get_score(
                 feature_collector, "VMAF_integer_feature_motion_v2_sad_score", &score_next, i + 1);
+            score_next *= s->motion_fps_weight;
             motion2 = score_cur < score_next ? score_cur : score_next;
         } else {
             motion2 = score_cur;
@@ -460,6 +478,7 @@ VmafFeatureExtractor vmaf_fex_integer_motion_v2_vulkan = {
     .extract = extract,
     .flush = flush,
     .close = close_fex,
+    .options = options,
     .priv_size = sizeof(MotionV2VulkanState),
     .flags = VMAF_FEATURE_EXTRACTOR_TEMPORAL | VMAF_FEATURE_EXTRACTOR_VULKAN,
     .provided_features = provided_features,

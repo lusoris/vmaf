@@ -48,6 +48,7 @@ typedef struct FloatMotionStateCuda {
     unsigned frame_h;
     unsigned bpc;
     double prev_motion_score;
+    double motion_fps_weight;
     bool debug;
     bool motion_force_zero;
 
@@ -68,6 +69,17 @@ static const VmafOption options[] = {
         .offset = offsetof(FloatMotionStateCuda, motion_force_zero),
         .type = VMAF_OPT_TYPE_BOOL,
         .default_val.b = false,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_fps_weight",
+        .alias = "mfw",
+        .help = "fps-aware multiplicative weight/correction",
+        .offset = offsetof(FloatMotionStateCuda, motion_fps_weight),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 1.0,
+        .min = 0.0,
+        .max = 5.0,
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {0}};
@@ -303,8 +315,11 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                                                           index);
         }
     } else {
-        const double motion2 =
-            (motion_score < s->prev_motion_score) ? motion_score : s->prev_motion_score;
+        /* Apply fps weight before taking the min — mirrors float_motion.c CPU path.
+         * Bit-exact when motion_fps_weight = 1.0 (default). */
+        const double w_cur = motion_score * s->motion_fps_weight;
+        const double w_prev = s->prev_motion_score * s->motion_fps_weight;
+        const double motion2 = (w_cur < w_prev) ? w_cur : w_prev;
         err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                       "VMAF_feature_motion2_score", motion2,
                                                       index - 1);
@@ -337,9 +352,11 @@ static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *featu
         double existing;
         if (vmaf_feature_collector_get_score(feature_collector, "VMAF_feature_motion2_score",
                                              &existing, s->index) != 0) {
-            ret = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                          "VMAF_feature_motion2_score",
-                                                          s->prev_motion_score, s->index);
+            /* Apply fps weight on the tail motion2 — mirrors the collect path.
+             * Bit-exact when motion_fps_weight = 1.0 (default). */
+            ret = vmaf_feature_collector_append_with_dict(
+                feature_collector, s->feature_name_dict, "VMAF_feature_motion2_score",
+                s->prev_motion_score * s->motion_fps_weight, s->index);
         }
     }
     return (ret < 0) ? ret : !ret;

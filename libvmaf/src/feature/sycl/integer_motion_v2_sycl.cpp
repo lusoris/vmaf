@@ -77,6 +77,7 @@ struct MotionV2StateSycl {
     bool has_pending;
     unsigned pending_index;
     unsigned frame_index;
+    double motion_fps_weight;
 
     VmafDictionary *feature_name_dict;
 };
@@ -226,7 +227,19 @@ static void copy_y_plane(const VmafPicture *pic, void *dst, unsigned w, unsigned
 
 extern "C" {
 
-static const VmafOption options_motion_v2_sycl[] = {{0}};
+static const VmafOption options_motion_v2_sycl[] = {
+    {
+        .name = "motion_fps_weight",
+        .alias = "mfw",
+        .help = "fps-aware multiplicative weight/correction",
+        .offset = offsetof(MotionV2StateSycl, motion_fps_weight),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val = {.d = 1.0},
+        .min = 0.0,
+        .max = 5.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {0}};
 
 static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
@@ -339,7 +352,7 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
 
 static int flush_fex_sycl(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
-    (void)fex;
+    auto *s = static_cast<MotionV2StateSycl *>(fex->priv);
 
     unsigned n_frames = 0;
     double dummy;
@@ -355,11 +368,15 @@ static int flush_fex_sycl(VmafFeatureExtractor *fex, VmafFeatureCollector *featu
         double score_next;
         vmaf_feature_collector_get_score(feature_collector,
                                          "VMAF_integer_feature_motion_v2_sad_score", &score_cur, i);
+        /* Apply fps weight — mirrors CPU integer_motion_v2.c flush logic.
+         * Bit-exact when motion_fps_weight = 1.0 (default). */
+        score_cur *= s->motion_fps_weight;
 
         double motion2;
         if (i + 1 < n_frames) {
             vmaf_feature_collector_get_score(
                 feature_collector, "VMAF_integer_feature_motion_v2_sad_score", &score_next, i + 1);
+            score_next *= s->motion_fps_weight;
             motion2 = score_cur < score_next ? score_cur : score_next;
         } else {
             motion2 = score_cur;
