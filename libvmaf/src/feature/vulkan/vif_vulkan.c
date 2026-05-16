@@ -40,6 +40,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -88,7 +89,12 @@ struct vif_accums {
 typedef struct {
     /* Options. */
     bool debug;
+    bool enable_chroma;
     double vif_enhn_gain_limit;
+
+    /* Number of active planes: 1 when !enable_chroma or YUV400P, 3 otherwise.
+     * v1 kernel processes data[0] only; n_planes>1 is reserved for v2. */
+    unsigned n_planes;
 
     /* Frame geometry. */
     unsigned width;
@@ -154,6 +160,17 @@ static const VmafOption options[] = {{
                                          .offset = offsetof(VifVulkanState, debug),
                                          .type = VMAF_OPT_TYPE_BOOL,
                                          .default_val.b = true,
+                                     },
+                                     {
+                                         .name = "enable_chroma",
+                                         .help = "when set, compute vif on chroma (Cb/Cr) planes "
+                                                 "in addition to luma; forced off for YUV400. "
+                                                 "Vulkan path: n_planes clamped to 1 (luma-only "
+                                                 "kernel); multi-plane dispatch deferred to v2.",
+                                         .offset = offsetof(VifVulkanState, enable_chroma),
+                                         .type = VMAF_OPT_TYPE_BOOL,
+                                         .default_val.b = false,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
                                      },
                                      {
                                          .name = "vif_enhn_gain_limit",
@@ -427,8 +444,17 @@ static int alloc_scale_buffers(VifVulkanState *s)
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
-    (void)pix_fmt;
     VifVulkanState *s = fex->priv;
+
+    /* Derive n_planes from pix_fmt, then clamp when !enable_chroma.
+     * Mirrors integer_vif_cuda.c::init_fex_cuda enable_chroma guard (ADR-0453).
+     * v1 kernel is luma-only; n_planes>1 is reserved for v2. */
+    if (pix_fmt == VMAF_PIX_FMT_YUV400P) {
+        s->n_planes = 1U;
+    } else {
+        s->n_planes = s->enable_chroma ? 3U : 1U;
+    }
+
     s->width = w;
     s->height = h;
     s->bpc = bpc;
@@ -655,6 +681,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     (void)dist_pic_90;
     VifVulkanState *s = fex->priv;
     int err = 0;
+
+    /* v1 dispatches luma plane only (kernel reads data[0]).
+     * When enable_chroma=true, n_planes=3 but the kernel loop is deferred
+     * to v2 (requires passing plane index into the shader). */
 
     err = upload_input_plane(s, ref_pic, /*which=*/0);
     if (err)
