@@ -1,4 +1,4 @@
-# Research-0082: BVI-DVC corpus feasibility for `fr_regressor_v2`
+# Research-0082 — BVI-DVC corpus feasibility for `fr_regressor_v2`
 
 ## Question
 
@@ -29,7 +29,7 @@ posture for the Netflix Public drop (ADR-0203) is the same model:
 local-only handling, derived weights ship, source corpus does not.
 The redistribution rule for BVI-DVC therefore requires no new
 infrastructure; it requires the same gitignore + README discipline
-already in place for `.corpus/netflix/`.
+already in place for `.workingdir2/netflix/`.
 
 Concrete rules:
 
