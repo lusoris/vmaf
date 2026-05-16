@@ -38,14 +38,29 @@ pixel read is OOB. Add an early-exit `if (w == 0 || w > 32768u || ...)
 return -EINVAL;` guard at the public entry point before any arithmetic.
 Pattern: see `vmaf_picture_alloc` in [`picture.c`](picture.c). CERT INT30-C.
 
-## Bootstrap score-name invariant (ADR-0480)
+## Vendored-code scope rule (ADR-0455)
 
-The four bootstrap score-name suffixes (`_bagging`, `_stddev`, `_ci_p95_lo`,
-`_ci_p95_hi`) are defined once in [`bootstrap_names.h`](bootstrap_names.h).
-Both `predict.c` (`bootstrap_append_named_scores`) and `libvmaf.c`
-(`vmaf_score_pooled_model_collection`) consume this header.
+**Vendored third-party code is in scope for the banned-function ban.**
+Files under `src/mcp/3rdparty/`, `src/svm.cpp`, `src/svm.h`,
+and `src/feature/third_party/` receive the same scrutiny as
+fork-original code. Banned functions in `svm.cpp`, `cJSON.c`,
+and `pdjson.c` (see docs/principles.md §1.2 rule 30) must be
+replaced — not suppressed with `// NOLINT vendored`.
 
-**Do not** add or rename suffixes in either file without updating
-`bootstrap_names.h`.  The `BOOTSTRAP_NAME_BUF_SZ()` macro sizes the name
-buffer based on the longest suffix (`_ci_p95_lo`, 10 chars + NUL); adding a
-longer suffix without updating the macro will silently truncate the name.
+Current status:
+- `svm.cpp` — `rand()` replaced with `rand_r(&svm_rand_state)` +
+  `svm_set_rand_seed()` API (ADR-0455). Remaining suppression covers
+  function-size, nesting, and null-analyzer warnings only.
+- `mcp/3rdparty/cJSON/cJSON.c` — `sprintf`/`strcpy` replaced with
+  `snprintf`/`memmove`/`memcpy` (ADR-0455).
+- `pdjson.c` — not yet audited for banned functions; tracked in backlog.
+
+## Rebase-sensitive invariants
+
+- **svm.cpp PRNG state** (ADR-0455): `svm_rand_state` is a `__thread`
+  (thread-local) `unsigned`. Any upstream libsvm sync must preserve the
+  thread-local declaration and the `svm_set_rand_seed(unsigned)` public
+  API. Do NOT reintroduce `rand()` — the CI lint gate will reject it.
+- **cJSON.c `snprintf` / `memcpy` calls** (ADR-0455): when refreshing
+  the cJSON vendor from upstream, ensure the safe replacements survive.
+  See `docs/rebase-notes.md` §cJSON-vendored-fork-diff for the diff list.

@@ -18,15 +18,17 @@
 
 /*
  * Vendored libsvm — we own our patches (thread-locale integration, JSON
- * entry points, move-from-text-to-parser refactor), but the bulk of this
- * file is verbatim libsvm. Whole-file clang-tidy scans surface
- * long-latent warnings in the vendored code (null-derefs under
- * analyzer paths, rand() usage, nullptr modernisation, function-size
- * / branches / nesting over our Power-of-10 thresholds, etc.). The
- * project policy for vendored upstream code is to keep the libsvm diff
- * reviewable against the upstream source rather than re-flow it — so
- * suppress the whole file and track behaviour via the unit tests that
- * exercise svm_load_model / svm_predict / svm_save_model.
+ * entry points, move-from-text-to-parser refactor, seeded PRNG for
+ * training-time randomness — ADR-0455), but the bulk of this file is
+ * verbatim libsvm. Whole-file clang-tidy scans surface long-latent
+ * warnings in the vendored code (null-derefs under analyzer paths,
+ * nullptr modernisation, function-size / branches / nesting over our
+ * Power-of-10 thresholds, etc.). The project policy for vendored
+ * upstream code is to keep the libsvm diff reviewable against the
+ * upstream source rather than re-flow it — so suppress the whole file
+ * and track behaviour via the unit tests that exercise svm_load_model /
+ * svm_predict / svm_save_model. The rand() ban violation has been fixed
+ * (ADR-0455): rand() replaced with rand_r(&svm_rand_state) throughout.
  */
 // NOLINTBEGIN
 #include <math.h>
@@ -56,6 +58,22 @@
 
 extern "C" {
 #include "thread_locale.h"
+}
+
+/* Thread-local PRNG state for training-time shuffle (ADR-0455).
+ * Callers wanting deterministic cross-validation can call
+ * svm_set_rand_seed() before svm_train() / svm_cross_validation().
+ * Default seed mixes time and pid so independent processes diverge. */
+static __thread unsigned svm_rand_state = 0u;
+static __thread int svm_rand_state_initialised = 0;
+
+static inline unsigned svm_rand_next(void)
+{
+    if (!svm_rand_state_initialised) {
+        svm_rand_state = (unsigned)time(NULL) ^ (unsigned)getpid();
+        svm_rand_state_initialised = 1;
+    }
+    return (unsigned)rand_r(&svm_rand_state);
 }
 
 int libsvm_version = LIBSVM_VERSION;
@@ -1820,7 +1838,7 @@ static void svm_binary_svc_probability(const svm_problem *prob, const svm_parame
     for (i = 0; i < prob->l; i++)
         perm[i] = i;
     for (i = 0; i < prob->l; i++) {
-        int j = i + rand() % (prob->l - i);
+        int j = i + (int)(svm_rand_next() % (unsigned)(prob->l - i));
         swap(perm[i], perm[j]);
     }
     for (i = 0; i < nr_fold; i++) {
@@ -2254,7 +2272,7 @@ void svm_cross_validation(const svm_problem *prob, const svm_parameter *param, i
             index[i] = perm[i];
         for (c = 0; c < nr_class; c++)
             for (i = 0; i < count[c]; i++) {
-                int j = i + rand() % (count[c] - i);
+                int j = i + (int)(svm_rand_next() % (unsigned)(count[c] - i));
                 swap(index[start[c] + j], index[start[c] + i]);
             }
         for (i = 0; i < nr_fold; i++) {
@@ -2286,7 +2304,7 @@ void svm_cross_validation(const svm_problem *prob, const svm_parameter *param, i
         for (i = 0; i < l; i++)
             perm[i] = i;
         for (i = 0; i < l; i++) {
-            int j = i + rand() % (l - i);
+            int j = i + (int)(svm_rand_next() % (unsigned)(l - i));
             swap(perm[i], perm[j]);
         }
         for (i = 0; i <= nr_fold; i++)
@@ -3075,4 +3093,14 @@ svm_model *svm_parse_model_from_buffer(const char *model_buffer, unsigned int le
     }
     return parser.get_model();
 }
+
+/* Public API for deterministic seeding (ADR-0455).
+ * Sets the calling thread's PRNG seed.  Call before svm_train() or
+ * svm_cross_validation() to get reproducible fold assignments. */
+void svm_set_rand_seed(unsigned seed)
+{
+    svm_rand_state = seed;
+    svm_rand_state_initialised = 1;
+}
+
 // NOLINTEND

@@ -77,9 +77,6 @@ struct MotionV2StateSycl {
     bool has_pending;
     unsigned pending_index;
     unsigned frame_index;
-    /* fps-aware weight applied to the v2 SAD score in flush().
-     * Default 1.0 is a no-op. Mirrors motion_sycl and motion_cuda
-     * (ADR-0192 / PR #851). */
     double motion_fps_weight;
 
     VmafDictionary *feature_name_dict;
@@ -235,7 +232,7 @@ static const VmafOption options_motion_v2_sycl[] = {
         .name = "motion_fps_weight",
         .alias = "mfw",
         .help = "fps-aware multiplicative weight/correction",
-        .offset = (int)offsetof(MotionV2StateSycl, motion_fps_weight),
+        .offset = offsetof(MotionV2StateSycl, motion_fps_weight),
         .type = VMAF_OPT_TYPE_DOUBLE,
         .default_val = {.d = 1.0},
         .min = 0.0,
@@ -385,9 +382,8 @@ static int flush_fex_sycl(VmafFeatureExtractor *fex, VmafFeatureCollector *featu
             motion2 = score_cur;
         }
 
-        const double motion2_weighted = motion2 * s->motion_fps_weight;
         vmaf_feature_collector_append(feature_collector, "VMAF_integer_feature_motion2_v2_score",
-                                      motion2_weighted, i);
+                                      motion2, i);
     }
     return 1;
 }
