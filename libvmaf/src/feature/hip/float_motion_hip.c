@@ -146,14 +146,29 @@ static int extract_force_zero(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
     return err;
 }
 
-/* Extracted from init: motion_force_zero short-circuit. */
+/* Minimal close for the motion_force_zero fast-path: free only the dict.
+ * Mirrors integer_motion.c's close_force_zero pattern (the GPU bufs /
+ * lc / rb / ctx were never initialised in this path). */
+static int close_force_zero_hip(VmafFeatureExtractor *fex)
+{
+    FloatMotionStateHip *s = fex->priv;
+    return vmaf_dictionary_free(&s->feature_name_dict);
+}
+
+/* Extracted from init: motion_force_zero short-circuit.
+ * Allocates the feature_name_dict so extract_force_zero can call
+ * vmaf_feature_collector_append_with_dict with a non-NULL dict, then
+ * wires the minimal close_force_zero_hip to free it.  Setting close=NULL
+ * would leak the dict; the CUDA twin has the same latent bug (it skips
+ * dict allocation entirely in the force_zero branch, causing
+ * append_with_dict to return -EINVAL on every frame). */
 static int init_force_zero_hip(VmafFeatureExtractor *fex, FloatMotionStateHip *s)
 {
     fex->extract = extract_force_zero;
     fex->submit = NULL;
     fex->collect = NULL;
     fex->flush = NULL;
-    fex->close = NULL;
+    fex->close = close_force_zero_hip;
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
     if (s->feature_name_dict == NULL) {
@@ -537,18 +552,25 @@ static int flush_fex_hip(VmafFeatureExtractor *fex, VmafFeatureCollector *featur
 #else
     FloatMotionStateHip *s = fex->priv;
 
-    if (s->index == 0u) {
-        /* Zero or one frame processed — no tail motion2 to emit. */
-        return 1;
+    int ret = 0;
+    if (s->index > 0u) {
+        /* Idempotency guard: the post-flush pending-collect may have already
+         * written motion2_score[s->index].  Probe and skip in that case —
+         * re-append would trip the "cannot be overwritten" warning and surface
+         * as "context could not be synchronized".  Mirrors float_motion_cuda.c
+         * flush_fex_cuda and float_motion_metal.mm flush_fex_metal (Metal
+         * parity fix, commit 982fabacc). */
+        double existing;
+        if (vmaf_feature_collector_get_score(feature_collector, "VMAF_feature_motion2_score",
+                                             &existing, s->index) != 0) {
+            /* Emit the tail motion2 = prev_motion_score * fps_weight at the
+             * last frame index; identity when motion_fps_weight = 1.0. */
+            ret = vmaf_feature_collector_append_with_dict(
+                feature_collector, s->feature_name_dict, "VMAF_feature_motion2_score",
+                s->prev_motion_score * s->motion_fps_weight, s->index);
+        }
     }
-
-    /* Emit the tail motion2 = prev_motion_score * fps_weight at the last
-     * frame index.  Mirrors the CUDA twin's flush_fex_cuda shape exactly;
-     * identity when motion_fps_weight = 1.0. */
-    int err = vmaf_feature_collector_append_with_dict(
-        feature_collector, s->feature_name_dict, "VMAF_feature_motion2_score",
-        s->prev_motion_score * s->motion_fps_weight, s->index);
-    return (err != 0) ? err : 1;
+    return (ret < 0) ? ret : !ret;
 #endif /* HAVE_HIPCC */
 }
 
