@@ -40,10 +40,25 @@
  *      - Fully-on-GPU calculate_c_values (Strategy III).
  *      - GPU heatmap dump.
  *      - CUDA + SYCL twins (will follow per ADR-0192 cadence).
+ *
+ *  v2 parity fixes (ADR-0465):
+ *      Gap 1: Default constants corrected to match CPU (cambi_max_val,
+ *             window_size, cambi_vis_lum_threshold, min_width_height).
+ *      Gap 2: `cambi_vk_adjust_window` now uses the CPU integer formula
+ *             `((ws * (w+h)) / 375) >> 4` (was: float sqrt ratio).
+ *      Gap 3: `cambi_high_res_speedup` window-halving now applied.
+ *      Gap 4: `tvi_for_diff` bisection now finds the last sample where
+ *             the TVI condition HOLDS (was: searched the opposite side).
+ *             `vlt_luma` now matches CPU `get_vlt_luma` exactly.
+ *      Gap 5: `topk` / `cambi_topk` selection mirrors CPU
+ *             (use `topk` if non-default, else `cambi_topk`).
+ *      Gap 6: `c_values_histograms` sized via `v_band_size` (computed
+ *             after TVI init) not the old `1024+2*num_diffs` formula.
  */
 
 #include <errno.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -69,14 +84,18 @@
 #include "cambi_preprocess_spv.h"
 
 #define CAMBI_VK_PIC_BUFFERS 2
-#define CAMBI_VK_DEFAULT_MAX_VAL 5.0
-#define CAMBI_VK_DEFAULT_WINDOW_SIZE 63
+/* v2: matched to CPU DEFAULT_CAMBI_MAX_VAL (ADR-0465 gap 1). */
+#define CAMBI_VK_DEFAULT_MAX_VAL 1000.0
+/* v2: matched to CPU DEFAULT_CAMBI_WINDOW_SIZE (ADR-0465 gap 1). */
+#define CAMBI_VK_DEFAULT_WINDOW_SIZE 65
 #define CAMBI_VK_DEFAULT_TOPK 0.6
 #define CAMBI_VK_DEFAULT_TVI 0.019
-#define CAMBI_VK_DEFAULT_VLT 1000.0
+/* v2: matched to CPU DEFAULT_CAMBI_VLT (ADR-0465 gap 1). */
+#define CAMBI_VK_DEFAULT_VLT 0.0
 #define CAMBI_VK_DEFAULT_MAX_LOG_CONTRAST 2
 #define CAMBI_VK_DEFAULT_EOTF "bt1886"
-#define CAMBI_VK_MIN_WIDTH_HEIGHT 64
+/* v2: matched to CPU CAMBI_MIN_WIDTH_HEIGHT (ADR-0465 gap 1). */
+#define CAMBI_VK_MIN_WIDTH_HEIGHT 216
 
 #define CAMBI_VK_WG_X 16
 #define CAMBI_VK_WG_Y 16
@@ -610,11 +629,11 @@ static int cambi_vk_alloc_host(CambiVkState *s)
     if (!s->buffers.c_values)
         return -ENOMEM;
 
-    const uint16_t num_bins =
-        (uint16_t)(1024 + (s->buffers.all_diffs[2 * num_diffs] - s->buffers.all_diffs[0]));
-    s->buffers.c_values_histograms = malloc(sizeof(uint16_t) * alloc_w * num_bins);
-    if (!s->buffers.c_values_histograms)
-        return -ENOMEM;
+    /* v2 fix (ADR-0465 gap 6): histogram allocation deferred to
+     * cambi_vk_alloc_hist(), called after cambi_vk_init_tvi() so
+     * tvi_for_diff[] is available to compute the correct v_band_size.
+     * v1 used a conservative 1024+2*num_diffs formula that was not
+     * aligned with the CPU's v_band_size and could diverge. */
 
     const int pad_size = VMAF_CAMBI_MASK_FILTER_SIZE / 2;
     const int dp_width = (int)alloc_w + 2 * pad_size + 1;
@@ -657,61 +676,139 @@ static int cambi_vk_init_tvi(CambiVkState *s)
         return err;
 
     const int num_diffs = 1 << s->max_log_contrast;
-    /* Match cambi.c get_tvi_for_diff: bisect in [0, 1023] for the
-     * largest sample whose tvi_condition holds, then offset by num_diffs
-     * (the histogram base). The CPU file makes this static; we replicate
-     * it inline here.  */
+
+    /* v2 fix (ADR-0465 gap 4): replicate cambi.c::get_tvi_for_diff exactly.
+     *
+     * CPU algorithm:
+     *   tvi_condition(S) = (L(S+diff) - L(S)) > threshold * L(S)
+     *   tvi_hard_threshold_condition:
+     *     CORRECT iff tvi_condition(S)=true AND tvi_condition(S+1)=false
+     *   bisect to find the last S where tvi_condition holds.
+     *
+     * v1 bug: the bisect searched for the largest S where the condition
+     * does NOT hold (complementary direction), producing a value near
+     * max_val instead of near luma_range.foot. This made tvi_for_diff[d]
+     * much too large, causing c_value_pixel to apply no TVI gating.
+     *
+     * Correct implementation: bisect in [foot, head-diff-1] for the
+     * last S where (L(S+diff)-L(S)) > threshold*L(S). */
     for (int d = 0; d < num_diffs; d++) {
         const int diff = (int)s->buffers.diffs_to_consider[d];
-        int lo = 0;
-        int hi = (1 << 10) - 1 - diff;
-        int found = -1;
-        while (lo <= hi) {
-            int mid = (lo + hi) / 2;
-            double sample_lum = vmaf_luminance_get_luminance(mid, luma_range, eotf);
-            double diff_lum =
-                vmaf_luminance_get_luminance(mid + diff, luma_range, eotf) - sample_lum;
-            if (diff_lum < s->tvi_threshold * sample_lum) {
-                found = mid;
-                lo = mid + 1;
-            } else {
-                hi = mid - 1;
+        int foot = luma_range.foot;
+        int head = luma_range.head - diff - 1;
+
+        /* Check boundary: if condition already fails at foot, result=0. */
+        {
+            double lf = vmaf_luminance_get_luminance(foot, luma_range, eotf);
+            double delta_f = vmaf_luminance_get_luminance(foot + diff, luma_range, eotf) - lf;
+            if (!(delta_f > s->tvi_threshold * lf)) {
+                s->buffers.tvi_for_diff[d] = (uint16_t)(0 + num_diffs);
+                continue;
             }
         }
-        if (found < 0)
-            found = 0;
-        s->buffers.tvi_for_diff[d] = (uint16_t)(found + num_diffs);
+        /* Check boundary: if condition still holds at head, result=max_val. */
+        {
+            double lh = vmaf_luminance_get_luminance(head, luma_range, eotf);
+            double delta_h = vmaf_luminance_get_luminance(head + diff, luma_range, eotf) - lh;
+            if (delta_h > s->tvi_threshold * lh) {
+                /* Condition holds all the way to head; check head+1. */
+                double lh1 = vmaf_luminance_get_luminance(head + 1, luma_range, eotf);
+                double delta_h1 =
+                    vmaf_luminance_get_luminance(head + 1 + diff, luma_range, eotf) - lh1;
+                if (!(delta_h1 > s->tvi_threshold * lh1)) {
+                    s->buffers.tvi_for_diff[d] = (uint16_t)(head + num_diffs);
+                } else {
+                    s->buffers.tvi_for_diff[d] =
+                        (uint16_t)(((1 << 10) - 1) + num_diffs); /* max_val */
+                }
+                continue;
+            }
+        }
+        /* Binary search: find last S in (foot, head) where condition holds.
+         * Invariant: condition holds at foot, fails at head.              */
+        while (foot < head - 1) {
+            int mid = foot + (head - foot) / 2;
+            double lm = vmaf_luminance_get_luminance(mid, luma_range, eotf);
+            double delta_m = vmaf_luminance_get_luminance(mid + diff, luma_range, eotf) - lm;
+            bool cond_mid = (delta_m > s->tvi_threshold * lm);
+            if (cond_mid) {
+                /* Condition holds at mid — also check mid+1. */
+                double lm1 = vmaf_luminance_get_luminance(mid + 1, luma_range, eotf);
+                double delta_m1 =
+                    vmaf_luminance_get_luminance(mid + 1 + diff, luma_range, eotf) - lm1;
+                bool cond_mid1 = (delta_m1 > s->tvi_threshold * lm1);
+                if (!cond_mid1) {
+                    foot = mid; /* found the boundary */
+                    break;
+                }
+                foot = mid; /* still holds, move foot up */
+            } else {
+                head = mid; /* fails here, move head down */
+            }
+        }
+        s->buffers.tvi_for_diff[d] = (uint16_t)(foot + num_diffs);
     }
 
-    /* vlt_luma — largest sample whose luminance is below
-     * cambi_vis_lum_threshold. */
-    int vlt = 0;
-    for (int v = 0; v < (1 << 10); v++) {
-        double L = vmaf_luminance_get_luminance(v, luma_range, eotf);
-        if (L < s->cambi_vis_lum_threshold)
-            vlt = v;
+    /* v2 fix (ADR-0465 gap 4b): mirror cambi.c::get_vlt_luma exactly.
+     *
+     * CPU: find the SMALLEST luma value ABOVE cambi_vis_lum_threshold
+     * (samples at or below that value are not visible).  Then vlt_luma
+     * is that sample when it equals luma_range.foot, else 0 is returned.
+     * In practice vlt_luma is the first luma sample whose luminance
+     * meets or exceeds the threshold; c_value_pixel checks
+     * `(value + diffs[...]) > vlt_luma`.
+     *
+     * v1 used: largest sample BELOW the threshold, off by one from CPU. */
+    {
+        uint16_t sample = (uint16_t)luma_range.foot;
+        while (vmaf_luminance_get_luminance(sample, luma_range, eotf) <
+               s->cambi_vis_lum_threshold) {
+            sample++;
+        }
+        s->vlt_luma = (sample == (uint16_t)luma_range.foot) ? 0u : sample;
     }
-    s->vlt_luma = (uint16_t)vlt;
+
+    /* Allocate c_values_histograms with the correct v_band_size now that
+     * tvi_for_diff[] and vlt_luma are known (ADR-0465 gap 6). */
+    {
+        const int alloc_w = (int)s->proc_width;
+        int v_lo_signed = (int)s->vlt_luma - 3 * num_diffs + 1;
+        int v_band_base = v_lo_signed > 0 ? v_lo_signed : 0;
+        /* tvi_for_diff[num_diffs-1] is in adjusted space (raw + num_diffs).
+         * v_band_size must be consistent with cambi.c calculate_c_values_row:
+         *   v_band_size = tvi_for_diff[num_diffs-1] + 1 - v_band_base */
+        int v_band_size = (int)s->buffers.tvi_for_diff[num_diffs - 1] + 1 - v_band_base;
+        if (v_band_size < 1)
+            v_band_size = 1;
+        s->buffers.c_values_histograms =
+            malloc(sizeof(uint16_t) * (size_t)alloc_w * (size_t)v_band_size);
+        if (!s->buffers.c_values_histograms)
+            return -ENOMEM;
+    }
     return 0;
 }
 
-/* Mirror cambi.c::adjust_window_size. */
+/* Mirror cambi.c::adjust_window_size (v2 fix — ADR-0465 gaps 2 & 3).
+ *
+ * CPU formula (integer arithmetic, verbatim from cambi.c line 472):
+ *   window_size = ((window_size * (w + h)) / 375) >> 4
+ *   if (high_res_speedup): window_size = (window_size + 1) >> 1
+ *   window_size |= 1   // round up to odd
+ *
+ * v1 incorrectly used:
+ *   sqrt(w*h) / sqrt(4K_pixels) * window_size   (float, geometric mean)
+ *   and ignored the high_res_speedup halving
+ * Both bugs diverge from the CPU at sub-4K resolutions. */
 static void cambi_vk_adjust_window(uint16_t *window_size, unsigned w, unsigned h, int high_res)
 {
-    /* CPU formula: window = window * (sqrt(w*h) / sqrt(3840*2160)) when
-     * frame is below 4K, else passthrough. The high_res_speedup halves
-     * the effective window for 1080p+ shortcuts. Replicating the
-     * upstream behaviour verbatim. */
-    (void)high_res;
-    if (w >= 3840 && h >= 2160)
-        return;
-    double scale = sqrt((double)w * (double)h) / sqrt(3840.0 * 2160.0);
-    int adjusted = (int)((double)*window_size * scale + 0.5);
-    if (adjusted < 1)
-        adjusted = 1;
-    if (adjusted % 2 == 0)
-        adjusted++;
-    *window_size = (uint16_t)adjusted;
+    /* Integer arithmetic matching CPU `adjust_window_size` verbatim.
+     * Denominator 375 * 16 = 6000 ≈ (3840 + 2160) = 6000.  Exact match. */
+    *window_size = (uint16_t)(((unsigned)*window_size * (w + h) / 375u) >> 4);
+    if (high_res) {
+        *window_size = (uint16_t)((*window_size + 1u) >> 1);
+    }
+    /* Round up to odd (matches CPU `*window_size |= 1`). */
+    *window_size |= 1u;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1316,8 +1413,12 @@ static int cambi_vk_extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
                                       s->buffers.diff_weights, s->buffers.all_diffs, (int)scaled_w,
                                       (int)scaled_h, s->inc_range_callback, s->dec_range_callback);
 
+        /* v2 fix (ADR-0465 gap 5): mirror CPU topk selection.
+         * CPU: if (s->topk != DEFAULT_CAMBI_TOPK_POOLING) use topk, else cambi_topk.
+         * v1 always used s->topk, ignoring the cambi_topk override. */
+        double effective_topk = (s->topk != CAMBI_VK_DEFAULT_TOPK) ? s->topk : s->cambi_topk;
         scores_per_scale[scale] =
-            vmaf_cambi_spatial_pooling(s->buffers.c_values, s->topk, scaled_w, scaled_h);
+            vmaf_cambi_spatial_pooling(s->buffers.c_values, effective_topk, scaled_w, scaled_h);
     }
 
     uint16_t pixels_in_window = vmaf_cambi_get_pixels_in_window(s->adjusted_window);

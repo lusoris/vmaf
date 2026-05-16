@@ -53,7 +53,7 @@ CAMBI supports the same input bit depths as VMAF: 8, 10, 12 and 16. However, the
 
 The CAMBI feature extractor also supports additional optional parameters as listed below:
 
-- `window_size` (min: 15, max: 127, default: 63): Window size to compute CAMBI (default: 63 corresponds to ~1 degree at 4K resolution and 1.5H)
+- `window_size` (min: 15, max: 127, default: 65): Window size to compute CAMBI (default: 65 corresponds to ~1 degree at 4K resolution and 1.5H)
 - `topk` (min: 0, max: 1.0, default: 0.6): Ratio of pixels for the spatial pooling computation
 - `tvi_threshold` (min: 0.0001, max: 1.0, default: 0.019): Visibilty threshold for luminance ΔL < tvi_threshold*L_mean for BT.1886
 - `max_log_contrast` (min: 0, max: 5, default: 2): Maximum contrast in log luma level (2^max_log_contrast) at 10-bits. Default 2 is equivalent to 4 luma levels at 10-bit and 1 luma level at 8-bit. The default is recommended for banding artifacts coming from video compression.
@@ -202,26 +202,14 @@ ninja -C build-vulkan
     -p 420 -b 8 --backend vulkan --feature cambi
 ```
 
-### SYCL
-
-The SYCL backend (`--backend sycl --feature cambi_sycl`) supports the same
-option surface as CUDA and Vulkan. See
-[ADR-0415](../adr/0415-cambi-sycl-port.md) for the implementation notes.
-
-### Option parity note — `src_width` / `src_height`
-
-All three GPU backends (CUDA, SYCL, Vulkan) now accept `src_width` and
-`src_height` via the same syntax as the CPU backend:
-
-```bash
---feature cambi=src_width=1920:src_height=1080
-```
-
-These fields default to 0 (resolved to the actual input dimensions at
-`init()` time). They are only meaningful when `full_ref=true`, which is not
-yet supported on any GPU backend; a non-zero value is stored and preserved
-for forward compatibility once `full_ref` is ported.
+The Vulkan backend was updated to v2 (ADR-0465, 2026-05-16) which closed six
+host-orchestration parity gaps versus the CPU reference. If you used the v1
+Vulkan extractor, scores may shift: the most impactful corrections are the
+`cambi_max_val` clip ceiling (5.0 → 1000.0), the `window_size` default
+(63 → 65), and the TVI bisection direction. After v2 the Vulkan backend
+matches the CPU reference to `places=4` on the cross-backend gate.
 
 Companion research digests:
-[Research-0032](../research/0032-cambi-vulkan-integration.md) (Vulkan),
+[Research-0032](../research/0032-cambi-vulkan-integration.md) (Vulkan v1),
+[Research-0135](../research/0135-cambi-vulkan-v2-port-2026-05-16.md) (Vulkan v2, ADR-0465),
 [Research-0091](../research/0091-cambi-cuda-integration.md) (CUDA).
