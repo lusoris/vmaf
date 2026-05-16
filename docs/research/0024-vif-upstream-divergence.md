@@ -1,4 +1,4 @@
-# Research-0024 — VIF kernelscale: fork-vs-upstream divergence and port strategy
+# Research-0024: VIF kernelscale: fork-vs-upstream divergence and port strategy
 
 _Updated: 2026-04-28._
 

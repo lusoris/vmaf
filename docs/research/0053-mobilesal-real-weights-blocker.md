@@ -1,4 +1,4 @@
-# Research-0053 — MobileSal real-weights swap blocker
+# Research-0053: MobileSal real-weights swap blocker
 
 | Field      | Value                                                  |
 | ---------- | ------------------------------------------------------ |

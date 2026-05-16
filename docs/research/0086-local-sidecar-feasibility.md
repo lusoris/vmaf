@@ -1,4 +1,4 @@
-# Research-0086 — Local sidecar training feasibility
+# Research-0086: Local sidecar training feasibility
 
 - **Status**: Active — scaffold-grade. Establishes the algorithm
   shortlist, privacy contract, cold-start posture, and drift-detection

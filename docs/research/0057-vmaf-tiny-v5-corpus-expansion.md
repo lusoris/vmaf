@@ -1,4 +1,4 @@
-# Research-0057 — vmaf_tiny_v5 corpus expansion (5-corpus = 4-corpus + UGC)
+# Research-0057: vmaf_tiny_v5 corpus expansion (5-corpus = 4-corpus + UGC)
 
 - **Status**: Active
 - **Companion ADR**: [ADR-0287](../adr/0287-vmaf-tiny-v5-corpus-expansion.md)

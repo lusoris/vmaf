@@ -1,4 +1,4 @@
-# Research-0025 — FoxBird outlier resolved via Netflix + KoNViD-1k combined training
+# Research-0025: FoxBird outlier resolved via Netflix + KoNViD-1k combined training
 
 _Updated: 2026-04-28._
 

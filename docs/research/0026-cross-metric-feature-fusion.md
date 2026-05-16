@@ -1,4 +1,4 @@
-# Research-0026 — Cross-metric feature fusion for tiny-AI
+# Research-0026: Cross-metric feature fusion for tiny-AI
 
 _Updated: 2026-04-28._
 

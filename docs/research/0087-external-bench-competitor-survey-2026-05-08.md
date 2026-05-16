@@ -1,4 +1,4 @@
-# Research-0087 — External-competitor benchmark survey (Synamedia x264-pVMAF, DOVER-Mobile)
+# Research-0087: External-competitor benchmark survey (Synamedia x264-pVMAF, DOVER-Mobile)
 
 - **Status**: Scoping digest for [ADR-0332](../adr/0332-external-bench-wrapper-only.md).
   Captures the licence + integration-cost trade-off space behind the

@@ -1,4 +1,4 @@
-# Research-0086 — Video-temporal saliency feasibility for ROI-encode tuning
+# Research-0086: Video-temporal saliency feasibility for ROI-encode tuning
 
 - **Status**: Active. Companion to [ADR-0325](../adr/0325-video-saliency-extension.md).
 - **Date**: 2026-05-08

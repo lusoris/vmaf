@@ -1,4 +1,4 @@
-# Research-0086 — Tiny-AI SOTA deep dive: is the lusoris approach state of the art?
+# Research-0086: Tiny-AI SOTA deep dive: is the lusoris approach state of the art?
 
 - **Status**: Active — strategic input. Every quantitative claim is web-sourced
   with date-stamped citations; no fabricated PLCC/SROCC numbers. Where a number

@@ -1,4 +1,4 @@
-# Research-0043 — DISTS extractor design digest
+# Research-0043: DISTS extractor design digest
 
 | Field      | Value                                                  |
 | ---------- | ------------------------------------------------------ |

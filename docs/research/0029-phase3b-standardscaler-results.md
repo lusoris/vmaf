@@ -1,4 +1,4 @@
-# Research-0029 — Phase-3b: StandardScaler retry of the subset sweep
+# Research-0029: Phase-3b: StandardScaler retry of the subset sweep
 
 _Updated: 2026-04-29._
 

@@ -1,4 +1,4 @@
-# Research-0046 — Bristol VI-Lab dataset feasibility for tiny-AI training and parity soak
+# Research-0046: Bristol VI-Lab dataset feasibility for tiny-AI training and parity soak
 
 | Field             | Value                                                                                  |
 | ----------------- | -------------------------------------------------------------------------------------- |

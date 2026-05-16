@@ -1,4 +1,4 @@
-# Research-0030 — Phase-3b multi-seed validation (Gate 1)
+# Research-0030: Phase-3b multi-seed validation (Gate 1)
 
 _Updated: 2026-04-29._
 

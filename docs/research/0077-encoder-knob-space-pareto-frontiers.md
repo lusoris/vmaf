@@ -1,4 +1,4 @@
-# Research-0077 — Encoder knob-space Pareto frontiers (per source × codec × rc_mode)
+# Research-0077: Encoder knob-space Pareto frontiers (per source × codec × rc_mode)
 
 - **Status**: Adopted by [ADR-0305](../adr/0305-encoder-knob-space-pareto-analysis.md)
 - **Date**: 2026-05-05
