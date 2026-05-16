@@ -37,6 +37,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 
 #include "config.h"
@@ -64,6 +65,9 @@ typedef struct {
     uint32_t peak;
     double psnr_max[PSNR_NUM_PLANES];
 
+    /* `enable_chroma` option: when false, only luma is dispatched.
+     * Default true mirrors CPU integer_psnr.c — see ADR-0453. */
+    bool enable_chroma;
     /* Number of active planes (1 for YUV400, 3 otherwise). */
     unsigned n_planes;
 
@@ -106,7 +110,14 @@ typedef struct {
     VmafDictionary *feature_name_dict;
 } PsnrVulkanState;
 
-static const VmafOption options[] = {{0}};
+static const VmafOption options[] = {{
+                                         .name = "enable_chroma",
+                                         .help = "enable calculation for chroma channels",
+                                         .offset = offsetof(PsnrVulkanState, enable_chroma),
+                                         .type = VMAF_OPT_TYPE_BOOL,
+                                         .default_val.b = true,
+                                     },
+                                     {0}};
 
 typedef struct {
     uint32_t width;
@@ -231,6 +242,15 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
         const unsigned ch = ss_ver ? (h / 2U) : h;
         s->width[1] = s->width[2] = cw;
         s->height[1] = s->height[2] = ch;
+    }
+    /* Mirror CPU integer_psnr.c::init's enable_chroma guard (ADR-0453):
+     * when the caller passes enable_chroma=false, skip chroma dispatches
+     * identically to the YUV400 path above. YUV400 already forces
+     * n_planes=1, so this only activates for 4:2:0/4:2:2/4:4:4. */
+    if (!s->enable_chroma && s->n_planes > 1U) {
+        s->n_planes = 1U;
+        s->width[1] = s->width[2] = 0U;
+        s->height[1] = s->height[2] = 0U;
     }
 
     /* Match CPU integer_psnr.c::init's psnr_max default branch
