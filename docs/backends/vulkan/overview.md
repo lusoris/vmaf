@@ -39,7 +39,7 @@ three PRs (no file overlap, all independently gated at `places=4`):
 - **PR-B**: `ssim_vulkan.c`, `ciede_vulkan.c`, `ms_ssim_vulkan.c`,
   `motion_v2_vulkan.c`, `float_psnr_vulkan.c`, `float_motion_vulkan.c`.
 - **PR-C** (ADR-0354): `cambi_vulkan.c`, `ssimulacra2_vulkan.c`,
-  `float_ansnr_vulkan.c`, `float_moment_vulkan.c`.
+  `float_ansnr_vulkan.c`, `moment_vulkan.c`.
 
 Expected throughput improvement: 4–12 % on fence-dominated single-dispatch
 kernels (`float_ansnr`, `moment`). Multi-stage extractors (`cambi`,
@@ -287,17 +287,6 @@ changes each frame.
 The required tear-down ordering — pool destroy before pipeline destroy —
 is documented in `libvmaf/src/feature/vulkan/AGENTS.md`.
 
-**T-GPU-OPT-VK-4 (pipeline cache)**: `vmaf_vulkan_context_new()` creates a
-`VkPipelineCache` loaded from
-`${XDG_CACHE_HOME:-$HOME/.cache}/vmaf/vulkan/<device-uuid>.bin` and passes
-it to every `vkCreateComputePipelines` call in `kernel_template.h`. On warm
-starts the driver can skip ISA re-compilation and reuse the cached native
-binary directly. Expected saving: 200–700 ms per full multi-feature Vulkan
-run (varies by driver and feature count). The cache is serialised back to
-disk on `vmaf_vulkan_context_destroy()`. Failures (read-only filesystem,
-missing home dir) fall through to uncached pipeline creation. See
-[ADR-0470](../../adr/0470-vulkan-pipeline-cache.md).
-
 ## What lands next
 
 - Self-hosted Arc runner registration to flip the `Vulkan VIF
@@ -446,27 +435,3 @@ reduction shaders (ADR-0356). Falling back to CPU.
 The framework then falls back to the CPU path automatically. Linux
 and Windows targets with NVIDIA proprietary, Mesa anv, RADV, and
 lavapipe drivers all advertise the feature and follow the GPU path.
-
-
-## Pipeline cache persistence (ADR-0445)
-
-As of ADR-0445 (PR #865 profiling finding), the Vulkan backend persists its
-compiled compute pipeline cache to disk via `VkPipelineCache`. On warm
-process starts the driver replays the compiled ISA instead of recompiling
-SPIR-V, cutting cold-start from 80–120 ms to 2–5 ms on NVIDIA RTX 4090.
-
-**Cache path**: `$XDG_CACHE_HOME/libvmaf/vulkan-pipeline-cache.bin`
-(default `$HOME/.cache/libvmaf/vulkan-pipeline-cache.bin`).
-
-**Validation**: the loader checks the `VkPipelineCacheHeaderVersionOne`
-vendor ID and device ID against the current physical device before reuse.
-A mismatch (different GPU, driver update) causes silent discard and a
-one-time recompilation; the cache is then rewritten with the new blob.
-
-**Opt-out**: set `LIBVMAF_VULKAN_PIPELINE_CACHE=0` in the environment to
-skip all cache reads and writes. Recommended for CI runners where the cache
-is cold on every run and the file-I/O overhead outweighs the saving.
-
-**Bit-exactness**: the cache only stores compiled ISA. Kernel output values
-are determined entirely by SPIR-V and push constants, not by the cache.
-The existing `places=4` cross-backend gate covers this invariant.

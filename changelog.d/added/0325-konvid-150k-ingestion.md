@@ -5,7 +5,7 @@
   clips) to the full KonViD-150k corpus (~150 k clips, ~120-200 GB
   working set). New `ai/scripts/konvid_150k_to_corpus_jsonl.py`
   pulls each clip per-URL via `curl`, records progress in
-  `.corpus/konvid-150k/.download-progress.json` (atomic
+  `.workingdir2/konvid-150k/.download-progress.json` (atomic
   tempfile-rename writes) so `Ctrl-C` + re-run is lossless, runs
   ffprobe per clip for the standard
   width / height / fps / duration / pix_fmt / upstream-codec

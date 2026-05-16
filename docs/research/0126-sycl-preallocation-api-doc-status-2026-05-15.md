@@ -1,4 +1,4 @@
-# Research-0126: SYCL preallocation API doc status
+# Research 0126 — SYCL preallocation API doc status
 
 ## Question
 

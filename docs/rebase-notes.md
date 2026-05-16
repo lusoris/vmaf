@@ -7,29 +7,6 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
-No rebase impact: `fix/nvtx-cuda-dependency-guard-2026-05-16` adds a
-meson `error()` guard to `libvmaf/src/meson.build` for the
-`enable_nvtx=true` + `enable_cuda=false` combination. The guard is
-fork-additive: upstream Netflix/vmaf does not enable NVTX, so no
-sync-upstream conflict is expected. If upstream ever adds their own
-NVTX guard, the merge is a no-op (both sides add the same intent).
-## fix/cpu-symbol-visibility-2026-05-16
-
-No rebase impact: touches only `libvmaf/src/meson.build` (adding `c_args :
-vmaf_cflags_common` to `libvmaf_cpu_static_lib`). This is a fork-local build
-rule; Netflix/vmaf does not use Meson. No upstream-shared C sources, headers,
-or feature extractors are modified. No sync-upstream conflicts expected.
-
-## fix/saliency-per-mb-eval-2026-05-15 — integer_vif enable_chroma
-
-**`libvmaf/src/feature/integer_vif.c`**: adds `enable_chroma` bool field to
-`VifState`, a new `VmafOption` entry, a YUV400 clamp in `init`, and eight new
-keys in `provided_features`. If upstream Netflix ever adds chroma support to
-`integer_vif`, resolve by keeping their implementation and dropping the fork's
-`extract_plane` helper, or rebasing it if the upstream approach differs.
-
-No rebase conflict expected on the luma path — only additive changes.
-
 ## fix/sycl-motion-fps-weight-vulkan-import-status-2026-05-16
 
 **Sub-task B -- `integer_motion_v2_sycl.cpp`**: adds `motion_fps_weight`
@@ -50,6 +27,12 @@ only `dev/Containerfile`, `dev/AGENTS.md`, `docs/research/0135-*`, and
 `changelog.d/fixed/dev-mcp-container-stage-3.md`. These are all fork-local
 infra files; no upstream-shared code, headers, build files, or feature
 extractors are modified. No sync-upstream conflicts expected.
+
+---
+
+No rebase impact: `audit/t3-9b-ssimulacra2-ulp-audit` — doc-only PR (ADR-0467,
+changelog fragment, BACKLOG update). No C files touched. No upstream-shared
+paths modified.
 
 No rebase impact: `feat/tiny-ai-registry-ci-and-saliency-v2-promotion-2026-05-15`
 touches `model/tiny/registry.json` (fork-local tiny-AI registry),
@@ -34882,37 +34865,6 @@ ninja -C build test/test_cli_parse
 
 ---
 
-## 2026-05-15 — Tiny-AI ONNX Blob Storage Migration (ADR-0457)
-
-**Files removed from working tree** (still in git history):
-
-- `model/tiny/transnet_v2.onnx` (30.8 MB)
-- `model/tiny/fastdvdnet_pre.onnx` (10.0 MB)
-- `model/tiny/lpips_sq.onnx` (3.3 MB)
-
-**Replaced with**: `tiny-blobs-v1` GitHub Release attachments
-(`https://github.com/lusoris/vmaf/releases/download/tiny-blobs-v1/<file>`)
-fetched on demand by `scripts/ai/fetch-tiny-blobs.sh`.
-
-**Rebase impact**: minimal. Upstream Netflix/vmaf does not ship these
-ONNX files (they are fork-local tiny-AI artefacts). A rebase will not
-re-introduce them.
-
-**Invariant to preserve on rebase**: any new ONNX file added to
-`model/tiny/` that is ≥ 1 MB must follow the same pattern (upload to
-the next `tiny-blobs-vN` release, set `release_url` in `registry.json`,
-add a `.gitignore` entry, do NOT `git add` the file). Files below 1 MB
-stay inline.
-
-**Smoke-test after rebase**:
-
-```bash
-scripts/ai/fetch-tiny-blobs.sh --check  # expect: verified=3 failures=0
-scripts/ai/fetch-tiny-blobs.sh          # expect: idempotent no-op
-```
-
----
-
 ## `fix/motion-fps-weight-all-gpu-backends` — motion_fps_weight parity across all GPU twins
 
 **Branch**: `fix/saliency-per-mb-eval-2026-05-15` (squash PR #863)
@@ -35032,108 +34984,4 @@ runtime or reading a schema-version sidecar (future work).
 ```bash
 python -m pytest ai/tests/test_extract_k150k_no_ssimulacra2.py -v
 # Expected: 3/3 PASS
-```
-
-## `feat/float-ansnr-enable-chroma` — float_ansnr enable_chroma option (ADR-0460)
-
-**Rebase impact**: none. Change is confined to `libvmaf/src/feature/float_ansnr.c` (fork-local option addition); upstream Netflix/vmaf does not have `enable_chroma` on this extractor. No public headers, no GPU twins, no ffmpeg-patches touched.
-
-**Invariant to preserve on rebase**: if upstream ever adds `enable_chroma` to `float_ansnr`, verify the feature names emitted match the fork convention (`float_ansnr_cb`, `float_ansnr_cr`, `float_anpsnr_cb`, `float_anpsnr_cr`) before dropping the fork-local option entry.
----
-
-### 0482 — `vmaf_pre` FFmpeg filter device-string parity (ADR-0482)
-
-**What changed**: `ffmpeg-patches/0002-add-vmaf_pre-filter.patch` — the
-`parse_device()` helper inside `vf_vmaf_pre.c` was extended from 5 to 12
-device-string entries, matching the full `VmafDnnDevice` enum in
-`libvmaf/include/libvmaf/dnn.h`. The option description string was also
-updated.
-
-**Rebase impact**: none. No libvmaf C API was changed; only the patch file
-itself was modified. The patch applies cleanly after `0001` as before.
-
-**Invariant to preserve on rebase**: whenever a new `VMAF_DNN_DEVICE_*`
-value is added to `dnn.h`, the `parse_device()` function in patch `0002`
-must be updated in the same PR (CLAUDE.md §12 r14). No auto-detection
-fallback exists; unknown strings return `AVERROR(EINVAL)`.
-
-**Smoke-test after rebase**:
-
-```bash
-meson setup build -Denable_cuda=false -Denable_sycl=false
-ninja -C build
-meson test -C build --suite=fast
-```
-
----
-
-## perf/adm-p-norm-fast-path-vif-arm64-malloc-2026-05-16 (ADR-0463)
-
-**What changed**: Added `adm_cm_s_p3`, `adm_csf_den_scale_s_p3`, and
-`adm_sum_cube_s_p3` fast-path variants in `adm_tools.c`; dispatch added in
-`adm.c:compute_adm`. Removed per-call `aligned_malloc` from the scalar
-fallback paths of `vif_filter1d_s`, `vif_filter1d_sq_s`, and
-`vif_filter1d_xy_s` in `vif_tools.c` — the caller-supplied `tmpbuf` is
-used instead.
-
-**Rebase impact**: low. All modified files (`adm_tools.c`, `adm_tools.h`,
-`adm.c`, `vif_tools.c`) are shared with upstream Netflix/vmaf. The ADM
-changes add new symbols (no existing signatures altered). The VIF changes
-only remove local malloc/free; the function signatures and caller-supplied
-`tmpbuf` contract are unchanged.
-
-**Invariant to preserve on rebase**: When upstream Netflix/vmaf modifies
-`adm_cm_s`, `adm_csf_den_scale_s`, or `adm_sum_cube_s`, the corresponding
-`_p3` variants in the fork must receive the same logic change (minus the
-`powf` path). When upstream modifies `vif_filter1d_*` scalar fallbacks,
-ensure they do not reintroduce `aligned_malloc` in the fallback body.
-See `libvmaf/src/feature/AGENTS.md` performance-invariant section.
-
-### fix/dispatch-strategy-registry-audit-2026-05-15 — dispatch registry deduplication + HIP/Metal fixes
-
-**Touches**: `libvmaf/src/feature/feature_extractor.c` (SYCL/Vulkan
-sections of `feature_extractor_list[]`), `libvmaf/src/hip/dispatch_strategy.c`,
-`libvmaf/src/metal/dispatch_strategy.c`.
-
-**Rebase impact**: low for the SYCL/Vulkan deduplication (purely
-cosmetic — first-match semantics mean behaviour is unchanged). Medium
-for HIP and Metal dispatch-supports: if an upstream sync adds new
-`feature_extractor_list[]` entries for HIP or Metal extractors, they
-must also be added to `g_hip_features[]` / `g_metal_features[]` in the
-same commit.
-
-**Invariant to preserve on rebase**: every `vmaf_fex_*_hip` extractor
-registered in `feature_extractor_list[]` must appear in `g_hip_features[]`
-in `libvmaf/src/hip/dispatch_strategy.c`.  Every `vmaf_fex_*_metal`
-extractor must appear (by extractor `.name` and all `provided_features[]`
-keys) in `g_metal_features[]` in `libvmaf/src/metal/dispatch_strategy.c`.
-The build does not enforce this — run `scripts/ci/check-dispatch-registry.sh`
-after any kernel addition.
-
-**Smoke-test after rebase**:
-
-```bash
-meson setup build -Denable_cuda=false -Denable_sycl=false
-ninja -C build
-meson test -C build
-scripts/ci/check-dispatch-registry.sh   # must exit 0
-```
-
-## `perf/cache-rfe-hw-flags` — cache rfe_hw_flags bitmask (F2-B)
-
-**File changed:** `libvmaf/src/libvmaf.c` — `VmafContext` struct + `vmaf_init` + `vmaf_use_feature` + `vmaf_read_pictures`.
-
-No rebase impact: the change is entirely internal to `libvmaf.c`; no public
-header touched, no FFmpeg-patch surface changed.
-
-**Invariant:** `rfe_hw_flags_dirty` must be set to `true` in `vmaf_init` (after
-the `memset` zeroes it to `false`). If a future refactor moves the `memset` or
-adds a second init path, the dirty flag must be set at every init site.
-
-**Smoke-test after rebase:**
-
-```bash
-meson setup build -Denable_cuda=true -Denable_sycl=false
-ninja -C build src/liblibvmaf.a.p/libvmaf_src_libvmaf.c.o
-# Expected: compiles without error or warning
 ```

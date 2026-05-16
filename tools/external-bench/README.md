@@ -101,7 +101,7 @@ the fork ships neither corpus.
 | Corpus | Default expected path | Override flag |
 |---|---|---|
 | BVI-DVC test fold | `~/.workingdir2/bvi-dvc/test/` (containing `<src>__ref.yuv` + `<src>__dis*.yuv`, geometry encoded as `..._WxH_...` in the stem) | `--bvi-dvc-root <DIR>` |
-| Netflix Public Drop | `<repo>/.corpus/netflix/<src>/{ref,dis}/*.yuv` (per the local layout convention from ADR-0310 / `docs/state.md`) | `--netflix-public-root <DIR>` |
+| Netflix Public Drop | `<repo>/.workingdir2/netflix/<src>/{ref,dis}/*.yuv` (per the local layout convention from ADR-0310 / `docs/state.md`) | `--netflix-public-root <DIR>` |
 
 If neither corpus root exists at runtime, `compare.py` exits with code
 4 and a message naming both expected paths so the operator can fix
@@ -113,7 +113,7 @@ the layout or pass the override flags.
 # Smoke run against a small subset
 python3 tools/external-bench/compare.py \
     --bvi-dvc-root ~/.workingdir2/bvi-dvc \
-    --netflix-public-root .corpus/netflix \
+    --netflix-public-root .workingdir2/netflix \
     --limit 4 \
     --out-json /tmp/bench.json
 

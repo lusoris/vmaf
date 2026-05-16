@@ -1,4 +1,4 @@
-# Research-0109: `vmaf-tune` Bisect Sample-Clip Wiring
+# Research 0109: `vmaf-tune` Bisect Sample-Clip Wiring
 
 ## Question
 

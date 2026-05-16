@@ -102,9 +102,8 @@ model/                        # .json / .pkl / .onnx VMAF models
 testdata/                     # YUV fixtures + benchmark JSONs (fork-added)
 docs/                         # all documentation (upstream-mirrored + fork-added)
 .claude/                      # Claude Code config (skills, agents, hooks)
-.corpus/                      # large training corpora (gitignored; netflix, chug, konvid-150k, bvi-dvc-raw, gdrive-bundle, ugc, encodes, corpus_*)
 .workingdir/                  # session audit + gap-fill plans (gitignored; read/write)
-.workingdir2/                 # planning dossier — BACKLOG, OPEN, PLAN, decisions (gitignored; no large data)
+.workingdir2/                 # planning dossier — BACKLOG, OPEN, PLAN, decisions (gitignored)
 ```
 
 ## 6. Coding standards

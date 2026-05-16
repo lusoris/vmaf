@@ -190,7 +190,7 @@ The Wave-1 C1 baseline trainer is
 [`ai/scripts/train_fr_regressor.py`](scripts/train_fr_regressor.py). It
 consumes `runs/full_features_netflix.parquet` (produced by
 `ai/scripts/extract_full_features.py` over the local Netflix Public
-drop at `.corpus/netflix/`), runs 9-fold leave-one-source-out
+drop at `.workingdir2/netflix/`), runs 9-fold leave-one-source-out
 (LOSO), and exports `model/tiny/fr_regressor_v1.onnx` only when mean
 LOSO PLCC ≥ 0.95 against the `vmaf_v0.6.1` per-frame teacher.
 
@@ -533,7 +533,7 @@ threshold). When extending these scripts:
 
 ### Rebase-sensitive invariants
 
-- The adapter accepts two local layouts under `.corpus/konvid-150k/`:
+- The adapter accepts two local layouts under `.workingdir2/konvid-150k/`:
   a URL `manifest.csv` plus `clips/`, or the split score-drop layout
   `k150ka_scores.csv` / `k150kb_scores.csv` plus
   `k150ka_extracted/` / `k150kb_extracted/`. Do not remove the split
@@ -551,7 +551,7 @@ threshold). When extending these scripts:
 
 ### Rebase-sensitive invariants
 
-- CHUG data is local-only under `.corpus/chug/`. Do not commit the
+- CHUG data is local-only under `.workingdir2/chug/`. Do not commit the
   public `chug.csv`, downloaded MP4s, emitted JSONL, trained local
   CHUG heads, or derived features. The README/license mismatch is
   handled by treating the dataset as non-commercial/share-alike until

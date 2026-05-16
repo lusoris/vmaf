@@ -1,4 +1,4 @@
-# Research-0111: DISTS-Sq Extractor Implementation Notes
+# Research-0111 — DISTS-Sq Extractor Implementation Notes
 
 | Field | Value |
 | --- | --- |

@@ -1,4 +1,4 @@
-# Research-0025: FoxBird outlier resolved via Netflix + KoNViD-1k combined training
+# Research-0025 — FoxBird outlier resolved via Netflix + KoNViD-1k combined training
 
 _Updated: 2026-04-28._
 
@@ -22,7 +22,7 @@ of the canonical combined run.
 
 ```bash
 python ai/train/train_combined.py \
-    --netflix-root .corpus/netflix \
+    --netflix-root .workingdir2/netflix \
     --konvid-parquet ai/data/konvid_vmaf_pairs.parquet \
     --model-arch mlp_small \
     --epochs 30 \

@@ -16,10 +16,15 @@
  *
  *  v1: scale=1 only — same constraint as ssim_vulkan. Auto-
  *  decimation is rejected at init with -EINVAL.
+ *
+ *  enable_chroma: mirrors CPU integer_ssim.c PR #939 option.
+ *  Default false (luma-only). When true, n_planes follows pix_fmt
+ *  (1 for YUV400P, 3 otherwise). Multi-plane kernel dispatch is
+ *  deferred to v2 (the kernel currently reads data[0] only).
  */
 
 #include <errno.h>
-#include <math.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -52,8 +57,13 @@ typedef struct SsimStateCuda {
     CUfunction func_horiz_8;
     CUfunction func_horiz_16;
     CUfunction func_vert;
-    CUmodule module;
     int scale_override;
+    /* `enable_chroma` option: when false, only luma is dispatched.
+     * Default false mirrors CPU integer_ssim.c PR #939. */
+    bool enable_chroma;
+    /* Number of active planes (1 for YUV400P or !enable_chroma, 3 otherwise).
+     * v1 kernel reads data[0] only; n_planes>1 is reserved for v2. */
+    unsigned n_planes;
 
     /* 5 intermediate float buffers — kept outside the template's
      * readback bundle since the bundle models a single device+host
@@ -78,11 +88,6 @@ typedef struct SsimStateCuda {
 
     unsigned index;
     VmafDictionary *feature_name_dict;
-
-    /* dB-domain output options (mirrors float_ssim.c). */
-    bool enable_db;
-    bool clip_db;
-    double max_db; /* computed in init from clip_db + bpc + dimensions */
 } SsimStateCuda;
 
 static int round_to_int(float x)
@@ -114,20 +119,12 @@ static const VmafOption options[] = {
         .max = 10,
     },
     {
-        .name = "enable_db",
-        .help = "convert SSIM score to dB domain: -10*log10(1-ssim)",
-        .offset = offsetof(SsimStateCuda, enable_db),
+        .name = "enable_chroma",
+        .help = "enable calculation for chroma channels (mirrors CPU PR #939; "
+                "v1 kernel defers multi-plane dispatch to v2)",
+        .offset = offsetof(SsimStateCuda, enable_chroma),
         .type = VMAF_OPT_TYPE_BOOL,
         .default_val.b = false,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    {
-        .name = "clip_db",
-        .help = "clip dB output to a maximum finite value (mirrors CPU float_ssim)",
-        .offset = offsetof(SsimStateCuda, clip_db),
-        .type = VMAF_OPT_TYPE_BOOL,
-        .default_val.b = false,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {0},
 };
@@ -135,8 +132,15 @@ static const VmafOption options[] = {
 static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
 {
-    (void)pix_fmt;
     SsimStateCuda *s = fex->priv;
+
+    /* Derive n_planes from pix_fmt, then clamp if !enable_chroma.
+     * Mirrors integer_psnr_cuda.c::init's enable_chroma guard (ADR-0453). */
+    if (pix_fmt == VMAF_PIX_FMT_YUV400P) {
+        s->n_planes = 1U;
+    } else {
+        s->n_planes = s->enable_chroma ? 3U : 1U;
+    }
 
     int scale = compute_scale(w, h, s->scale_override);
     if (scale != 1) {
@@ -162,7 +166,8 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
 
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, ssim_score_ptx), fail);
+    CUmodule module;
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, ssim_score_ptx), fail);
     CHECK_CUDA_GOTO(
         cu_f, cuModuleGetFunction(&s->func_horiz_8, module, "calculate_ssim_horiz_8bpc"), fail);
     CHECK_CUDA_GOTO(
@@ -179,16 +184,6 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     s->h_horiz = h;
     s->w_final = w - (SSIM_K - 1);
     s->h_final = h - (SSIM_K - 1);
-
-    /* Compute max_db cap used by clip_db (mirrors float_ssim.c:init). */
-    if (s->clip_db) {
-        const double peak = (double)((1u << bpc) - 1u);
-        const double mse = 0.5 / ((double)w * (double)h);
-        s->max_db = ceil(10.0 * log10(peak * peak / mse));
-    } else {
-        s->max_db = INFINITY;
-    }
-
     const float L = 255.0f, K1 = 0.01f, K2 = 0.03f;
     s->c1 = (K1 * L) * (K1 * L);
     s->c2 = (K2 * L) * (K2 * L);
@@ -256,6 +251,10 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     const unsigned grid_x = (s->w_final + SSIM_BLOCK_X - 1) / SSIM_BLOCK_X;
     const unsigned grid_y = (s->h_final + SSIM_BLOCK_Y - 1) / SSIM_BLOCK_Y;
     s->partials_count = grid_x * grid_y;
+
+    /* v1 dispatches luma plane only (kernel reads data[0]).
+     * When enable_chroma=true, n_planes=3 but the kernel loop is deferred
+     * to v2 (requires passing plane index into the kernel). */
 
     /* Sync ref-side stream against dist's ready event (matches
      * psnr_cuda's pattern). */
@@ -329,13 +328,6 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     return vmaf_cuda_kernel_submit_post_record(&s->lc, fex->cu_state);
 }
 
-static double ssim_to_db(double ssim, double max_db)
-{
-    /* Mirrors float_ssim.c:convert_to_db.  Clamp to max_db when clip_db. */
-    const double db = -10.0 * log10(1.0 - ssim);
-    return db < max_db ? db : max_db;
-}
-
 static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
@@ -350,10 +342,7 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
     for (unsigned i = 0; i < s->partials_count; i++)
         total += (double)partials_host[i];
     const double n_pixels = (double)s->w_final * (double)s->h_final;
-    double score = total / n_pixels;
-
-    if (s->enable_db)
-        score = ssim_to_db(score, s->max_db);
+    const double score = total / n_pixels;
 
     return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                    "float_ssim", score, index);
@@ -364,8 +353,6 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
     SsimStateCuda *s = fex->priv;
 
     int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
-    if (s->module)
-        (void)fex->cu_state->f->cuModuleUnload(s->module);
 
     if (s->h_ref_mu) {
         const int e = vmaf_cuda_buffer_free(fex->cu_state, s->h_ref_mu);

@@ -1,4 +1,4 @@
-# Research-0097: MCP `describe_worst_frames` temporary directory leak
+# Research-0097 — MCP `describe_worst_frames` temporary directory leak
 
 **Date:** 2026-05-10
 **Status:** Fixed (PR #741 `fix/round8-mcp-tmpdir-leak`)
