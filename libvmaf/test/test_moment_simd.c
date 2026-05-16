@@ -183,7 +183,7 @@ static char *test_neon_tiny(void)
 
 #if ARCH_AARCH64 && HAVE_SVE2
 
-/* SVE2 parity tests (ADR-0445).
+/* SVE2 parity tests (ADR-0461).
  *
  * Tolerance: same MOMENT_REL_TOL (1e-7) as the NEON block.
  * Residual source: the VLA f32→f64 widening gives different grouping
@@ -260,7 +260,7 @@ char *run_tests(void)
 #if HAVE_SVE2
     /* SVE2 tests: only exercise the path when the CPU reports the feature.
      * On a NEON-only host the functions still link but the tests would
-     * produce nonsense (SIGILL), so guard at runtime (ADR-0445). */
+     * produce nonsense (SIGILL), so guard at runtime (ADR-0461). */
     {
         unsigned cpu_flags = vmaf_get_cpu_flags();
         if (cpu_flags & VMAF_ARM_CPU_FLAG_SVE2) {

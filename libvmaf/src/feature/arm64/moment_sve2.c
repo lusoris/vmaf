@@ -3,7 +3,7 @@
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  *  aarch64 SVE2 port of compute_1st_moment / compute_2nd_moment for the
- *  float_moment feature extractor (ADR-0445).
+ *  float_moment feature extractor (ADR-0461).
  *
  *  Bit-exactness contract (ADR-0138 / ADR-0179):
  *  Per-row accumulation uses svfloat64_t so every f32 sample is widened to
