@@ -35039,3 +35039,22 @@ done
 # Then confirm vmaf_pre device= help lists all 12 entries:
 grep -A1 "device" /path/to/ffmpeg-8/libavfilter/vf_vmaf_pre.c | head -20
 ```
+
+## `perf/cache-rfe-hw-flags` — cache rfe_hw_flags bitmask (F2-B)
+
+**File changed:** `libvmaf/src/libvmaf.c` — `VmafContext` struct + `vmaf_init` + `vmaf_use_feature` + `vmaf_read_pictures`.
+
+No rebase impact: the change is entirely internal to `libvmaf.c`; no public
+header touched, no FFmpeg-patch surface changed.
+
+**Invariant:** `rfe_hw_flags_dirty` must be set to `true` in `vmaf_init` (after
+the `memset` zeroes it to `false`). If a future refactor moves the `memset` or
+adds a second init path, the dirty flag must be set at every init site.
+
+**Smoke-test after rebase:**
+
+```bash
+meson setup build -Denable_cuda=true -Denable_sycl=false
+ninja -C build src/liblibvmaf.a.p/libvmaf_src_libvmaf.c.o
+# Expected: compiles without error or warning
+```
