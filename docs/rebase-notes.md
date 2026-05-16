@@ -34971,3 +34971,16 @@ runtime or reading a schema-version sidecar (future work).
 python -m pytest ai/tests/test_extract_k150k_no_ssimulacra2.py -v
 # Expected: 3/3 PASS
 ```
+
+## `feat/float-ansnr-enable-chroma` — float_ansnr enable_chroma option (ADR-0460)
+
+**Rebase impact**: none. Change is confined to `libvmaf/src/feature/float_ansnr.c` (fork-local option addition); upstream Netflix/vmaf does not have `enable_chroma` on this extractor. No public headers, no GPU twins, no ffmpeg-patches touched.
+
+**Invariant to preserve on rebase**: if upstream ever adds `enable_chroma` to `float_ansnr`, verify the feature names emitted match the fork convention (`float_ansnr_cb`, `float_ansnr_cr`, `float_anpsnr_cb`, `float_anpsnr_cr`) before dropping the fork-local option entry.
+
+**Smoke-test after rebase**:
+
+```bash
+ninja -C build src/liblibvmaf_feature.a.p/feature_float_ansnr.c.o
+# Expected: compiles without error
+```
