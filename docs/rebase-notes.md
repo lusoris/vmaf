@@ -34995,3 +34995,10 @@ runtime or reading a schema-version sidecar (future work).
 python -m pytest ai/tests/test_extract_k150k_no_ssimulacra2.py -v
 # Expected: 3/3 PASS
 ```
+
+---
+
+## test(dnn): vmaf_use_tiny_model ctx-attach test
+
+No rebase impact: new test file only (`libvmaf/test/dnn/test_vmaf_use_tiny_model.c`
+and `libvmaf/test/dnn/meson.build` registration). No production code changed.
