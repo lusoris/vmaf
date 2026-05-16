@@ -28,6 +28,12 @@ only `dev/Containerfile`, `dev/AGENTS.md`, `docs/research/0135-*`, and
 infra files; no upstream-shared code, headers, build files, or feature
 extractors are modified. No sync-upstream conflicts expected.
 
+---
+
+No rebase impact: `audit/t3-9b-ssimulacra2-ulp-audit` — doc-only PR (ADR-0467,
+changelog fragment, BACKLOG update). No C files touched. No upstream-shared
+paths modified.
+
 No rebase impact: `feat/tiny-ai-registry-ci-and-saliency-v2-promotion-2026-05-15`
 touches `model/tiny/registry.json` (fork-local tiny-AI registry),
 `docs/ai/models/` (fork-local model cards), `docs/adr/0444-*` (fork-local
