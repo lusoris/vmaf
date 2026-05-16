@@ -358,3 +358,4 @@
 0444-saliency-student-v2-production-promotion
 0459-vmaftune-panel-aware-recommendations
 0451-local-dev-mcp-container
+0446-extractor-hdr-and-hfr-feature-options
