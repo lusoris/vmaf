@@ -63,7 +63,6 @@ Reproducer (real corpus, once Phase A has produced one):
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import sys
@@ -72,6 +71,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from aiutils.file_utils import sha256
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT / "ai" / "src") not in sys.path:
@@ -500,17 +501,6 @@ def _train(
     return model, scaler
 
 
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        while True:
-            chunk = fh.read(1 << 20)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def _export_onnx_combined(
     model,  # type: ignore[no-untyped-def]
     *,
@@ -595,7 +585,7 @@ def _write_sidecar_and_registry(
     smoke: bool,
     notes_extra: str = "",
 ) -> dict[str, Any]:
-    digest = _sha256(onnx_path)
+    digest = sha256(onnx_path)
     notes = (
         "Tiny FR regressor v2 (codec-aware) — 6 canonical libvmaf features "
         "(adm2, vif_scale0..3, motion2) + 8-D codec block "
@@ -815,7 +805,7 @@ def main() -> int:
         n_rows=len(rows),
         smoke=args.smoke,
     )
-    print(f"[fr-v2] shipped: {args.out_onnx} (sha256={_sha256(args.out_onnx)})")
+    print(f"[fr-v2] shipped: {args.out_onnx} (sha256={sha256(args.out_onnx)})")
     return 0
 
 
