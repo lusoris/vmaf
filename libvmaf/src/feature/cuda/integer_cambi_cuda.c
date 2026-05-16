@@ -654,16 +654,44 @@ static int dispatch_filter_mode(CambiStateCuda *s, CudaFunctions *cu_f, CUstream
 static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                            VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index)
 {
-    (void)ref_pic;
     (void)ref_pic_90;
     (void)dist_pic_90;
     CambiStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
     s->index = index;
 
+    /* Step 0: download dist_pic GPU→host so vmaf_cambi_preprocessing (host
+     * code) can read it.  Pictures delivered to a CUDA extractor's submit()
+     * have device pointers in data[]; dereferencing them on the host causes
+     * a segfault (Issue #857).  Other CUDA extractors avoid this because
+     * they keep all preprocessing on the GPU; CAMBI is unique in needing a
+     * host-side decimate-and-10b-upcast before its GPU pipeline. */
+    VmafPicture dist_host;
+    int err = vmaf_picture_alloc(&dist_host, dist_pic->pix_fmt, dist_pic->bpc, dist_pic->w[0],
+                                 dist_pic->h[0]);
+    if (err)
+        return err;
+    err = vmaf_cuda_picture_download_async(dist_pic, &dist_host, 0x1);
+    if (err) {
+        (void)vmaf_picture_unref(&dist_host);
+        return err;
+    }
+    /* Sync the dist_pic private stream: vmaf_cuda_picture_download_async
+     * enqueues the DtoH copy on that stream, so we must drain it before
+     * the host preprocessing reads dist_host.data[0]. */
+    {
+        const CUresult _sync_res =
+            cu_f->cuStreamSynchronize(vmaf_cuda_picture_get_stream(dist_pic));
+        if (CUDA_SUCCESS != _sync_res) {
+            (void)vmaf_picture_unref(&dist_host);
+            return vmaf_cuda_result_to_errno((int)_sync_res);
+        }
+    }
+
     /* Step 1: host preprocessing → pics[0] (10-bit planar, proc_w × proc_h). */
-    int err = vmaf_cambi_preprocessing(dist_pic, &s->pics[0], (int)s->proc_width,
-                                       (int)s->proc_height, s->enc_bitdepth);
+    err = vmaf_cambi_preprocessing(&dist_host, &s->pics[0], (int)s->proc_width, (int)s->proc_height,
+                                   s->enc_bitdepth);
+    (void)vmaf_picture_unref(&dist_host);
     if (err)
         return err;
 
