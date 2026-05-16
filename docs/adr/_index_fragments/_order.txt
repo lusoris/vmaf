@@ -354,14 +354,10 @@
 0434-chug-parquet-metadata-enrichment
 0437-metal-public-header-install-and-import-state-declaration
 0435-pr-body-pre-push-validation
-0436-mcp-backend-selector-parity
 0438-cli-parse-short-opt-handler-coverage
 0444-saliency-student-v2-production-promotion
 0447-motion-hfr-under-report
-0448-active-upstream-monitoring-discipline
 0459-vmaftune-panel-aware-recommendations
 0451-local-dev-mcp-container
 0446-extractor-hdr-and-hfr-feature-options
-0452-cambi-calculate-c-values-avx512-neon
-0457-onnx-blobs-to-github-releases
 0467-ssimulacra2-avx512-neon-ulp-audit

@@ -85,7 +85,7 @@ def _load_or_compute(
 
 def main() -> int:
     ap = argparse.ArgumentParser(prog="extract_full_features.py")
-    ap.add_argument("--data-root", type=Path, default=Path(".corpus/netflix"))
+    ap.add_argument("--data-root", type=Path, default=Path(".workingdir2/netflix"))
     ap.add_argument(
         "--cache-dir",
         type=Path,

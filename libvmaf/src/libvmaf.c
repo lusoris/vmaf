@@ -45,7 +45,6 @@ __attribute__((weak)) char __libc_single_threaded = 1;
 #include "libvmaf/feature.h"
 #include "libvmaf/picture.h"
 
-#include "bootstrap_names.h"
 #include "cpu.h"
 #include "dnn/dnn_ctx.h"
 #include "dnn/tensor_io.h"
@@ -115,12 +114,6 @@ typedef struct VmafContext {
         VmafCudaCookie cookie;
         VmafGpuPicturePool *ring_buffer;
     } cuda;
-    /* Cached result of rfe_hw_flags() (F2-B, perf-audit-pipeline-2026-05-16).
-     * Recomputed lazily whenever vmaf_use_feature() registers a new extractor.
-     * Avoids an O(n_extractors) linear scan on every frame in the common case
-     * where the extractor set is fixed before the frame loop starts. */
-    unsigned rfe_hw_flags_cache;
-    bool rfe_hw_flags_dirty;
 #endif
 #ifdef HAVE_SYCL
     struct {
@@ -204,9 +197,6 @@ int vmaf_init(VmafContext **vmaf, VmafConfiguration cfg)
         goto fail;
     memset(v, 0, sizeof(*v));
     v->cfg = cfg;
-#ifdef HAVE_CUDA
-    v->rfe_hw_flags_dirty = true; /* force recompute before the first frame */
-#endif
 
     vmaf_init_cpu();
     /* cpumask is uint64_t in the public API; the internal mask is unsigned
@@ -925,12 +915,6 @@ int vmaf_use_feature(VmafContext *vmaf, const char *feature_name, VmafFeatureDic
     err = feature_extractor_vector_append(rfe, fex_ctx, 0);
     if (err)
         err |= vmaf_feature_extractor_context_destroy(fex_ctx);
-
-#ifdef HAVE_CUDA
-    /* Invalidate the rfe_hw_flags cache so the next vmaf_read_pictures call
-     * recomputes the bitmask with the newly registered extractor included. */
-    vmaf->rfe_hw_flags_dirty = true;
-#endif
 
     return err;
 }
@@ -1914,11 +1898,7 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, u
         return err;
 
 #ifdef HAVE_CUDA
-    if (vmaf->rfe_hw_flags_dirty) {
-        vmaf->rfe_hw_flags_cache = rfe_hw_flags(&vmaf->registered_feature_extractors);
-        vmaf->rfe_hw_flags_dirty = false;
-    }
-    const unsigned hw_flags = vmaf->rfe_hw_flags_cache;
+    const unsigned hw_flags = rfe_hw_flags(&vmaf->registered_feature_extractors);
     VmafPicture ref_host = {0}, ref_device = {0};
     VmafPicture dist_host = {0}, dist_device = {0};
     err = read_pictures_cuda_translate(vmaf, ref, dist, hw_flags, &ref_host, &ref_device,
@@ -2233,31 +2213,31 @@ int vmaf_score_pooled_model_collection(VmafContext *vmaf, VmafModelCollection *m
 
     score->type = VMAF_MODEL_COLLECTION_SCORE_BOOTSTRAP;
 
-    /* Suffix constants and BOOTSTRAP_NAME_BUF_SZ() shared with the per-index
-     * append path in predict.c via bootstrap_names.h (ADR-0480).
-     * The callee functions differ (vmaf_feature_score_pooled here vs
-     * vmaf_feature_collector_append in predict.c), so the loops cannot be
-     * merged further without introducing a function-pointer indirection. */
-    const size_t name_sz = BOOTSTRAP_NAME_BUF_SZ(model_collection->name);
+    //TODO: dedupe, vmaf_bootstrap_predict_score_at_index()
+    const char *suffix_lo = "_ci_p95_lo";
+    const char *suffix_hi = "_ci_p95_hi";
+    const char *suffix_bagging = "_bagging";
+    const char *suffix_stddev = "_stddev";
+    const size_t name_sz = strlen(model_collection->name) + strlen(suffix_lo) + 1;
     /* Heap-allocated for MSVC portability (no VLAs). The buffer is short-lived
      * and freed before return. */
     char *name = (char *)calloc(1u, name_sz);
     if (!name)
         return -ENOMEM;
 
-    (void)snprintf(name, name_sz, "%s%s", model_collection->name, BOOTSTRAP_SUFFIX_BAGGING);
+    (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_bagging);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.bagging_score,
                                      index_low, index_high);
 
-    (void)snprintf(name, name_sz, "%s%s", model_collection->name, BOOTSTRAP_SUFFIX_STDDEV);
+    (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_stddev);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.stddev, index_low,
                                      index_high);
 
-    (void)snprintf(name, name_sz, "%s%s", model_collection->name, BOOTSTRAP_SUFFIX_CI_LO);
+    (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_lo);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.ci.p95.lo,
                                      index_low, index_high);
 
-    (void)snprintf(name, name_sz, "%s%s", model_collection->name, BOOTSTRAP_SUFFIX_CI_HI);
+    (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_hi);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.ci.p95.hi,
                                      index_low, index_high);
 

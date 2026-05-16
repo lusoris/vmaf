@@ -2489,17 +2489,11 @@ static float i4_adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_s
     float f_accum_v = (float)(accum_v / final_shift[scale - 1]);
     float f_accum_d = (float)(accum_d / final_shift[scale - 1]);
 
-    /* DEFERRED: adm_p_norm integration.
-     * The exponent 1.0f/3.0f (p-norm = 3) is baked into VMAF model training
-     * data and cannot be changed without retraining the model.  Exposing
-     * adm_p_norm as a runtime parameter is therefore deferred until a
-     * coordinated model-retraining effort is planned.  The parameterised form
-     * would be:
-     *   num_scale_h = powf(f_accum_h, 1.0f / adm_p_norm)
-     *               + powf((bottom-top)*(right-left)*adm_noise_weight,
-     *                      1.0f / adm_p_norm);
-     * (and likewise for _v and _d).
-     */
+    // TODO: if we integrate adm_p_norm, adm_p_norm=3.0f here
+    // This would mean:
+    // float num_scale_h = powf(f_accum_h, 1.0f / adm_p_norm) + powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / adm_p_norm);
+    // float num_scale_v = powf(f_accum_v, 1.0f / adm_p_norm) + powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / adm_p_norm);
+    // float num_scale_d = powf(f_accum_d, 1.0f / adm_p_norm) + powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / adm_p_norm);
     float num_scale_h = powf(f_accum_h, 1.0f / 3.0f) +
                         powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / 3.0f);
     float num_scale_v = powf(f_accum_v, 1.0f / 3.0f) +

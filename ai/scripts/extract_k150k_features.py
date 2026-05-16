@@ -60,8 +60,8 @@ isolation ensures no shared mutable state and avoids backend context conflicts.
 Usage::
 
     python ai/scripts/extract_k150k_features.py \\
-        --clips-dir .corpus/konvid-150k/k150ka_extracted \\
-        --scores   .corpus/konvid-150k/k150ka_scores.csv  \\
+        --clips-dir .workingdir2/konvid-150k/k150ka_extracted \\
+        --scores   .workingdir2/konvid-150k/k150ka_scores.csv  \\
         --out      runs/full_features_k150k.parquet
 
 Smoke-test (100 clips, 8 workers)::
@@ -211,13 +211,9 @@ _METRIC_ALIASES: dict[str, tuple[str, ...]] = {
     "motion": ("motion", "integer_motion"),
     "motion2": ("motion2", "integer_motion2"),
     "motion3": ("motion3", "integer_motion3"),
-    # Neither psnr.c nor integer_psnr.c ever emits an "integer_psnr_*"
-    # key for per-plane values — they always emit "psnr_y"/"psnr_cb"/"psnr_cr"
-    # directly.  The stale second candidates were unreachable dead entries
-    # (wiring audit 2026-05-16, Layer 3).
-    "psnr_y": ("psnr_y",),
-    "psnr_cb": ("psnr_cb",),
-    "psnr_cr": ("psnr_cr",),
+    "psnr_y": ("psnr_y", "integer_psnr_y"),
+    "psnr_cb": ("psnr_cb", "integer_psnr_cb"),
+    "psnr_cr": ("psnr_cr", "integer_psnr_cr"),
     "float_ssim": ("float_ssim",),
     "float_ms_ssim": ("float_ms_ssim",),
     "cambi": ("cambi",),
@@ -916,13 +912,13 @@ def main() -> int:
     ap.add_argument(
         "--clips-dir",
         type=Path,
-        default=Path(".corpus/konvid-150k/k150ka_extracted"),
+        default=Path(".workingdir2/konvid-150k/k150ka_extracted"),
         help="Directory containing K150K-A .mp4 clips.",
     )
     ap.add_argument(
         "--scores",
         type=Path,
-        default=Path(".corpus/konvid-150k/k150ka_scores.csv"),
+        default=Path(".workingdir2/konvid-150k/k150ka_scores.csv"),
         help="CSV with columns video_name, video_score (MOS labels).",
     )
     ap.add_argument(
