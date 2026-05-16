@@ -1,4 +1,4 @@
-# Research-0054: `vmaf-tune` GPU score backend — option-space digest
+# Research-0071: `vmaf-tune` GPU score backend — option-space digest
 
 - **Date**: 2026-05-03
 - **Companion ADR**: [ADR-0299](../adr/0299-vmaf-tune-gpu-score.md)
