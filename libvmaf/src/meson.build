@@ -494,6 +494,17 @@ libvmaf_cpu_static_lib = static_library(
     'libvmaf_cpu',
     libvmaf_cpu_sources,
     include_directories : [libvmaf_include],
+    # Build-matrix audit §2b: apply -fvisibility=hidden (carried by
+    # vmaf_cflags_common) so that internal CPU-dispatch helpers
+    # (vmaf_get_cpu_flags, vmaf_init_cpu, vmaf_set_cpu_flags_mask,
+    # vmaf_get_cpu_flags_x86) are not exported as T symbols in the final
+    # libvmaf.so.  Without this flag the static lib is compiled with default
+    # symbol visibility and the linker promotes all four functions to the
+    # dynamic-symbol table even though they have no VMAF_EXPORT annotation and
+    # no declaration under include/libvmaf/.  They become de-facto ABI that
+    # cannot be removed or renamed without a soversion bump.
+    # Reference: docs/.workingdir/audit-build-matrix-symbols-2026-05-16.md §2b
+    c_args : vmaf_cflags_common,
 )
 
 platform_specific_cpu_objects = []

@@ -7,6 +7,24 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
+## fix/cpu-static-lib-visibility-2026-05-16 — libvmaf_cpu_static_lib visibility
+
+**File touched**: `libvmaf/src/meson.build`
+
+**Rebase impact**: low. The `libvmaf_cpu_static_lib` target is fork-introduced
+(upstream does not split CPU helpers into a separate static lib at this granularity).
+On an upstream sync, verify that `libvmaf_cpu_static_lib` still exists in the merged
+`src/meson.build` and that `c_args : vmaf_cflags_common` is retained; if upstream
+restructures the library targets, re-apply the flag to whichever target compiles
+`cpu.c` and `x86/cpu.c`.
+
+**Smoke-test after rebase**:
+
+```bash
+ninja -C build && nm -D --defined-only build/src/libvmaf.so.3 | grep ' T vmaf_get_cpu_flags'
+# Expected: no output (symbol must be hidden)
+```
+
 ## fix/saliency-per-mb-eval-2026-05-15 — integer_vif enable_chroma
 
 **`libvmaf/src/feature/integer_vif.c`**: adds `enable_chroma` bool field to
