@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 
 import os
+import tempfile
 import urllib.error
 import urllib.request
 
@@ -47,7 +48,25 @@ def download_reactively(local_path, remote_path):
             # operators set `SSL_CERT_FILE` to the right bundle — that's the
             # documented escape hatch and stays per-process scoped. See
             # docs/research/0090-semgrep-warnings-audit-2026-05-09.md (F1).
-            urllib.request.urlretrieve(remote_path, local_path)
+            # Download to a sibling tempfile then atomically rename, so
+            # concurrent readers (e.g. pytest-xdist workers sharing the
+            # cache) cannot observe a partially-written local_path.
+            # Port of upstream Netflix/vmaf commit 32780bd9b.
+            fd, tmp_path = tempfile.mkstemp(
+                dir=os.path.dirname(local_path),
+                prefix=os.path.basename(local_path) + ".",
+                suffix=".part",
+            )
+            os.close(fd)
+            try:
+                urllib.request.urlretrieve(remote_path, tmp_path)
+                os.replace(tmp_path, local_path)
+            except Exception:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+                raise
         except urllib.error.HTTPError as e:
             print(f"error downloading from {remote_path}")
             raise e
