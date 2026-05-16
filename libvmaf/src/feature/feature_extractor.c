@@ -99,6 +99,7 @@ extern VmafFeatureExtractor vmaf_fex_integer_motion_vulkan;
 extern VmafFeatureExtractor vmaf_fex_integer_motion_v2_vulkan;
 extern VmafFeatureExtractor vmaf_fex_integer_adm_vulkan;
 extern VmafFeatureExtractor vmaf_fex_psnr_vulkan;
+extern VmafFeatureExtractor vmaf_fex_integer_psnr_vulkan;
 extern VmafFeatureExtractor vmaf_fex_float_moment_vulkan;
 extern VmafFeatureExtractor vmaf_fex_integer_moment_vulkan;
 extern VmafFeatureExtractor vmaf_fex_ciede_vulkan;
@@ -113,6 +114,8 @@ extern VmafFeatureExtractor vmaf_fex_float_adm_vulkan;
 extern VmafFeatureExtractor vmaf_fex_ssimulacra2_vulkan;
 extern VmafFeatureExtractor vmaf_fex_cambi_vulkan;
 extern VmafFeatureExtractor vmaf_fex_integer_ssim_vulkan;
+/* integer_cambi_vulkan — Strategy II integer variant (fused spatial-mask shader). */
+extern VmafFeatureExtractor vmaf_fex_integer_cambi_vulkan;
 #endif
 #if HAVE_HIP
 /* HIP first-consumer kernel — T7-10 / ADR-0241. Registration succeeds
@@ -211,7 +214,7 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * name selection until the full backend lands (T5-1c). */
     &vmaf_fex_integer_vif_vulkan, &vmaf_fex_integer_motion_vulkan,
     &vmaf_fex_integer_motion_v2_vulkan, &vmaf_fex_integer_adm_vulkan, &vmaf_fex_psnr_vulkan,
-    &vmaf_fex_float_moment_vulkan, &vmaf_fex_integer_moment_vulkan, &vmaf_fex_ciede_vulkan,
+    &vmaf_fex_integer_psnr_vulkan, &vmaf_fex_float_moment_vulkan, &vmaf_fex_ciede_vulkan,
     &vmaf_fex_float_ssim_vulkan, &vmaf_fex_float_ms_ssim_vulkan, &vmaf_fex_psnr_hvs_vulkan,
     &vmaf_fex_integer_vif_vulkan, &vmaf_fex_integer_motion_vulkan, &vmaf_fex_integer_adm_vulkan,
     &vmaf_fex_psnr_vulkan, &vmaf_fex_float_moment_vulkan, &vmaf_fex_ciede_vulkan,
