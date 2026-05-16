@@ -199,6 +199,12 @@ def _load_corpus_rows(path: Path) -> list[dict[str, Any]]:
 
 def _normalise_split(raw: Any) -> str:
     split = str(raw or "").strip().lower()
+    # Map the canonical KonViD-150k score-drop layout identifiers emitted
+    # by ``konvid_150k_to_corpus_jsonl.py`` to the trainer-facing split
+    # vocabulary.  k150ka is the large training shard; k150kb is the
+    # smaller held-out validation shard (ADR-0455).
+    _K150K_MAP: dict[str, str] = {"k150ka": "train", "k150kb": "val"}
+    split = _K150K_MAP.get(split, split)
     return split if split in {"train", "val", "test"} else ""
 
 

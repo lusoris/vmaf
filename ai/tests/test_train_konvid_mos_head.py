@@ -251,6 +251,60 @@ def test_heldout_split_indices_falls_back_to_test_split() -> None:
     np.testing.assert_array_equal(val_idx, [2])
 
 
+# ---------------------------------------------------------------------
+# K150K split-label promotion (ADR-0455).
+# ---------------------------------------------------------------------
+
+
+def test_normalise_split_maps_k150ka_to_train() -> None:
+    """k150ka rows (large KonViD-150k training shard) map to 'train'."""
+    assert trainer._normalise_split("k150ka") == "train"
+
+
+def test_normalise_split_maps_k150kb_to_val() -> None:
+    """k150kb rows (KonViD-150k held-out validation shard) map to 'val'."""
+    assert trainer._normalise_split("k150kb") == "val"
+
+
+def test_normalise_split_passes_through_standard_labels() -> None:
+    """Standard train/val/test labels and empty strings are unchanged."""
+    assert trainer._normalise_split("train") == "train"
+    assert trainer._normalise_split("val") == "val"
+    assert trainer._normalise_split("test") == "test"
+    assert trainer._normalise_split("") == ""
+    assert trainer._normalise_split(None) == ""
+    assert trainer._normalise_split("unknown") == ""
+
+
+def test_load_corpus_promotes_k150k_split_labels(tmp_path: Path) -> None:
+    """End-to-end: k150ka/k150kb labels arrive in JSONL and are promoted
+    so that _heldout_split_indices can select the canonical split."""
+    p = tmp_path / "k150k.jsonl"
+    rows = [
+        {"src": "a.mp4", "mos": 3.5, "adm2": 0.90, "split": "k150ka"},
+        {"src": "b.mp4", "mos": 3.2, "adm2": 0.85, "split": "k150ka"},
+        {"src": "c.mp4", "mos": 2.8, "adm2": 0.70, "split": "k150ka"},
+        {"src": "d.mp4", "mos": 3.1, "adm2": 0.75, "split": "k150kb"},
+    ]
+    p.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    arrays = trainer._load_corpus_arrays([p])
+
+    # All 4 rows are loaded.
+    assert arrays.features.shape[0] == 4
+
+    # Labels promoted: first 3 → "train", last → "val".
+    assert arrays.splits.tolist() == ["train", "train", "train", "val"]
+
+    # _heldout_split_indices selects the canonical split rather than
+    # falling back to random k-fold CV.
+    split_result = trainer._heldout_split_indices(arrays.splits)
+    assert split_result is not None
+    train_idx, val_idx = split_result
+    assert sorted(train_idx.tolist()) == [0, 1, 2]
+    assert val_idx.tolist() == [3]
+
+
 def test_load_corpus_drops_out_of_range_rows(tmp_path: Path) -> None:
     p = tmp_path / "garbled.jsonl"
     p.write_text(
