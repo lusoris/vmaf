@@ -128,18 +128,27 @@ CUDA_EXTRACTOR_NAMES: tuple[str, ...] = (
     "motion_v2_cuda",
     "psnr_cuda",
     "ciede_cuda",
+    "float_ssim_cuda=scale=1",
     "float_ms_ssim_cuda",
     "psnr_hvs_cuda",
+    # cambi_cuda intentionally not promoted: the CUDA extractor
+    # segfaults on every input on the rebuilt 2026-05-15 binary
+    # (Issue #857). cambi stays on the CPU residual pass below
+    # until that's fixed.
+    # float_ssim_cuda needs an explicit scale=1: libvmaf v1 supports
+    # scale=1 only and refuses on auto-detected scale=4 at 1080p
+    # ("libvmaf ERROR ssim_cuda: v1 supports scale=1 only").
 )
 # ssimulacra2 omitted from K150K/CHUG self-vs-self extraction — produces ~100 constant
 # for identity pairs (ref == distorted), yielding zero training signal while consuming
 # ~30-50% of GPU time per clip. Use CPU ssimulacra2 extractor for FR pairs where it
 # remains informative (ADR-0431).
 
-CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = (
-    "float_ssim",
-    "cambi",
-)
+# 2026-05-15: float_ssim promoted from the CPU residual pass to the
+# CUDA primary pass (it has shipped a CUDA implementation since
+# libvmaf/src/feature/cuda/float_ssim_cuda.c landed). cambi stays
+# on this CPU residual pass — its CUDA twin segfaults (Issue #857).
+CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = ("cambi",)
 
 # Canonical 21-feature output columns (Research-0026, parquet schema v2).
 # WARNING: column order is locked — do not reorder without incrementing the
@@ -412,18 +421,26 @@ def _run_feature_passes(
             CUDA_EXTRACTOR_NAMES,
             ["--backend", "cuda", *_MODEL_ARGS],
         )
-        cpu_frames = _run_vmaf_json(
-            cpu_vmaf_bin,
-            yuv_path,
-            width,
-            height,
-            pix_fmt,
-            cpu_json,
-            threads,
-            CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES,
-            ["--no_cuda", "--no_sycl", "--no_vulkan"],
-        )
-        frames = _merge_frame_metrics(cuda_frames, cpu_frames)
+        # CPU residual pass — kept structurally for future feature
+        # additions that lack a CUDA implementation. As of 2026-05-15
+        # the residual is empty (CAMBI + float_ssim got promoted to
+        # the CUDA pass); the call short-circuits to an empty frames
+        # list without spawning a subprocess.
+        if CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES:
+            cpu_frames = _run_vmaf_json(
+                cpu_vmaf_bin,
+                yuv_path,
+                width,
+                height,
+                pix_fmt,
+                cpu_json,
+                threads,
+                CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES,
+                ["--no_cuda", "--no_sycl", "--no_vulkan"],
+            )
+            frames = _merge_frame_metrics(cuda_frames, cpu_frames)
+        else:
+            frames = cuda_frames
         out_json.write_text(
             json.dumps({"frames": [{"metrics": row} for row in frames]}),
             encoding="utf-8",
