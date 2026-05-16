@@ -361,6 +361,17 @@ libvmaf/
   yet wired — it can be added later once at least 5 parsers carry
   harnesses.
 
+- **No hardcoded GPU SDK paths in `meson.build`** (fork-local, finding 1a+5b
+  from audit-build-matrix-symbols-2026-05-16): GPU toolkit include directories
+  must never be hardcoded as literal strings (e.g. `/usr/local/cuda/include`)
+  in any `meson.build` file. Always derive them from the toolchain binary
+  location (`find_program('nvcc').full_path()`), pkg-config, or an env-var
+  fallback (`CUDA_HOME` / `CUDA_PATH`). The NVTX dependency additionally
+  requires `enable_cuda=true` and is enforced via an early
+  `error(...)` in `src/meson.build` before any directory probes.
+  Violating this rule causes opaque `Include dir ... does not exist`
+  failures on machines with the toolkit at a non-default prefix.
+
 Backend-specific orientation:
 
 - [src/cuda/AGENTS.md](src/cuda/AGENTS.md) — CUDA backend runtime

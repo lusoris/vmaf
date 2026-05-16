@@ -34843,12 +34843,45 @@ and applied identically (see canonical note in
 motion GPU backend or a new motion-related option, the same option table
 and application math must be replicated across all twins in the same PR.
 
+---
+
+### fix/meson-nvtx-cuda-path-2026-05-16 — NVTX/CUDA include path derivation
+
+**Branch**: `fix/meson-nvtx-cuda-path-2026-05-16`
+
+**Files touched**: `libvmaf/src/meson.build`, `libvmaf/AGENTS.md`,
+`changelog.d/fixed/meson-nvtx-cuda-coupling.md`.
+
+**Rebase impact**: low. `libvmaf/src/meson.build` is upstream-shared.
+Netflix upstream may add new CUDA-related feature-detection blocks; any such
+block that introduces a new hardcoded CUDA include path (`/usr/local/cuda/...`)
+must be updated to use the `cuda_toolkit_inc_dir` variable established by this
+PR, otherwise the portability regression recurs on `/opt/cuda` hosts.
+
+**Invariant to preserve on rebase**: after the Windows NVTX guard block in
+`src/meson.build`, there must be an early `error(...)` guard that rejects
+`enable_nvtx=true` + `enable_cuda=false` before any directory probes. The
+`cuda_toolkit_inc_dir` variable must be derived from `find_program('nvcc')`
+(when `is_cuda_enabled=true`), not hard-coded as `/usr/local/cuda/include`.
+
 **Smoke-test after rebase**:
 
 ```bash
 meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build
 meson test -C build --suite=fast
+```
+
+**Smoke-test after rebase (fix/meson-nvtx-cuda-path-2026-05-16)**:
+
+```bash
+# Bad combo must give a clear error, not a directory-not-found failure:
+meson setup /tmp/vmaf-nvtx-bad -Denable_cuda=false -Denable_nvtx=true 2>&1 | grep 'enable_nvtx=true requires'
+# Must print the error line.
+
+# /opt/cuda path must work (or any path where nvcc is in PATH under /opt/cuda/bin):
+PATH=/opt/cuda/bin:$PATH meson setup /tmp/vmaf-nvtx-ok -Denable_cuda=true -Denable_nvtx=true
+meson introspect /tmp/vmaf-nvtx-ok --targets | grep libvmaf
 ```
 
 ---
