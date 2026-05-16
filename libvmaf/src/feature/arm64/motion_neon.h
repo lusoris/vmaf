@@ -19,7 +19,6 @@
 #ifndef ARM64_NEON_MOTION_H_
 #define ARM64_NEON_MOTION_H_
 
-#include <stddef.h>
 #include <stdint.h>
 
 void x_convolution_16_neon(const uint16_t *src, uint16_t *dst, unsigned width, unsigned height,

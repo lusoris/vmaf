@@ -1,5 +1,4 @@
-# Research-0091: CAMBI CUDA integration trade-offs
-# Research-0091
+# Research Digest 0091 — CAMBI CUDA integration trade-offs
 
 - **Status**: Active
 - **Workstream**: [ADR-0360](../adr/0360-cambi-cuda.md), [ADR-0210](../adr/0210-cambi-vulkan-integration.md), [ADR-0205](../adr/0205-cambi-gpu-feasibility.md)

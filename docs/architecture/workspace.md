@@ -46,29 +46,6 @@ harness works fine if you delete them entirely.
 | `checkpoints_dir/`   | training harness checkpointing              | Intermediate model checkpoints during long training runs.                          |
 | `workdir/`           | `VmafConfig.workdir_path()`                 | Per-run UUID scratch — `ffmpeg` decode temp, preresampling pipes, intermediate YUVs. Always safe to `rm -rf`. |
 
-## The `.corpus/` tree (large training data)
-
-Training corpora too large to keep in `.workingdir2/` (planning state) live under
-`.corpus/` at repo root. This directory is gitignored and never committed.
-
-| Subdirectory         | Dataset                                  | Approximate size |
-| -------------------- | ---------------------------------------- | ---------------- |
-| `netflix/`           | Netflix Public YUV drop (9 ref / 70 dis) | 37 GB            |
-| `chug/`              | CHUG UGC-HDR corpus                      | 73 GB            |
-| `konvid-150k/`       | KoNViD-150k (clips + JSONL + CSV)        | 179 GB           |
-| `bvi-dvc-raw/`       | BVI-DVC raw YUVs                         | 192 GB           |
-| `gdrive-bundle/`     | Google Drive training bundle             | 301 GB           |
-| `ugc/`               | UGC download scratch                     | ~1.2 GB          |
-| `encodes/`           | Phase A encode scratch                   | small            |
-| `encodes_nvenc/`     | NVENC encode scratch                     | small            |
-| `corpus_cuda/`       | CUDA corpus run scratch                  | small            |
-| `corpus_nvenc/`      | NVENC corpus run scratch                 | small            |
-| `corpus_run/`        | vmaf-tune corpus run outputs             | small            |
-
-Scripts that previously defaulted to `.workingdir2/<dataset>` now default to
-`.corpus/<dataset>`. The path is also controlled by the `VMAF_DATA_ROOT` /
-`CORPUS_ROOT` environment variables where documented.
-
 ## Relation to other model surfaces
 
 | Surface                  | Where trained models live                     | Runtime                                                   |

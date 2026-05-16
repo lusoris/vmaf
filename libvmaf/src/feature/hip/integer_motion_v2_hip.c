@@ -25,7 +25,6 @@
  */
 
 #include <errno.h>
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -70,7 +69,6 @@ typedef struct MotionV2StateHip {
     unsigned frame_w;
     unsigned frame_h;
     unsigned bpc;
-    bool motion_force_zero;
     double motion_fps_weight;
 
     VmafDictionary *feature_name_dict;
@@ -80,15 +78,6 @@ typedef struct MotionV2StateHip {
 #define MV2H_BY 16u
 
 static const VmafOption options[] = {{
-                                         .name = "motion_force_zero",
-                                         .alias = "force_0",
-                                         .help = "forces motion_v2 scores to zero",
-                                         .offset = offsetof(MotionV2StateHip, motion_force_zero),
-                                         .type = VMAF_OPT_TYPE_BOOL,
-                                         .default_val.b = false,
-                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-                                     },
-                                     {
                                          .name = "motion_fps_weight",
                                          .alias = "mfw",
                                          .help = "fps-aware multiplicative weight/correction",
@@ -250,49 +239,6 @@ static int mv2_hip_launch(MotionV2StateHip *s, VmafPicture *ref_pic, unsigned in
 }
 #endif /* HAVE_HIPCC */
 
-/* force_zero fast-path: emit 0 for both motion_v2_sad_score and
- * motion2_v2_score on every frame without touching any GPU resource.
- * Mirrors integer_motion_hip.c extract_force_zero and the CPU reference
- * integer_motion_v2.c force_zero branch in extract(). */
-static int extract_force_zero_v2(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
-                                 VmafPicture *ref_pic_90, VmafPicture *dist_pic,
-                                 VmafPicture *dist_pic_90, unsigned index,
-                                 VmafFeatureCollector *feature_collector)
-{
-    MotionV2StateHip *s = fex->priv;
-    (void)ref_pic;
-    (void)ref_pic_90;
-    (void)dist_pic;
-    (void)dist_pic_90;
-
-    int err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                      "VMAF_integer_feature_motion_v2_sad_score",
-                                                      0., index);
-    err |=
-        vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                "VMAF_integer_feature_motion2_v2_score", 0., index);
-    return err;
-}
-
-/* Minimal close for the force_zero fast-path: free only the dict and tear
- * down the lifecycle handle.  No GPU buffers, readback bundle, or module
- * were allocated in this path.  Mirrors integer_motion_hip.c
- * close_force_zero_hip and float_motion_hip.c close_force_zero_hip. */
-static int close_force_zero_v2_hip(VmafFeatureExtractor *fex)
-{
-    MotionV2StateHip *s = fex->priv;
-    int rc = 0;
-    if (s->feature_name_dict != NULL) {
-        rc = vmaf_dictionary_free(&s->feature_name_dict);
-    }
-    (void)vmaf_hip_kernel_lifecycle_close(&s->lc, s->ctx);
-    if (s->ctx != NULL) {
-        vmaf_hip_context_destroy(s->ctx);
-        s->ctx = NULL;
-    }
-    return rc;
-}
-
 static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                         unsigned w, unsigned h)
 {
@@ -323,25 +269,6 @@ static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
     err = vmaf_hip_kernel_lifecycle_init(&s->lc, s->ctx);
     if (err != 0) {
         goto fail_after_ctx;
-    }
-
-    /* motion_force_zero: skip all GPU resource allocation; only the dict
-     * and the lifecycle handle are needed.  Check BEFORE readback_alloc
-     * so no GPU buffers are allocated.  Mirrors integer_motion_hip.c
-     * init_fex_hip force_zero branch (PR #1037 pattern). */
-    if (s->motion_force_zero) {
-        s->feature_name_dict =
-            vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
-        if (s->feature_name_dict == NULL) {
-            err = -ENOMEM;
-            goto fail_after_lc;
-        }
-        fex->extract = extract_force_zero_v2;
-        fex->submit = NULL;
-        fex->collect = NULL;
-        fex->flush = NULL;
-        fex->close = close_force_zero_v2_hip;
-        return 0;
     }
 
     /* Readback pair: single int64 SAD accumulator + pinned host slot. */
@@ -483,16 +410,8 @@ static int flush_fex_hip(VmafFeatureExtractor *fex, VmafFeatureCollector *featur
             motion2 = score_cur;
         }
 
-        /* Idempotency guard: skip if already written (e.g. from a prior
-         * flush call or a post-flush pending-collect).  Re-appending would
-         * trip the "cannot be overwritten" warning.  Mirrors the
-         * float_motion_hip.c flush_fex_hip idempotency pattern (PR #1037). */
-        double existing;
-        if (vmaf_feature_collector_get_score(
-                feature_collector, "VMAF_integer_feature_motion2_v2_score", &existing, i) != 0) {
-            vmaf_feature_collector_append(feature_collector,
-                                          "VMAF_integer_feature_motion2_v2_score", motion2, i);
-        }
+        vmaf_feature_collector_append(feature_collector, "VMAF_integer_feature_motion2_v2_score",
+                                      motion2, i);
     }
 
     return 1;

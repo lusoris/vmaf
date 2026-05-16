@@ -1,4 +1,4 @@
-# Research-0091: Vulkan readback buffer VMA flag: performance analysis
+# Research-0091 — Vulkan readback buffer VMA flag: performance analysis
 
 **Date**: 2026-05-09
 **Companion**: [ADR-0357](../adr/0357-vulkan-readback-alloc-flag.md)

@@ -340,9 +340,9 @@ void vif_filter1d_s(const float *f, const float *src, float *dst, float *tmpbuf,
     }
 #endif
 
-    /* fall back: reuse tmpbuf supplied by caller (PR #881 hoist pattern).
-     * tmpbuf is guaranteed >= w floats; no per-call malloc on any arch. */
-    float *tmp = tmpbuf;
+    /* fall back */
+
+    float *tmp = aligned_malloc(ALIGN_CEIL(w * sizeof(float)), MAX_ALIGN);
     float fcoeff, imgcoeff;
 
     int i, j, fi, fj, ii, jj;
@@ -384,6 +384,8 @@ void vif_filter1d_s(const float *f, const float *src, float *dst, float *tmpbuf,
             dst[i * dst_px_stride + j] = accum;
         }
     }
+
+    aligned_free(tmp);
 }
 
 // Code optimized by adding intrinsic code for the functions,
@@ -406,8 +408,9 @@ void vif_filter1d_sq_s(const float *f, const float *src, float *dst, float *tmpb
     }
 #endif
 
-    /* fall back: reuse tmpbuf supplied by caller (PR #881 hoist pattern). */
-    float *tmp = tmpbuf;
+    /* fall back */
+
+    float *tmp = aligned_malloc(ALIGN_CEIL(w * sizeof(float)), MAX_ALIGN);
     float fcoeff, imgcoeff;
 
     int i, j, fi, fj, ii, jj;
@@ -449,6 +452,8 @@ void vif_filter1d_sq_s(const float *f, const float *src, float *dst, float *tmpb
             dst[i * dst_px_stride + j] = accum;
         }
     }
+
+    aligned_free(tmp);
 }
 
 void vif_filter1d_xy_s(const float *f, const float *src1, const float *src2, float *dst,
@@ -471,8 +476,9 @@ void vif_filter1d_xy_s(const float *f, const float *src1, const float *src2, flo
     }
 #endif
 
-    /* fall back: reuse tmpbuf supplied by caller (PR #881 hoist pattern). */
-    float *tmp = tmpbuf;
+    /* fall back */
+
+    float *tmp = aligned_malloc(ALIGN_CEIL(w * sizeof(float)), MAX_ALIGN);
     float fcoeff, imgcoeff, imgcoeff1, imgcoeff2;
 
     int i, j, fi, fj, ii, jj;
@@ -515,6 +521,8 @@ void vif_filter1d_xy_s(const float *f, const float *src1, const float *src2, flo
             dst[i * dst_px_stride + j] = accum;
         }
     }
+
+    aligned_free(tmp);
 }
 
 int vif_get_scaling_method(char *scaling_method_str, enum vif_scaling_method *scale_method)

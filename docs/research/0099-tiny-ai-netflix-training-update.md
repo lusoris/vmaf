@@ -1,4 +1,4 @@
-# Research-0099: Tiny-AI VMAF Training: 2024–2026 Distillation and ONNX Runtime Update
+# Research Digest 0099 — Tiny-AI VMAF Training: 2024–2026 Distillation and ONNX Runtime Update
 
 **Date**: 2026-05-11
 **Author**: Lusoris / Claude (Anthropic)
