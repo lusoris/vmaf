@@ -1,4 +1,4 @@
-# Research-0054: FR regressor v2 (codec-aware) feasibility
+# Research-0058: FR regressor v2 (codec-aware) feasibility
 
 - **Date**: 2026-05-03
 - **Status**: Scaffold (training deferred until vmaf-tune Phase A
