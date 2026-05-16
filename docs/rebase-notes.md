@@ -34878,3 +34878,37 @@ meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build
 meson test -C build --suite=fast
 ```
+
+---
+
+## CUDA parity tests — top-5 CHUG extractors (2026-05-16)
+
+**Branch**: `test-coverage-cuda-parity-tests-2026-05-16`
+
+**Files added**:
+- `libvmaf/test/test_adm_cuda.c`
+- `libvmaf/test/test_vif_cuda.c`
+- `libvmaf/test/test_motion_v2_cuda.c`
+- `libvmaf/test/test_psnr_cuda.c`
+- `libvmaf/test/test_ssimulacra2_cuda.c`
+
+**Files modified**:
+- `libvmaf/test/meson.build` — new `executable` + `test(..., suite: ['fast', 'gpu'])` entries inside the existing `if get_option('enable_cuda')` block.
+- `libvmaf/test/AGENTS.md` — invariant rule: every GPU-backed extractor needs a `test_<name>_<backend>.c` parity test tagged `suite: ['fast', 'gpu']`.
+
+**Rebase impact**: low. All added files are test-only and fork-local;
+upstream Netflix/vmaf has no CUDA extractor tests in `libvmaf/test/`.
+The meson.build edit is additive — it inserts new `executable` + `test`
+calls inside the existing CUDA gate and does not touch any upstream block.
+
+**Invariant to preserve on rebase**: the five new test binaries must
+remain inside `if get_option('enable_cuda') … endif` in meson.build.
+If the enable_cuda block is restructured, keep the test entries inside it.
+
+**Smoke-test after rebase**:
+
+```bash
+meson setup build -Denable_cuda=true -Denable_sycl=false
+ninja -C build
+meson test -C build --suite=gpu
+```

@@ -633,6 +633,64 @@ test_cuda_preallocation_leak = executable('test_cuda_preallocation_leak',
     c_args: ['-DHAVE_CUDA=1']
 )
 test('test_cuda_preallocation_leak', test_cuda_preallocation_leak)
+
+# CUDA parity smoke tests (ADR-0214 / audit-test-coverage-2026-05-16 §1).
+# Top-5 most-used CUDA extractors in CHUG each get a small-frame
+# init→submit→collect→close smoke test that skips cleanly when no CUDA
+# device is present. Suites: ['fast', 'gpu'] per post-PR-#882 convention.
+# Links against libvmaf (which carries all CUDA extractor objects) so no
+# manual object extraction is needed.
+
+test_adm_cuda = executable('test_adm_cuda',
+    ['test.c', 'test_adm_cuda.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency, cuda_dependency, math_lib],
+    c_args: ['-DHAVE_CUDA=1']
+)
+test('test_adm_cuda', test_adm_cuda,
+    suite: ['fast', 'gpu'])
+
+test_vif_cuda = executable('test_vif_cuda',
+    ['test.c', 'test_vif_cuda.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency, cuda_dependency, math_lib],
+    c_args: ['-DHAVE_CUDA=1']
+)
+test('test_vif_cuda', test_vif_cuda,
+    suite: ['fast', 'gpu'])
+
+test_motion_v2_cuda = executable('test_motion_v2_cuda',
+    ['test.c', 'test_motion_v2_cuda.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency, cuda_dependency, math_lib],
+    c_args: ['-DHAVE_CUDA=1']
+)
+test('test_motion_v2_cuda', test_motion_v2_cuda,
+    suite: ['fast', 'gpu'])
+
+test_psnr_cuda = executable('test_psnr_cuda',
+    ['test.c', 'test_psnr_cuda.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency, cuda_dependency, math_lib],
+    c_args: ['-DHAVE_CUDA=1']
+)
+test('test_psnr_cuda', test_psnr_cuda,
+    suite: ['fast', 'gpu'])
+
+test_ssimulacra2_cuda = executable('test_ssimulacra2_cuda',
+    ['test.c', 'test_ssimulacra2_cuda.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency, cuda_dependency, math_lib],
+    c_args: ['-DHAVE_CUDA=1']
+)
+test('test_ssimulacra2_cuda', test_ssimulacra2_cuda,
+    suite: ['fast', 'gpu'])
+
 endif
 
 # T6-2b / ADR-0247 — vmaf-roi sidecar core helpers (per-CTU mean reduce
