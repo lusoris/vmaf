@@ -35008,10 +35008,34 @@ python -m pytest ai/tests/test_extract_k150k_no_ssimulacra2.py -v
 **Rebase impact**: none. Change is confined to `libvmaf/src/feature/float_ansnr.c` (fork-local option addition); upstream Netflix/vmaf does not have `enable_chroma` on this extractor. No public headers, no GPU twins, no ffmpeg-patches touched.
 
 **Invariant to preserve on rebase**: if upstream ever adds `enable_chroma` to `float_ansnr`, verify the feature names emitted match the fork convention (`float_ansnr_cb`, `float_ansnr_cr`, `float_anpsnr_cb`, `float_anpsnr_cr`) before dropping the fork-local option entry.
+---
+
+### 0482 — `vmaf_pre` FFmpeg filter device-string parity (ADR-0482)
+
+**What changed**: `ffmpeg-patches/0002-add-vmaf_pre-filter.patch` — the
+`parse_device()` helper inside `vf_vmaf_pre.c` was extended from 5 to 12
+device-string entries, matching the full `VmafDnnDevice` enum in
+`libvmaf/include/libvmaf/dnn.h`. The option description string was also
+updated.
+
+**Rebase impact**: none. No libvmaf C API was changed; only the patch file
+itself was modified. The patch applies cleanly after `0001` as before.
+
+**Invariant to preserve on rebase**: whenever a new `VMAF_DNN_DEVICE_*`
+value is added to `dnn.h`, the `parse_device()` function in patch `0002`
+must be updated in the same PR (CLAUDE.md §12 r14). No auto-detection
+fallback exists; unknown strings return `AVERROR(EINVAL)`.
 
 **Smoke-test after rebase**:
 
 ```bash
 ninja -C build src/liblibvmaf_feature.a.p/feature_float_ansnr.c.o
 # Expected: compiles without error
+# Verify the patch applies cleanly in series
+git -C /path/to/ffmpeg-8 reset --hard n8.1
+for p in ffmpeg-patches/0001-*.patch ffmpeg-patches/0002-*.patch; do
+    git -C /path/to/ffmpeg-8 am --3way "$p" || break
+done
+# Then confirm vmaf_pre device= help lists all 12 entries:
+grep -A1 "device" /path/to/ffmpeg-8/libavfilter/vf_vmaf_pre.c | head -20
 ```

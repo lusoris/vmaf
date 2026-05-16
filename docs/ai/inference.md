@@ -169,6 +169,10 @@ ffmpeg -i in.mp4 \
 
 ## Execution-provider matrix
 
+The table below applies to both the main `libvmaf` filter's `tiny_device=` option
+and the `vmaf_pre` filter's `device=` option. Both accept the same 12 device
+strings (ADR-0482).
+
 | Backend flag | ORT EP | Notes |
 | --- | --- | --- |
 | `--tiny-device cpu` | CPUExecutionProvider | Always available. |
