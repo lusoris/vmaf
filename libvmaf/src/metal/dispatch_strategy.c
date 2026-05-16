@@ -12,31 +12,32 @@
 #include <string.h>
 
 static const char *const g_metal_features[] = {
-    "motion_v2_metal",
+    /* integer_motion_v2_metal provided_features[] */
     "VMAF_integer_feature_motion_v2_sad_score",
-    "motion2_v2_score",
-    "float_psnr_metal",
+    "VMAF_integer_feature_motion2_v2_score", /* was "motion2_v2_score" — wrong key */
+    /* float_psnr_metal provided_features[] */
     "float_psnr",
-    "float_moment_metal",
+    /* float_moment_metal provided_features[] */
     "float_moment_ref1st",
     "float_moment_dis1st",
     "float_moment_ref2nd",
     "float_moment_dis2nd",
-    "float_ansnr_metal",
+    /* float_ansnr_metal provided_features[] */
     "float_ansnr",
-    "integer_psnr_metal",
+    /* integer_psnr_metal provided_features[] */
     "psnr_y",
     "psnr_cb",
     "psnr_cr",
-    "float_motion_metal",
-    "float_motion",
-    "integer_motion_metal",
+    /* float_motion_metal provided_features[] */
+    "VMAF_feature_motion_score", /* was "float_motion" — wrong key */
+    "VMAF_feature_motion2_score",
+    /* integer_motion_metal provided_features[] */
     "VMAF_integer_feature_motion_y_score",
-    "motion2_score",
-    "motion3_score",
-    "float_ssim_metal",
+    "VMAF_integer_feature_motion2_score", /* was "motion2_score" — wrong key */
+    /* "motion3_score" removed — no Metal extractor provides this feature */
+    /* float_ssim_metal provided_features[] */
     "float_ssim",
-    "float_ms_ssim",
+    /* "float_ms_ssim" removed — no Metal extractor provides this feature */
     NULL,
 };
 
