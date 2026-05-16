@@ -1,4 +1,4 @@
-# ADR-0445: Dispatch-strategy registry audit 2026-05-15
+# ADR-0460: Dispatch-strategy registry audit 2026-05-15
 
 | Field | Value |
 |-------|-------|
