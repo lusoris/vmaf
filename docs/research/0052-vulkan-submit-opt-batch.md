@@ -1,4 +1,4 @@
-# Research-0051: Vulkan submit-side template + fence pool + descriptor pre-alloc
+# Research-0052: Vulkan submit-side template + fence pool + descriptor pre-alloc
 
 Date: 2026-05-02
 Companion ADR: [ADR-0256](../adr/0256-vulkan-submit-opt-batch.md)
