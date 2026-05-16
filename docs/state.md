@@ -103,6 +103,7 @@ landed fix yet._
 ## Recently closed
 
 | T-GPU-PSNR-ENABLE-CHROMA-SILENT | `psnr_cuda` / `psnr_sycl` / `psnr_vulkan` silently ignored `enable_chroma=false`, emitting full chroma on non-YUV400 sources and diverging from CPU | ADR-0453 / Research-0136 | fix/psnr-enable-chroma-gpu-parity-2026-05-16 | — | (last ~3 months)
+| **T-VK-VIF-1.4-RESIDUAL — `vif_reduce.comp` `subgroupAdd(int64_t)` non-determinism on NVIDIA Vulkan 1.4** — `vif_reduce.comp` used bare `subgroupAdd(int64_t)` for its subgroup-level accumulation, exposing the same NVIDIA driver 595.71.05 bug that was fixed in `vif.comp` Phase-3c (ADR-0269). `vif_reduce.comp` was authored after that fix and was not updated. Fix: replace seven `subgroupAdd(t[i])` calls with `reduce_i64_subgroup(t[i])` using the same XOR-swap butterfly already proven in `vif.comp`; add `GL_KHR_shader_subgroup_shuffle` to the extension list. Closes `T-VK-VIF-1.4-RESIDUAL` completely (both the per-WG kernel and the second-level reducer now use the deterministic butterfly path). | [ADR-0454](adr/0454-vif-reduce-subgroup-add-int64-butterfly.md) | `fix/vif-reduce-subgroup-add-int64-butterfly` | — | 2026-05-16 |
 
 _Bugs closed in the last ~90 days. Older entries roll off into
 `git log` and the per-PR ADRs._

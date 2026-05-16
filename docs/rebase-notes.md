@@ -7,6 +7,14 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
+No rebase impact: `fix/vif-reduce-subgroup-add-int64-butterfly` touches only
+`libvmaf/src/feature/vulkan/shaders/vif_reduce.comp` (fork-local Vulkan shader),
+`docs/adr/0454-*` (fork-local ADR), `docs/adr/README.md` (index row),
+`changelog.d/fixed/vif-reduce-subgroup-add-int64-butterfly.md` (fragment), and
+`docs/rebase-notes.md` (this entry). The Vulkan backend is wholly fork-added;
+no upstream-shared code, headers, or build files are modified. No sync-upstream
+conflicts expected.
+
 No rebase impact: `fix/dev-mcp-stage3-and-bundled-fixes-2026-05-16` touches
 only `dev/Containerfile`, `dev/AGENTS.md`, `docs/research/0135-*`, and
 `changelog.d/fixed/dev-mcp-container-stage-3.md`. These are all fork-local

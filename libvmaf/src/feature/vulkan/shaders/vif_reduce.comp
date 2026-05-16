@@ -45,9 +45,25 @@
 #version 460
 #extension GL_KHR_shader_subgroup_arithmetic             : require
 #extension GL_KHR_shader_subgroup_basic                  : require
+#extension GL_KHR_shader_subgroup_shuffle                : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_shader_subgroup_extended_types_int64   : require
 #extension GL_EXT_shader_atomic_int64                    : require
+
+/* NVIDIA 595.71.05 at Vulkan API 1.4 produces non-deterministic results
+ * for subgroupAdd(int64_t) — the same driver bug that was fixed in
+ * vif.comp Phase-4 (research-0090 / ADR-0269).  Replace the bare
+ * subgroupAdd call with an explicit XOR-swap butterfly over
+ * subgroupShuffleXor so the driver cannot route through its broken
+ * int64 subgroup-add lowering path.  This closes the residual ULP gap
+ * tracked as T-VK-VIF-1.4-RESIDUAL (ADR-0454). */
+int64_t reduce_i64_subgroup(int64_t v) {
+    int64_t r = v;
+    for (uint mask = 1u; mask < gl_SubgroupSize; mask <<= 1u) {
+        r += subgroupShuffleXor(r, mask);
+    }
+    return r;
+}
 
 /* Number of int64_t fields per per-WG accumulator slot.
  * Must match VIF_ACCUM_FIELDS in vif_vulkan.c and the SSBO
@@ -108,15 +124,16 @@ void main()
         t[6] += accum_in.v[base + 6u];
     }
 
-    /* Subgroup reduction. */
+    /* Subgroup reduction — use the XOR-swap butterfly instead of
+     * subgroupAdd(int64_t) to avoid the NVIDIA driver bug (ADR-0454). */
     int64_t sg[7];
-    sg[0] = subgroupAdd(t[0]);
-    sg[1] = subgroupAdd(t[1]);
-    sg[2] = subgroupAdd(t[2]);
-    sg[3] = subgroupAdd(t[3]);
-    sg[4] = subgroupAdd(t[4]);
-    sg[5] = subgroupAdd(t[5]);
-    sg[6] = subgroupAdd(t[6]);
+    sg[0] = reduce_i64_subgroup(t[0]);
+    sg[1] = reduce_i64_subgroup(t[1]);
+    sg[2] = reduce_i64_subgroup(t[2]);
+    sg[3] = reduce_i64_subgroup(t[3]);
+    sg[4] = reduce_i64_subgroup(t[4]);
+    sg[5] = reduce_i64_subgroup(t[5]);
+    sg[6] = reduce_i64_subgroup(t[6]);
 
     /* Elected thread writes subgroup partial to shared memory. */
     if (subgroupElect()) {
