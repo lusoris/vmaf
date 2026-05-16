@@ -782,6 +782,20 @@ test_vulkan_pic_preallocation = executable('test_vulkan_pic_preallocation',
     c_args: ['-DHAVE_VULKAN=1']
 )
 test('test_vulkan_pic_preallocation', test_vulkan_pic_preallocation)
+
+# T3-15(c) / ADR-0219: cross-backend parity gate for motion3_score on
+# the Vulkan backend.  Verifies that motion_vulkan emits
+# VMAF_integer_feature_motion3_score values within places=4 (5e-5) of
+# the CPU motion extractor.  Gracefully skips on hosts with no
+# Vulkan-capable device (same pattern as test_vulkan_smoke).
+test_vulkan_motion3_parity = executable('test_vulkan_motion3_parity',
+    ['test.c', 'test_vulkan_motion3_parity.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency, vulkan_deps],
+    c_args: ['-DHAVE_VULKAN=1']
+)
+test('test_vulkan_motion3_parity', test_vulkan_motion3_parity)
 endif
 
 # ADR-0209 / T5-2: embedded MCP scaffold smoke. Pins the -ENOSYS
