@@ -507,6 +507,15 @@ libvmaf_cpu_static_lib = static_library(
     'libvmaf_cpu',
     libvmaf_cpu_sources,
     include_directories : [libvmaf_include],
+    # ADR-0379 / Research-0092: apply -fvisibility=hidden from vmaf_cflags_common
+    # so that internal helpers (vmaf_get_cpu_flags, vmaf_init_cpu,
+    # vmaf_set_cpu_flags_mask, vmaf_get_cpu_flags_x86) are hidden in the final
+    # libvmaf.so. Without this, the static lib omits -fvisibility=hidden and the
+    # linker exports these symbols as T entries even though they have no public
+    # header declaration and no VMAF_EXPORT annotation. They are internal
+    # dispatch helpers; exposing them creates de-facto ABI that prevents future
+    # renaming or removal without a soversion bump.
+    c_args : vmaf_cflags_common,
 )
 
 platform_specific_cpu_objects = []
