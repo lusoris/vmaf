@@ -132,6 +132,11 @@ class TuneCache:
     separate processes work for reads but races on `put` may overwrite
     each other (last writer wins, both rows are valid by content
     addressing).
+
+    Index persistence strategy: the ``__index__.json`` is read at
+    first access and kept in memory. Writes are deferred via a
+    dirty flag and only flushed via ``flush()`` or on ``evict_lru()``.
+    This avoids O(N) file writes per cache hit/put during a sweep.
     """
 
     INDEX_NAME = "__index__.json"
@@ -149,6 +154,8 @@ class TuneCache:
         self.path.mkdir(parents=True, exist_ok=True)
         (self.path / self.META_DIR).mkdir(exist_ok=True)
         (self.path / self.BLOB_DIR).mkdir(exist_ok=True)
+        self._index_cache: dict[str, float] | None = None
+        self._index_dirty = False
 
     # -- index helpers -----------------------------------------------
 
@@ -156,26 +163,39 @@ class TuneCache:
         return self.path / self.INDEX_NAME
 
     def _read_index(self) -> dict[str, float]:
+        """Load index into memory cache on first access.
+
+        Subsequent accesses return the in-memory copy; writes are
+        deferred via the dirty flag until ``flush()`` is called.
+        """
+        if self._index_cache is not None:
+            return self._index_cache
+
         idx = self._index_path()
         if not idx.exists():
+            self._index_cache = {}
             return {}
         try:
             with idx.open("r", encoding="utf-8") as fh:
                 data = json.load(fh)
             if isinstance(data, dict):
                 # values are floats (epoch seconds); coerce defensively
-                return {str(k): float(v) for k, v in data.items()}
+                self._index_cache = {str(k): float(v) for k, v in data.items()}
+                return self._index_cache
         except (OSError, ValueError, json.JSONDecodeError):
-            # Corrupt index — rebuild from filesystem on next put.
-            return {}
+            # Corrupt index — rebuild from filesystem on next flush.
+            pass
+        self._index_cache = {}
         return {}
 
     def _write_index(self, index: dict[str, float]) -> None:
+        """Flush index to disk and clear the dirty flag."""
         idx = self._index_path()
         tmp = idx.with_suffix(".json.tmp")
         with tmp.open("w", encoding="utf-8") as fh:
             json.dump(index, fh, sort_keys=True)
         os.replace(tmp, idx)
+        self._index_dirty = False
 
     def _meta_path(self, key: str) -> Path:
         return self.path / self.META_DIR / f"{key}.json"
@@ -186,7 +206,11 @@ class TuneCache:
     # -- public API --------------------------------------------------
 
     def get(self, key: str) -> CachedResult | None:
-        """Return the cached result for ``key``, or ``None`` on miss."""
+        """Return the cached result for ``key``, or ``None`` on miss.
+
+        Refreshes the LRU access time in memory but does not write to
+        disk — call ``flush()`` periodically to persist.
+        """
         meta = self._meta_path(key)
         blob = self._blob_path(key)
         if not (meta.exists() and blob.exists()):
@@ -197,11 +221,10 @@ class TuneCache:
         except (OSError, json.JSONDecodeError):
             return None
 
-        # Refresh LRU access time on hit.
+        # Refresh LRU access time in memory, mark dirty for deferred flush.
         index = self._read_index()
         index[key] = time.time()
-        with contextlib.suppress(OSError):
-            self._write_index(index)
+        self._index_dirty = True
 
         return CachedResult(
             encode_size_bytes=int(payload.get("encode_size_bytes", 0)),
@@ -226,6 +249,10 @@ class TuneCache:
         The artifact is copied (not moved) so callers retain ownership
         of the original. Returns a refreshed ``CachedResult`` whose
         ``artifact_path`` points at the cached copy.
+
+        The index is updated in memory and marked dirty, but not
+        written to disk. Call ``flush()`` or ``evict_lru()`` to
+        persist changes.
         """
         if not artifact_path.exists():
             raise FileNotFoundError(f"artifact missing: {artifact_path}")
@@ -255,7 +282,7 @@ class TuneCache:
 
         index = self._read_index()
         index[key] = time.time()
-        self._write_index(index)
+        self._index_dirty = True
 
         if self.size_bytes > 0:
             self.evict_lru(self.size_bytes)
@@ -285,7 +312,8 @@ class TuneCache:
         """Drop oldest entries until total size ≤ ``target_bytes``.
 
         Returns the number of entries evicted. Entries with no index
-        timestamp are treated as oldest (tie-broken by key).
+        timestamp are treated as oldest (tie-broken by key). If
+        entries are evicted, the index is flushed to disk.
         """
         if target_bytes <= 0:
             # Caller asked for unbounded → no-op.
@@ -311,6 +339,18 @@ class TuneCache:
         for p in (self._meta_path(key), self._blob_path(key)):
             with contextlib.suppress(OSError):
                 p.unlink()
+
+    def flush(self) -> None:
+        """Write the index to disk if it has been modified.
+
+        Call this at the end of a batch operation (e.g., at the end of
+        a corpus sweep) to persist pending changes. If the index is not
+        dirty, this is a no-op.
+        """
+        if not self._index_dirty or self._index_cache is None:
+            return
+        with contextlib.suppress(OSError):
+            self._write_index(self._index_cache)
 
     # -- ergonomic helpers used by `corpus.py` -----------------------
 
