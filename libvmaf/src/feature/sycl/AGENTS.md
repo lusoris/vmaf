@@ -97,6 +97,26 @@ ADR-0214) catches drift but only after a full GPU run.
   with the graph-replay model. The CUDA twin (ADR-0360) follows the same
   pattern; keep both in sync.
 
+- **Per-step `q.wait()` in feature extractors is forbidden — use the
+  in-order queue** (ADR-0458 / SY-1). The SYCL in-order queue serialises
+  all submitted operations automatically; adding `q.wait()` between GPU
+  kernels drains the queue to idle and prevents pipelining. The only
+  mandatory `q.wait()` calls are at **CPU-reads-from-device boundaries**
+  (i.e., right before host code reads a `vmaf_sycl_malloc_host` buffer
+  that was written by a preceding `q.memcpy`). Example: `integer_cambi_sycl.cpp`
+  has exactly one `q.wait()` per scale, right before
+  `vmaf_cambi_calculate_c_values`.
+
+- **Stencil/convolution SYCL kernels MUST use `local_accessor` for tap
+  reuse** (ADR-0458 / SY-2). Any kernel that implements a separable
+  filter (Gaussian, box, motion-blur) with more than 3 taps **must** stage
+  the required input region into shared local memory (SLM) via
+  `local_accessor` + a cooperative tile-load loop + barrier, following the
+  pattern in `float_vif_sycl.cpp`, `float_ansnr_sycl.cpp`,
+  `float_motion_sycl.cpp`, and (post ADR-0458) `integer_ssim_sycl.cpp`.
+  A bare `parallel_for<range<N>>` reading global memory for every tap is a
+  lint violation for convolution kernels — use `nd_range` instead.
+
 - **`integer_adm_sycl.cpp` / `float_adm_sycl.cpp` expose three ADM
   tuning parameters** (`adm_csf_scale`, `adm_csf_diag_scale`,
   `noise_weight`) with the same defaults as the CPU path (PR #731).
