@@ -72,4 +72,17 @@ CUevent vmaf_cuda_picture_get_finished_event(VmafPicture *pic);
 
 CUevent vmaf_cuda_picture_get_ready_event(VmafPicture *pic);
 
+/**
+ * Return the pixel format of a CUDA-backed VmafPicture.
+ * Consolidates the repeated `pic->pix_fmt` open-coded accesses that exist
+ * across integer_psnr_cuda.c, integer_psnr_hvs_cuda.c, integer_ciede_cuda.c,
+ * and others into a single call site.
+ *
+ * @param pic  CUDA-backed VmafPicture (may be device or pinned-host).
+ *             Must not be NULL.
+ *
+ * @return The VmafPixelFormat stored in the picture.
+ */
+enum VmafPixelFormat vmaf_cuda_picture_get_pix_fmt(const VmafPicture *pic);
+
 #endif /* __VMAF_SRC_CUDA_PICTURE_CUDA_H__ */
