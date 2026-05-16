@@ -220,8 +220,8 @@ RUN chown vmaf:vmaf /build /build/vmaf
 # Install nv-codec-headers (provides ffnvcodec/dynlink_cuda.h).
 # Required by FFmpeg --enable-libvmaf-cuda and any code path that includes the
 # NVENC/NVDEC SDK headers. Must be installed as root before the USER switch.
-RUN git clone --depth=1 --branch n12.2.72.0 \
-        https://github.com/FFmpeg/nv-codec-headers.git /tmp/nv-codec-headers \
+RUN git clone https://code.ffmpeg.org/FFmpeg/nv-codec-headers.git /tmp/nv-codec-headers \
+    && git -C /tmp/nv-codec-headers checkout 876af32a202d0de83bd1d36fe74ee0f7fcf86b0d \
     && make -C /tmp/nv-codec-headers install PREFIX=/usr/local \
     && rm -rf /tmp/nv-codec-headers
 
