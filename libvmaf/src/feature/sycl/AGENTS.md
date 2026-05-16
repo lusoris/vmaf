@@ -63,6 +63,13 @@ ADR-0214) catches drift but only after a full GPU run.
   `motion_five_frame_window=true` returns `-ENOTSUP` at `init()`.
   See [../../AGENTS.md §"motion3_score GPU contract"](../../AGENTS.md).
 
+- **`integer_psnr_sycl.cpp` honours `enable_chroma` option parity**
+  (ADR-0453). The `enable_chroma` option (default `true`) clamps `n_planes`
+  to 1 in `init_fex_sycl` when set to `false`, matching CPU
+  `integer_psnr.c::init`'s behaviour. On rebase: keep the clamp and its
+  `default_val.b = true` aligned with the CUDA and Vulkan twins; all three
+  backends must agree on the default and the dispatch logic.
+
 - **`integer_ms_ssim_sycl.cpp` honours the `enable_lcs` GPU
   contract** (ADR-0243). Emits 15 extra metrics
   (`float_ms_ssim_{l,c,s}_scale{0..4}`) when `enable_lcs=true`.
