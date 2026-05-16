@@ -65,7 +65,6 @@ T7-FR-REGRESSOR-V2-PROBABILISTIC).
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 import time
@@ -73,6 +72,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from aiutils.file_utils import sha256
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT / "ai" / "src") not in sys.path:
@@ -94,17 +95,6 @@ def _set_seed(seed: int) -> None:
 
     np.random.seed(seed)
     torch.manual_seed(seed)
-
-
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        while True:
-            chunk = fh.read(1 << 20)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _synthesize_smoke_corpus(
@@ -273,7 +263,7 @@ def _export_member(
         },
         opset_version=17,
     )
-    return _sha256(onnx_path)
+    return sha256(onnx_path)
 
 
 def _build_manifest(
