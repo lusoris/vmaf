@@ -50,6 +50,7 @@ extern "C" {
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature_name.h"
+#include "picture.h"
 #include "sycl/common.h"
 #include "log.h"
 }
@@ -108,6 +109,8 @@ struct VifStateSycl {
     unsigned bpc;
 
     bool debug;
+    bool enable_chroma;
+    unsigned n_planes;
     double vif_enhn_gain_limit;
 
     VmafDictionary *feature_name_dict;
@@ -162,6 +165,16 @@ static const VmafOption options[] = {
         .default_val = {.d = 100.0},
         .min = 1.0,
         .max = 100.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "enable_chroma",
+        .help = "when set, compute vif on chroma (Cb/Cr) planes in addition to luma; "
+                "forced off for YUV400. "
+                "SYCL path: n_planes clamped to 1 (luma-only kernel)",
+        .offset = offsetof(VifStateSycl, enable_chroma),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val = {.b = false},
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {
@@ -1368,13 +1381,17 @@ static void vif_post_graph(void *queue_ptr, void *priv);
 static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
 {
-    (void)pix_fmt;
     auto *s = static_cast<VifStateSycl *>(fex->priv);
 
     s->width = w;
     s->height = h;
     s->bpc = bpc;
     s->has_pending = false;
+
+    /* Clamp n_planes to 1: SYCL VIF kernel is luma-only; honour YUV400 too. */
+    if (pix_fmt == VMAF_PIX_FMT_YUV400P)
+        s->enable_chroma = false;
+    s->n_planes = 1; /* SYCL path: chroma dispatch not yet implemented */
 
     if (!fex->sycl_state) {
         vmaf_log(VMAF_LOG_LEVEL_ERROR, "vif_sycl: no SYCL state\n");
