@@ -104,6 +104,14 @@ ADR-0214) catches drift but only after a full GPU run.
   `integer_adm.c` / `float_adm.c`, the SYCL twins must be updated
   in the same PR.
 
+- **`motion_fps_weight` cross-backend parity** — see the canonical
+  invariant note in [`../cuda/AGENTS.md`](../cuda/AGENTS.md).
+  `integer_motion_v2_sycl.cpp` and `float_motion_sycl.cpp` both carry
+  the `motion_fps_weight` option and apply it in `flush()` /
+  `collect()` exactly as documented there. Any future change to the
+  weight application math must span all motion-family GPU twins in
+  the same PR.
+
 - **VAAPI / dmabuf zero-copy import** — the FFmpeg `libvmaf_sycl`
   filter (`ffmpeg-patches/0005-*.patch`) consumes
   `vmaf_sycl_import_va_surface`. Public-surface change touches the

@@ -237,6 +237,14 @@ do not replace — the scaffold invariants already documented above.
   in the CUDA twin's buffer-slot count or the `motion_force_zero`
   posture requires a paired update here.
 
+- **`motion_fps_weight` cross-backend parity** — see the canonical
+  invariant note in
+  [`../feature/cuda/AGENTS.md`](../feature/cuda/AGENTS.md).
+  `integer_motion_v2_hip.c` and `float_motion_hip.c` both carry
+  the `motion_fps_weight` option and apply it identically to the
+  CUDA / SYCL / Vulkan / Metal twins. Any future change to the weight
+  application math must span all motion-family GPU twins in the same PR.
+
 - **`float_ssim_hip.c` mirrors `integer_ssim_cuda.c`
   call-graph-for-call-graph** (fork-local, ADR-0274). The state
   struct carries five `uintptr_t` intermediate float buffer slots
