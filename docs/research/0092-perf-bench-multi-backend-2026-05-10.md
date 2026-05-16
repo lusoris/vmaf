@@ -1,4 +1,4 @@
-# Research Digest 0092 — Multi-Backend Performance Benchmark
+# Research-0092: Multi-Backend Performance Benchmark
 
 **Date:** 2026-05-10
 **Commit:** c7b7e8db (branch: chore/ensemble-kit-gdrive-quickstart)

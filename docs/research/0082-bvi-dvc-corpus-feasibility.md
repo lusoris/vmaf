@@ -1,4 +1,4 @@
-# Research-0082 — BVI-DVC corpus feasibility for `fr_regressor_v2`
+# Research-0082: BVI-DVC corpus feasibility for `fr_regressor_v2`
 
 ## Question
 

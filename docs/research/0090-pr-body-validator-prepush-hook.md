@@ -1,4 +1,4 @@
-# Research-0090 — Pre-push PR-body deliverables validator
+# Research-0090: Pre-push PR-body deliverables validator
 
 **Date**: 2026-05-09
 **Author**: feedback loop on the strict deliverables-checklist parser

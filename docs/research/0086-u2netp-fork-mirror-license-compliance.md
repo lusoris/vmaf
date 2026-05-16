@@ -1,4 +1,4 @@
-# Research-0086 — `u2netp.pth` fork-local mirror: Apache-2.0 §4 compliance + supply-chain surface
+# Research-0086: `u2netp.pth` fork-local mirror: Apache-2.0 §4 compliance + supply-chain surface
 
 | Field      | Value                                                       |
 | ---------- | ----------------------------------------------------------- |

@@ -1,4 +1,4 @@
-# Research-0062 — Fork-trained saliency student on DUTS-TR
+# Research-0062: Fork-trained saliency student on DUTS-TR
 
 | Field      | Value                                                       |
 | ---------- | ----------------------------------------------------------- |

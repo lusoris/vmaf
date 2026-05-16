@@ -1,4 +1,4 @@
-# Research-0096 — Feature-extractor deduplication by provided-feature names
+# Research-0096: Feature-extractor deduplication by provided-feature names
 
 **Date:** 2026-05-10
 **Status:** Accepted (fix landed in fix/fex-dedup-by-provided-feature)

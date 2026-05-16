@@ -1,4 +1,4 @@
-# Research-0028 — Phase-3 MLP arch sweep on Top-K feature subsets
+# Research-0028: Phase-3 MLP arch sweep on Top-K feature subsets
 
 _Updated: 2026-04-29._
 

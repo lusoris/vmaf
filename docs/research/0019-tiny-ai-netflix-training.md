@@ -1,4 +1,4 @@
-# Research Digest 0019 — Tiny-AI Training on the Netflix VMAF Corpus
+# Research-0019: Tiny-AI Training on the Netflix VMAF Corpus
 
 **Date**: 2026-04-27
 **Author**: Lusoris / Claude (Anthropic)

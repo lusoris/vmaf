@@ -1,4 +1,4 @@
-# Research-0055 — ciede2000 Vulkan NVIDIA places=4 root cause: f32 vs f64 colour-space chain
+# Research-0055: ciede2000 Vulkan NVIDIA places=4 root cause: f32 vs f64 colour-space chain
 
 _Date: 2026-05-03._
 

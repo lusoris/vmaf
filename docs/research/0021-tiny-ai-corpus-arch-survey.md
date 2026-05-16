@@ -1,4 +1,4 @@
-# Research Digest 0021 — Corpus + Architecture Survey for the Next Tiny-AI Iteration
+# Research-0021: Corpus + Architecture Survey for the Next Tiny-AI Iteration
 
 **Date**: 2026-04-28
 **Author**: Lusoris / Claude (Anthropic)

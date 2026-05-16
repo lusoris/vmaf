@@ -1,4 +1,4 @@
-# Research-0063 — Encoder knob-space stratifies by rate-control mode (CQ vs VBR)
+# Research-0063: Encoder knob-space stratifies by rate-control mode (CQ vs VBR)
 
 ## TL;DR
 

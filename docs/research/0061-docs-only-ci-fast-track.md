@@ -1,4 +1,4 @@
-# Research-0061 — Docs-only PR fast-track for CI matrix
+# Research-0061: Docs-only PR fast-track for CI matrix
 
 ## Problem
 

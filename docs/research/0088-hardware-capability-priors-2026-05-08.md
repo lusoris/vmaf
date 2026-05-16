@@ -1,4 +1,4 @@
-# Research digest 0088: hardware-capability priors for the FR-regressor corpus
+# Research-0088: hardware-capability priors for the FR-regressor corpus
 
 - **Date**: 2026-05-08
 - **Authors**: Lusoris, Claude (Anthropic)

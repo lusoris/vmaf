@@ -1,4 +1,4 @@
-# Research digest 0091 — Vulkan per-WG accumulator readback bottleneck and two-level GPU reduction
+# Research-0091: Vulkan per-WG accumulator readback bottleneck and two-level GPU reduction
 
 **Date**: 2026-05-09
 **Authors**: Lusoris / Claude (Anthropic)

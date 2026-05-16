@@ -1,4 +1,4 @@
-# Research-0095 — ATOM_FEATURES port (3dee9666 + 7209110e) blocker
+# Research-0095: ATOM_FEATURES port (3dee9666 + 7209110e) blocker
 
 **Date:** 2026-05-10
 **Status:** Blocked — port requires C-side `adm_cm` API change, not just Python sync.

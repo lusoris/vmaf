@@ -1,4 +1,4 @@
-# Research-0067 — K150K-A corpus integration feasibility and pipeline design
+# Research-0067: K150K-A corpus integration feasibility and pipeline design
 
 **Date:** 2026-05-09
 **ADR:** [ADR-0362](../adr/0362-k150k-corpus-integration.md)

@@ -1,4 +1,4 @@
-# Research Digest 0023 — 3-arch LOSO results on the Netflix corpus
+# Research-0023: 3-arch LOSO results on the Netflix corpus
 
 **Date**: 2026-04-28
 **Author**: Lusoris / Claude (Anthropic)

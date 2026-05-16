@@ -1,4 +1,4 @@
-# Research digest 0018 — SSIMULACRA 2 snapshot-JSON regression gate (T3-3)
+# Research-0018: SSIMULACRA 2 snapshot-JSON regression gate (T3-3)
 
 - **Status**: Active (captures decision path for ADR-0164)
 - **Related ADRs**: [ADR-0130](../adr/0130-ssimulacra2-scalar-implementation.md)
