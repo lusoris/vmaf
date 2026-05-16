@@ -35,6 +35,7 @@
  */
 
 #include <errno.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -65,6 +66,12 @@ typedef struct {
     unsigned height;
     unsigned bpc;
     int scale_override;
+    /* `enable_chroma` option: when false, only luma is dispatched.
+     * Default false mirrors CPU integer_ssim.c PR #939. */
+    bool enable_chroma;
+    /* Number of active planes (1 for YUV400P or !enable_chroma, 3 otherwise).
+     * v1 kernel reads data[0] only; n_planes>1 is reserved for v2. */
+    unsigned n_planes;
 
     /* Output dims after the convolve "valid" reduction. */
     unsigned w_horiz; /* W - 10 */
@@ -135,6 +142,14 @@ static const VmafOption options[] = {
         .default_val.i = 0,
         .min = 0,
         .max = 10,
+    },
+    {
+        .name = "enable_chroma",
+        .help = "enable calculation for chroma channels (mirrors CPU PR #939; "
+                "v1 kernel defers multi-plane dispatch to v2)",
+        .offset = offsetof(SsimVulkanState, enable_chroma),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
     },
     {0},
 };
@@ -321,8 +336,15 @@ static int write_descriptor_set(SsimVulkanState *s, VkDescriptorSet set)
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
-    (void)pix_fmt;
     SsimVulkanState *s = fex->priv;
+
+    /* Derive n_planes from pix_fmt, then clamp if !enable_chroma.
+     * Mirrors integer_psnr_cuda.c::init's enable_chroma guard (ADR-0453). */
+    if (pix_fmt == VMAF_PIX_FMT_YUV400P) {
+        s->n_planes = 1U;
+    } else {
+        s->n_planes = s->enable_chroma ? 3U : 1U;
+    }
 
     /* v1 supports scale=1 only — auto-resolve and reject if larger. */
     int scale = compute_scale(w, h, s->scale_override);
@@ -421,6 +443,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     (void)dist_pic_90;
     SsimVulkanState *s = fex->priv;
     int err = 0;
+
+    /* v1 dispatches luma plane only (kernel reads data[0]).
+     * When enable_chroma=true, n_planes=3 but the kernel loop is deferred
+     * to v2 (requires passing plane index into the shader). */
 
     err = upload_pic(s, s->ref_in, ref_pic);
     if (err)
