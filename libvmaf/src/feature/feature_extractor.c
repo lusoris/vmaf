@@ -253,9 +253,11 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * registration posture — registers, `init()` returns -ENOSYS
      * until T7-10b. */
     &vmaf_fex_ciede_hip,
-    /* Fourth consumer (ADR-0258): `float_moment_hip` mirrors
-     * `integer_moment_cuda.c`'s call graph; emits four
-     * `float_moment_*` features once the runtime kernel arrives. */
+    /* Fourth consumer (ADR-0258): `float_moment_hip` implemented in
+     * `integer_moment_hip.c` (canonical naming mirrors CUDA twin
+     * `integer_moment_cuda.c` and SYCL twin `integer_moment_sycl.cpp`);
+     * emits four `float_moment_*` features once the runtime kernel
+     * arrives. */
     &vmaf_fex_float_moment_hip,
     /* T7-10b fifth + sixth consumers (ADR-0266 / ADR-0267): same
      * scaffold-posture registration as the first consumer. */

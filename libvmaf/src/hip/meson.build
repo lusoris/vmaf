@@ -28,10 +28,15 @@
 # through the kernel-template helpers until T7-10b lands real
 # `hipStreamCreate` / `hipMemcpyAsync` bodies.
 #
-# `feature/hip/float_moment_hip.c` is the fourth kernel-template
+# `feature/hip/integer_moment_hip.c` is the fourth kernel-template
 # consumer (ADR-0258) — registers `vmaf_fex_float_moment_hip` and
 # mirrors the CUDA twin (`feature/cuda/integer_moment_cuda.c`).
-# Same scaffold posture as the third consumer; emits four features
+# Named `integer_moment_hip.c` to follow the same naming convention
+# as the CUDA twin and the SYCL twin
+# (`feature/sycl/integer_moment_sycl.cpp`): the "integer" prefix
+# reflects integer YUV pixel accumulation even though the emitted
+# metrics are named `float_moment_*`. Same scaffold posture as the
+# third consumer; emits four features
 # (`float_moment_ref{1st,2nd}`, `float_moment_dis{1st,2nd}`) once
 # the runtime kernel arrives.
 # `feature/hip/float_ansnr_hip.c` is the fifth kernel-template
@@ -78,7 +83,7 @@ hip_sources += files(
     '../feature/hip/motion_hip.c',
     '../feature/hip/integer_psnr_hip.c',
     '../feature/hip/ciede_hip.c',
-    '../feature/hip/float_moment_hip.c',
+    '../feature/hip/integer_moment_hip.c',
     '../feature/hip/float_ansnr_hip.c',
     '../feature/hip/integer_motion_v2_hip.c',
     '../feature/hip/float_motion_hip.c',
