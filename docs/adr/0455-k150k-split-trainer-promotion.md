@@ -8,7 +8,7 @@
 ## Context
 
 [ADR-0325](0325-konvid-150k-corpus-ingestion.md) materialized the
-KonViD-150k corpus under `.corpus/konvid-150k/` (2026-05-15 status
+KonViD-150k corpus under `.workingdir2/konvid-150k/` (2026-05-15 status
 update).  The Phase 2 adapter
 (`ai/scripts/konvid_150k_to_corpus_jsonl.py`) emits one JSONL row per
 clip and tags every row with `"split": "k150ka"` or `"split": "k150kb"`

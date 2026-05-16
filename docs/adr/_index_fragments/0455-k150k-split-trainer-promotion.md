@@ -1,0 +1,1 @@
+| [ADR-0455](0455-k150k-split-trainer-promotion.md) | Promote KonViD-150k k150ka/k150kb score-drop layout identifiers into the MOS-head trainer split vocabulary (k150ka→train, k150kb→val) so the canonical held-out boundary is honoured and the production-flip gate fires against the researchers' intended partition. | Accepted | ai, training, corpus, konvid, fork-local |

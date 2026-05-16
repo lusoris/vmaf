@@ -35,8 +35,20 @@ is unblocked and queued behind the in-flight CHUG feature extraction's
 GPU usage; once the GPU frees up, the production-flip gate (`PLCC ≥ 0.85`
 mean, `SROCC ≥ 0.82`, `RMSE ≤ 0.45`) gets run.
 
+### Split-label promotion (ADR-0455)
+
+The Phase 2 adapter tags every JSONL row with `"split": "k150ka"` (the
+large training partition, ~148 000 rows) or `"split": "k150kb"` (the
+held-out validation partition, ~2 000 rows). As of ADR-0455,
+`train_konvid_mos_head.py` promotes these labels to the standard
+`train` / `val` vocabulary, so the canonical split boundary is honoured
+and the production-flip gate fires against the researchers' intended
+partition rather than a randomly-resampled fold.
+
 See [ADR-0325](../adr/0325-konvid-150k-corpus-ingestion.md) for the
-two-phase decision and
+two-phase decision,
+[ADR-0455](../adr/0455-k150k-split-trainer-promotion.md) for the split
+promotion decision, and
 [Research-0086](../research/0086-konvid-150k-corpus-feasibility.md)
 for the feasibility analysis.
 
