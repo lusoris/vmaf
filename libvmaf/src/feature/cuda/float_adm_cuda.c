@@ -67,6 +67,7 @@ typedef struct {
     CUfunction func_dwt_hori;
     CUfunction func_decouple_csf;
     CUfunction func_csf_cm;
+    CUmodule module;
 
     VmafCudaBuffer *src_ref;
     VmafCudaBuffer *src_dis;
@@ -237,10 +238,9 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
 
     int _cuda_err = 0;
     int ctx_pushed = 0;
-    CUmodule module;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, float_adm_score_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, float_adm_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_dwt_vert, module, "float_adm_dwt_vert"),
                     fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_dwt_hori, module, "float_adm_dwt_hori"),
@@ -671,6 +671,8 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     FloatAdmStateCuda *s = fex->priv;
     int ret = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+    if (s->module)
+        (void)fex->cu_state->f->cuModuleUnload(s->module);
     if (s->src_ref) {
         ret |= vmaf_cuda_buffer_free(fex->cu_state, s->src_ref);
         free(s->src_ref);

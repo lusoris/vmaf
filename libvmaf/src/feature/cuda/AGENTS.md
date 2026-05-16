@@ -266,3 +266,15 @@ The `enable_cuda` umbrella flag gates inclusion via
   per-feature CUDA kernel-template scaffolding.
 - [ADR-0360](../../../../docs/adr/0360-cambi-cuda.md) —
   CAMBI CUDA port (Strategy II hybrid, T3-15a).
+
+- **Every CUDA extractor that calls `cuModuleLoadData` in `init_fex_cuda`
+  MUST call `cuModuleUnload` in `close_fex_cuda`.** Persistent-process
+  workloads (the planned "reuse vmaf context across clips" optimisation,
+  which would save ~70 minutes on the full CHUG run by amortising the
+  300-700 ms CUDA init per clip) leak one module's GPU-resident backing
+  store per `vmaf_close()` cycle if this is omitted. The correct pattern
+  is: (1) store the `CUmodule` handle in the state struct (not a local
+  variable in `init`), (2) load it with `cuModuleLoadData(&s->module, ...)`,
+  (3) unload it in `close` with `if (s->module) (void)cu_f->cuModuleUnload(s->module);`.
+  Use `ssimulacra2_cuda.c` as the reference. Fixed across all 16 CUDA
+  extractors in PR #N (2026-05-16 audit).

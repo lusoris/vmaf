@@ -45,6 +45,7 @@ typedef struct MotionV2StateCuda {
 
     CUfunction funcbpc8;
     CUfunction funcbpc16;
+    CUmodule module;
 
     /* Ping-pong of raw ref Y planes (uint8 for bpc<=8, uint16 for
      * bpc>8 — bytes_per_pixel * w * h). pix[index%2] is the current
@@ -110,8 +111,7 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
 
-    CUmodule module;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, motion_v2_score_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, motion_v2_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc8, module, "motion_v2_kernel_8bpc"), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc16, module, "motion_v2_kernel_16bpc"),
                     fail);
@@ -312,6 +312,8 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
     MotionV2StateCuda *s = fex->priv;
 
     int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+    if (s->module)
+        (void)fex->cu_state->f->cuModuleUnload(s->module);
 
     if (s->pix[0]) {
         const int e = vmaf_cuda_buffer_free(fex->cu_state, s->pix[0]);

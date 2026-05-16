@@ -51,6 +51,7 @@ typedef struct PsnrHvsStateCuda {
      * template's single-pair readback bundle. */
     VmafCudaKernelLifecycle lc;
     CUfunction func_psnr_hvs;
+    CUmodule module;
 
     /* Dedicated H2D upload stream + completion event (T-GPU-OPT-2).
      * H2Ds run on `upload_str` so DMA can overlap kernel launches on
@@ -168,8 +169,7 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
                     fail);
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->upload_done, CU_EVENT_DISABLE_TIMING), fail);
 
-    CUmodule module;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, psnr_hvs_score_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, psnr_hvs_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_psnr_hvs, module, "psnr_hvs"), fail);
 
     CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
@@ -436,6 +436,8 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
     PsnrHvsStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
     int ret = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+    if (s->module)
+        (void)fex->cu_state->f->cuModuleUnload(s->module);
 
     /* T-GPU-OPT-2: tear down dedicated upload stream + event.
      * Drain first so any in-flight H2D completes before the pinned

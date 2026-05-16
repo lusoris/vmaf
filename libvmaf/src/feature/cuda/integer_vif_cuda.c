@@ -61,6 +61,7 @@ typedef struct VifStateCuda {
         func_filter1d_16_vertical_kernel_uint2_3_0_3, func_filter1d_16_horizontal_kernel_2_17_9_0,
         func_filter1d_16_horizontal_kernel_2_9_5_1, func_filter1d_16_horizontal_kernel_2_5_3_2,
         func_filter1d_16_horizontal_kernel_2_3_0_3;
+    CUmodule filter1d_module;
 } VifStateCuda;
 
 typedef struct write_score_parameters_vif {
@@ -104,8 +105,7 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
     // make this static
-    CUmodule filter1d_module;
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&filter1d_module, filter1d_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->filter1d_module, filter1d_ptx), fail);
     CHECK_CUDA_GOTO(cu_f,
                     cuModuleGetFunction(&s->func_filter1d_8_vertical_kernel_uint32_t_17_9,
                                         filter1d_module,
@@ -576,6 +576,8 @@ after_ev1:
 after_ev2:;
 
     int ret = _cuda_err;
+    if (s->filter1d_module)
+        (void)fex->cu_state->f->cuModuleUnload(s->filter1d_module);
     if (s->buf.data) {
         ret |= vmaf_cuda_buffer_free(fex->cu_state, s->buf.data);
         free(s->buf.data);
