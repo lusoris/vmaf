@@ -366,6 +366,9 @@ static const char *provided_features[] = {"float_ansnr",
                                           "float_anpsnr_cr",
                                           NULL};
 
+static const VmafOption options[] = {{0}};
+
+// NOLINTNEXTLINE(misc-use-internal-linkage): extern symbol referenced by feature_extractor.c registry.
 VmafFeatureExtractor vmaf_fex_float_ansnr_cuda = {
     .name = "float_ansnr_cuda",
     .init = init_fex_cuda,
@@ -375,5 +378,13 @@ VmafFeatureExtractor vmaf_fex_float_ansnr_cuda = {
     .options = options,
     .priv_size = sizeof(FloatAnsnrStateCuda),
     .provided_features = provided_features,
+    .options = options,
     .flags = VMAF_FEATURE_EXTRACTOR_CUDA,
+    .chars =
+        {
+            .n_dispatches_per_frame = 1,
+            .is_reduction_only = false,
+            .min_useful_frame_area = 1920U * 1080U,
+            .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
+        },
 };
