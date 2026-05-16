@@ -7,7 +7,7 @@ lane for trivial breakage (broken anchors, orphan pages, missing nav
 entries). Each CI failure cost ~6 minutes. The pre-push hook catches
 the same errors in ~5 seconds locally, before any network traffic.
 
-See [ADR-0457](../adr/0457-mkdocs-strict-pre-push-hook.md) for the
+See [ADR-0466](../adr/0466-mkdocs-strict-pre-push-hook.md) for the
 decision record.
 
 ## Quick start

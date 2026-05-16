@@ -230,7 +230,7 @@ repos:
         pass_filenames: false
 
       - id: mkdocs-strict
-        name: mkdocs build --strict (ADR-0457 pre-push)
+        name: mkdocs build --strict (ADR-0466 pre-push)
         entry: scripts/git-hooks/pre-push-mkdocs-strict.sh
         language: script
         stages: [pre-push]

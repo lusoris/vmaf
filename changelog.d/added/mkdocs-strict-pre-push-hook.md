@@ -1,7 +1,7 @@
 ## Added
 
 - **`scripts/git-hooks/pre-push-mkdocs-strict.sh` — mkdocs strict-mode pre-push gate
-  ([ADR-0457](../docs/adr/0457-mkdocs-strict-pre-push-hook.md)).**
+  ([ADR-0466](../docs/adr/0466-mkdocs-strict-pre-push-hook.md)).**
   Detects whether a push touches `docs/` or `mkdocs.yml`; skips immediately on
   non-docs pushes (no latency penalty). On docs-touching pushes, runs
   `mkdocs build --strict --quiet` against a temporary output directory and blocks

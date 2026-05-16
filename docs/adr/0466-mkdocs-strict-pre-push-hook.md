@@ -1,4 +1,4 @@
-# ADR-0457: mkdocs strict-mode pre-push hook
+# ADR-0466: mkdocs strict-mode pre-push hook
 
 - **Status**: Accepted
 - **Date**: 2026-05-15

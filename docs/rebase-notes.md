@@ -257,7 +257,7 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Touches**: `scripts/git-hooks/pre-push-mkdocs-strict.sh` (new),
   `scripts/git-hooks/pre-push` (delegation call appended),
   `.pre-commit-config.yaml` (new `mkdocs-strict` local hook entry),
-  `docs/adr/0457-mkdocs-strict-pre-push-hook.md` (new ADR).
+  `docs/adr/0466-mkdocs-strict-pre-push-hook.md` (new ADR).
 - **Invariant**: The hook gate mirrors the CI `docs.yml` lane (ADR-0403):
   `mkdocs build --strict --quiet` with the repo-root `mkdocs.yml`. Keeping
   the hook's config-file flag pointed at `mkdocs.yml` in the repo root is
