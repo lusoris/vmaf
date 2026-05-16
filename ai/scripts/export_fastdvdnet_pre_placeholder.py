@@ -34,13 +34,14 @@ Re-running is idempotent.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 from pathlib import Path
 
 import torch
 from torch import nn
+
+from aiutils.file_utils import sha256
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TINY_DIR = REPO_ROOT / "model" / "tiny"
@@ -79,17 +80,6 @@ class FastDVDnetPlaceholder(nn.Module):
         residual = self.conv3(h)
         out = torch.clamp(centre + 0.05 * residual, 0.0, 1.0)
         return out
-
-
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        while True:
-            chunk = fh.read(1 << 20)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _export(onnx_path: Path, height: int, width: int, opset: int) -> None:
@@ -152,7 +142,7 @@ def _update_registry(onnx_path: Path) -> None:
     doc = json.loads(REGISTRY.read_text())
     models: list[dict] = doc.get("models", [])
     by_id = {m["id"]: m for m in models}
-    digest = _sha256(onnx_path)
+    digest = sha256(onnx_path)
     entry = {
         "id": "fastdvdnet_pre",
         "kind": "filter",
