@@ -166,20 +166,18 @@ static const VmafOption options[] = {
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {
-        .name = "vif_skip_scale0",
-        .help = "when set, skip scale 0 calculations",
-        .alias = "ssclz",
-        .offset = offsetof(VifStateSycl, vif_skip_scale0),
-        .type = VMAF_OPT_TYPE_BOOL,
-        .default_val = {.b = false},
-        .min = 0.0,
-        .max = 0.0,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    {
         .name = "vif_fused",
         .help = "use fused V+H kernel (saves VRAM, may be slower on some GPUs)",
         .offset = offsetof(VifStateSycl, use_fused),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val = {.b = false},
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "vif_skip_scale0",
+        .help = "skip scale 0 (finest scale) VIF computation; "
+                "score0 is forced to 0.0 (parity with CPU option)",
+        .offset = offsetof(VifStateSycl, vif_skip_scale0),
         .type = VMAF_OPT_TYPE_BOOL,
         .default_val = {.b = false},
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
@@ -1652,12 +1650,12 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
 
         vif_scale_num[scale] = num;
         vif_scale_den[scale] = den;
-        /* Skip scale 0 contribution when vif_skip_scale0 is set,
-         * matching integer_vif.c write_scores() parity. */
-        if (scale == 0 && s->vif_skip_scale0)
-            continue;
-        score_num += num;
-        score_den += den;
+        /* vif_skip_scale0: exclude scale 0 from the aggregate (parity with
+         * integer_vif.c CPU path, lines 725-733). */
+        if (!s->vif_skip_scale0 || scale > 0) {
+            score_num += num;
+            score_den += den;
+        }
     }
 
     // Write primary per-scale features
@@ -1694,20 +1692,21 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
 
         for (int i = 0; i < VIF_NUM_SCALES; i++) {
             char name[64];
-            double num_val, den_val;
             if (i == 0 && s->vif_skip_scale0) {
-                num_val = 0.0f;
-                den_val = -1.0f;
+                (void)std::snprintf(name, sizeof(name), "integer_vif_num_scale0");
+                vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                        name, 0.0, index);
+                (void)std::snprintf(name, sizeof(name), "integer_vif_den_scale0");
+                vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                        name, -1.0, index);
             } else {
-                num_val = vif_scale_num[i];
-                den_val = vif_scale_den[i];
+                (void)std::snprintf(name, sizeof(name), "integer_vif_num_scale%d", i);
+                vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                        name, vif_scale_num[i], index);
+                (void)std::snprintf(name, sizeof(name), "integer_vif_den_scale%d", i);
+                vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                        name, vif_scale_den[i], index);
             }
-            (void)std::snprintf(name, sizeof(name), "integer_vif_num_scale%d", i);
-            vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, name,
-                                                    num_val, index);
-            (void)std::snprintf(name, sizeof(name), "integer_vif_den_scale%d", i);
-            vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, name,
-                                                    den_val, index);
         }
     }
 

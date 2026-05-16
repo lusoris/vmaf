@@ -138,13 +138,13 @@ Expected output: 3/3 PASS.
 
 ### Full pipeline: wall-time before/after (5-clip subset)
 
-Select 5 random clips from `.corpus/chug/clips/`:
+Select 5 random clips from `.workingdir2/chug/clips/`:
 
 ```bash
 # Extract with the updated script (skip CPU-only fallback for speed)
 time python ai/scripts/extract_k150k_features.py \
   --limit 5 \
-  --clips-dir .corpus/chug/clips \
+  --clips-dir .workingdir2/chug/clips \
   --no-cuda \  # CPU-only baseline for comparison
   --out /tmp/k150k_v2_cpu.parquet
 

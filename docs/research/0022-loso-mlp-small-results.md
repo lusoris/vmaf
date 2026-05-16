@@ -1,4 +1,4 @@
-# Research-0022: LOSO results for `mlp_small` on the Netflix corpus
+# Research Digest 0022 — LOSO results for `mlp_small` on the Netflix corpus
 
 **Date**: 2026-04-28
 **Author**: Lusoris / Claude (Anthropic)
@@ -13,7 +13,7 @@ Research Digest 0019 (Netflix corpus methodology).
 
 ## 1. Setup
 
-* Corpus: `.corpus/netflix/{ref,dis}/`, 9 reference YUVs, 70
+* Corpus: `.workingdir2/netflix/{ref,dis}/`, 9 reference YUVs, 70
   distortion variants per source where complete (some sources have
   fewer; `(n)` columns below).
 * Teacher: `vmaf_v0.6.1` per-frame scores via the libvmaf CLI in

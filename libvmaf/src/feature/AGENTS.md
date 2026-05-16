@@ -730,6 +730,3 @@ after a port-upstream of any of these files.
   port from `d3647c73` (`speed_chroma` + `speed_temporal`) is
   PR #213 (open). 32-bit ADM/cpu fallbacks (`8a289703` +
   `1b6c3886`) are PR #212 (open).
-- **`float_ansnr` `enable_chroma`**: fork-local option (default `false`). GPU
-  twins do not yet expose this option; if ported, ensure they emit the same
-  four chroma feature names (`float_ansnr_cb/cr`, `float_anpsnr_cb/cr`).
