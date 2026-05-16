@@ -7,30 +7,21 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
-## perf/vulkan-pipeline-cache-2026-05-16 — VkPipelineCache (VK-4, ADR-0470)
+## refactor/bootstrap-name-builder-dedup-2026-05-16
 
-**`libvmaf/src/vulkan/common.c`**: adds `pipeline_cache_load` and
-`pipeline_cache_save_and_destroy` helpers; calls them from
-`vmaf_vulkan_context_new()` and `vmaf_vulkan_context_destroy()`.
-**`libvmaf/src/vulkan/kernel_template.h`**: both `vkCreateComputePipelines`
-call sites now pass `ctx->pipeline_cache` instead of `VK_NULL_HANDLE`.
-**`libvmaf/src/vulkan/vulkan_internal.h`**: adds `VkPipelineCache
-pipeline_cache` field to `VmafVulkanContext`.
+**`libvmaf/src/bootstrap_names.h`** is a new fork-local internal header.
+If upstream Netflix ever refactors `predict.c` or `libvmaf.c` in the
+bootstrap-score-pooling area, check whether the suffix constants remain
+identical and update `bootstrap_names.h` accordingly.  No public API
+change; no rebase conflict expected in practice since upstream has not
+touched these functions since the fork diverged.
 
-No rebase conflict expected from upstream — Netflix/vmaf has no Vulkan
-backend; the entire `libvmaf/src/vulkan/` tree is fork-local. If upstream
-ever adds Vulkan, resolve by merging their `VmafVulkanContext` struct with
-ours, preserving `pipeline_cache` and the load/save lifecycle.
+**Smoke-test after rebase**:
 
-## fix/saliency-per-mb-eval-2026-05-15 — integer_vif enable_chroma
-
-**`libvmaf/src/feature/integer_vif.c`**: adds `enable_chroma` bool field to
-`VifState`, a new `VmafOption` entry, a YUV400 clamp in `init`, and eight new
-keys in `provided_features`. If upstream Netflix ever adds chroma support to
-`integer_vif`, resolve by keeping their implementation and dropping the fork's
-`extract_plane` helper, or rebasing it if the upstream approach differs.
-
-No rebase conflict expected on the luma path — only additive changes.
+```bash
+meson setup build -Denable_cuda=false -Denable_sycl=false && ninja -C build
+meson test -C build --suite=fast 2>&1 | grep -E 'predict|model|FAIL|PASS'
+```
 
 ## fix/sycl-motion-fps-weight-vulkan-import-status-2026-05-16
 
@@ -52,12 +43,6 @@ only `dev/Containerfile`, `dev/AGENTS.md`, `docs/research/0135-*`, and
 `changelog.d/fixed/dev-mcp-container-stage-3.md`. These are all fork-local
 infra files; no upstream-shared code, headers, build files, or feature
 extractors are modified. No sync-upstream conflicts expected.
-
----
-
-No rebase impact: `audit/t3-9b-ssimulacra2-ulp-audit` — doc-only PR (ADR-0467,
-changelog fragment, BACKLOG update). No C files touched. No upstream-shared
-paths modified.
 
 No rebase impact: `feat/tiny-ai-registry-ci-and-saliency-v2-promotion-2026-05-15`
 touches `model/tiny/registry.json` (fork-local tiny-AI registry),
@@ -1113,17 +1098,6 @@ relationship is preserved (primary = `PyPsnr*`, deprecated = `Pypsnr*`).
   three.
 
 ### 0229 — HIP fifth-consumer kernel `float_ansnr_hip` (ADR-0266)
-
-### N/A — `float_ansnr_hip` `enable_chroma` option (ADR-0453 parity)
-
-- **Touches**: `libvmaf/src/feature/hip/float_ansnr_hip.c` only.
-- **Invariant**: `enable_chroma` default is `false` (matches CPU PR #947 and
-  CUDA PR #957). `n_planes` is derived in `init_fex_hip` from `pix_fmt` and
-  `enable_chroma`; the submit/collect loops iterate `s->n_planes`, not the
-  static `ANSNR_HIP_MAX_PLANES`. `close_fex_hip` iterates `ANSNR_HIP_MAX_PLANES`
-  to safely free all slots even when `n_planes < 3`.
-- **no rebase impact**: purely additive change to a single TU with no
-  public-header or registration-list modifications.
 
 ### 0228 — `y4m_convert_411_422jpeg` 1-byte heap-buffer-overflow fix
 
@@ -35020,65 +34994,4 @@ runtime or reading a schema-version sidecar (future work).
 ```bash
 python -m pytest ai/tests/test_extract_k150k_no_ssimulacra2.py -v
 # Expected: 3/3 PASS
-```
-
----
-
-## CUDA extractor `cuModuleUnload` teardown (2026-05-16)
-
-**Branch**: `fix/cuda-extractors-cumoduleUnload-2026-05-16`
-
-**Files touched**: 16 files in `libvmaf/src/feature/cuda/` (all fork-local
-CUDA extractor host-glue `.c` files except `ssimulacra2_cuda.c` which
-was already correct), plus `libvmaf/src/feature/cuda/AGENTS.md`,
-`changelog.d/fixed/cuda-extractor-module-unload.md`, `docs/rebase-notes.md`.
-
-**Rebase impact**: none. All touched files are fork-local; upstream
-Netflix/vmaf has no CUDA feature extractors and therefore no conflicts
-on these paths.
-
-**Invariant to preserve on rebase**: every CUDA extractor that calls
-`cuModuleLoadData` in `init_fex_cuda` must store the handle in the state
-struct and call `cuModuleUnload` in `close_fex_cuda`. See the AGENTS.md
-note added in this PR. Any new extractor added by a future upstream port
-or fork PR must follow the same pattern.
-
-**Smoke-test after rebase**:
-
-```bash
-meson setup build -Denable_cuda=false -Denable_sycl=false
-ninja -C build
-meson test -C build --suite=fast
-```
-
----
-
-## perf/adm-p-norm-fast-path-vif-arm64-malloc-2026-05-16 (ADR-0463)
-
-**What changed**: Added `adm_cm_s_p3`, `adm_csf_den_scale_s_p3`, and
-`adm_sum_cube_s_p3` fast-path variants in `adm_tools.c`; dispatch added in
-`adm.c:compute_adm`. Removed per-call `aligned_malloc` from the scalar
-fallback paths of `vif_filter1d_s`, `vif_filter1d_sq_s`, and
-`vif_filter1d_xy_s` in `vif_tools.c` — the caller-supplied `tmpbuf` is
-used instead.
-
-**Rebase impact**: low. All modified files (`adm_tools.c`, `adm_tools.h`,
-`adm.c`, `vif_tools.c`) are shared with upstream Netflix/vmaf. The ADM
-changes add new symbols (no existing signatures altered). The VIF changes
-only remove local malloc/free; the function signatures and caller-supplied
-`tmpbuf` contract are unchanged.
-
-**Invariant to preserve on rebase**: When upstream Netflix/vmaf modifies
-`adm_cm_s`, `adm_csf_den_scale_s`, or `adm_sum_cube_s`, the corresponding
-`_p3` variants in the fork must receive the same logic change (minus the
-`powf` path). When upstream modifies `vif_filter1d_*` scalar fallbacks,
-ensure they do not reintroduce `aligned_malloc` in the fallback body.
-See `libvmaf/src/feature/AGENTS.md` performance-invariant section.
-
-**Smoke-test after rebase**:
-
-```bash
-meson setup build -Denable_cuda=false -Denable_sycl=false
-ninja -C build
-meson test -C build
 ```
