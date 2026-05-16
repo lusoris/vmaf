@@ -494,6 +494,12 @@ libvmaf_cpu_static_lib = static_library(
     'libvmaf_cpu',
     libvmaf_cpu_sources,
     include_directories : [libvmaf_include],
+    # Pass -fvisibility=hidden so that cpu probe helpers (vmaf_get_cpu_flags,
+    # vmaf_get_cpu_flags_x86, vmaf_init_cpu, vmaf_set_cpu_flags_mask) do NOT
+    # appear as default-visibility T symbols in libvmaf.so.  Audit finding 2b
+    # (audit-build-matrix-symbols-2026-05-16) confirmed all four leaked
+    # without this flag.  See ADR-0379.
+    c_args : vmaf_cflags_common,
 )
 
 platform_specific_cpu_objects = []

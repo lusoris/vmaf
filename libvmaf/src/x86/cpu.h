@@ -19,6 +19,8 @@
 #ifndef __VMAF_SRC_X86_CPU_H__
 #define __VMAF_SRC_X86_CPU_H__
 
+#include "libvmaf/macros.h"
+
 enum VmafCpuFlags {
     VMAF_X86_CPU_FLAG_SSE2 = 1 << 0,
     VMAF_X86_CPU_FLAG_SSSE3 = 1 << 1,
@@ -28,6 +30,8 @@ enum VmafCpuFlags {
     VMAF_X86_CPU_FLAG_AVX512ICL = 1 << 5,
 };
 
-unsigned vmaf_get_cpu_flags_x86(void);
+/* Belt-and-suspenders: hidden even if the TU is built without
+ * -fvisibility=hidden.  See ADR-0379 / audit finding 2b. */
+VMAF_HIDDEN unsigned vmaf_get_cpu_flags_x86(void);
 
 #endif /* __VMAF_SRC_X86_CPU_H__ */

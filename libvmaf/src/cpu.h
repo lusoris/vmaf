@@ -24,6 +24,7 @@ extern "C" {
 #endif
 
 #include "config.h"
+#include "libvmaf/macros.h"
 
 #if ARCH_X86
 #include "x86/cpu.h"
@@ -31,9 +32,14 @@ extern "C" {
 #include "arm/cpu.h"
 #endif
 
-void vmaf_init_cpu(void);
-void vmaf_set_cpu_flags_mask(const unsigned mask);
-unsigned vmaf_get_cpu_flags(void);
+/* Belt-and-suspenders hidden annotations: libvmaf_cpu_static_lib now passes
+ * vmaf_cflags_common (which contains -fvisibility=hidden), so these four
+ * symbols compile hidden at the TU level.  The VMAF_HIDDEN annotations here
+ * make the intent explicit and guard against future meson.build regressions
+ * where c_args could be omitted.  See ADR-0379 / audit finding 2b. */
+VMAF_HIDDEN void vmaf_init_cpu(void);
+VMAF_HIDDEN void vmaf_set_cpu_flags_mask(const unsigned mask);
+VMAF_HIDDEN unsigned vmaf_get_cpu_flags(void);
 
 #ifdef __cplusplus
 }

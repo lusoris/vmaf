@@ -34816,6 +34816,45 @@ ninja -C build test/test_cli_parse
 
 ---
 
+## `fix/saliency-per-mb-eval-2026-05-15` — cpu-static-lib visibility fix (Batch 6)
+
+**Branch**: `fix/saliency-per-mb-eval-2026-05-15`
+
+**Files touched**: `libvmaf/src/meson.build`,
+`libvmaf/src/cpu.h`,
+`libvmaf/src/x86/cpu.h`,
+`libvmaf/src/arm/cpu.h`,
+`libvmaf/include/libvmaf/macros.h`,
+`libvmaf/AGENTS.md`.
+
+**ABI note**: this change removes 4 symbols
+(`vmaf_get_cpu_flags`, `vmaf_get_cpu_flags_x86`, `vmaf_init_cpu`,
+`vmaf_set_cpu_flags_mask`) from the dynamic symbol table of `libvmaf.so`.
+These symbols were never declared in any public header and never documented;
+their presence was a de-facto ABI leak (audit finding 2b).  Removing them is
+NOT a SONAME bump — they were unintentionally exported and carry no stability
+guarantee.  Any downstream code that was resolving these via `dlsym` was
+depending on undocumented internals.
+
+**Rebase impact**: low.  `libvmaf/src/meson.build` is an upstream-shared file,
+but the `libvmaf_cpu_static_lib` block is entirely fork-added (upstream uses
+the sources directly in the main `static_library` call).  On any upstream sync
+that restructures the CPU source gathering, verify that the merged block still
+carries `c_args : vmaf_cflags_common`; otherwise the 4 symbols silently
+reappear.  The `VMAF_HIDDEN` annotations on the function declarations provide
+the belt-and-suspenders guard.
+
+**Smoke-test after rebase**:
+
+```bash
+meson setup build -Denable_cuda=false -Denable_sycl=false
+ninja -C build src/libvmaf.so.3.0.0
+nm -D --defined-only build/src/libvmaf.so.3.0.0 | grep -E 'vmaf_(get_cpu_flags|init_cpu|set_cpu_flags_mask)'
+# Must print nothing (symbols correctly hidden)
+```
+
+---
+
 ## `fix/motion-fps-weight-all-gpu-backends` — motion_fps_weight parity across all GPU twins
 
 **Branch**: `fix/saliency-per-mb-eval-2026-05-15` (squash PR #863)
