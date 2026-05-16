@@ -7,6 +7,16 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
+## fix/saliency-per-mb-eval-2026-05-15 — integer_vif enable_chroma
+
+**`libvmaf/src/feature/integer_vif.c`**: adds `enable_chroma` bool field to
+`VifState`, a new `VmafOption` entry, a YUV400 clamp in `init`, and eight new
+keys in `provided_features`. If upstream Netflix ever adds chroma support to
+`integer_vif`, resolve by keeping their implementation and dropping the fork's
+`extract_plane` helper, or rebasing it if the upstream approach differs.
+
+No rebase conflict expected on the luma path — only additive changes.
+
 ## fix/sycl-motion-fps-weight-vulkan-import-status-2026-05-16
 
 **Sub-task B -- `integer_motion_v2_sycl.cpp`**: adds `motion_fps_weight`
