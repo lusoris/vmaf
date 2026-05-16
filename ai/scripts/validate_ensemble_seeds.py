@@ -73,11 +73,11 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument(
         "--corpus-root",
         type=Path,
-        default=Path(".workingdir2/netflix"),
+        default=Path(".corpus/netflix"),
         help=(
             "Corpus root used during the LOSO run; sha256-snapshotted "
             "into the verdict JSON for reproducibility (default: "
-            ".workingdir2/netflix)."
+            ".corpus/netflix)."
         ),
     )
     p.add_argument(
