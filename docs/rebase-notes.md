@@ -34881,6 +34881,41 @@ meson test -C build --suite=fast
 
 ---
 
+## `libvmaf/test/meson.build` — suite-tagging invariant (fix/meson-suite-fast)
+
+**Files touched**: `libvmaf/test/meson.build`, `libvmaf/test/AGENTS.md`.
+
+**Rebase impact**: moderate. Upstream Netflix/vmaf periodically adds new
+`test()` calls to `libvmaf/test/meson.build` without `suite:` arguments
+(that is the upstream convention). Every upstream sync or
+`port-upstream-commit` cherry-pick that touches this file must be followed
+by:
+
+```bash
+grep "^test(" libvmaf/test/meson.build | grep -v "suite :"
+```
+
+Any output is a missing tag — add the appropriate `suite:` before merging.
+Failure to do so silently breaks `meson test -C build --suite=fast` (the
+pre-push gate) because Meson's `--suite` filter matches only tests that
+declare the named suite; untagged tests are invisible to the filter and the
+command exits 0 with zero tests run.
+
+**Invariant to preserve on rebase**: every `test(...)` call in
+`libvmaf/test/meson.build` carries a `suite:` keyword argument. The `fast`
+suite is the pre-push gate; `simd` and `gpu` are secondary selectors for
+CI matrix jobs. See `libvmaf/test/AGENTS.md` for the full tag matrix.
+
+**Smoke-test after rebase**:
+
+```bash
+meson setup build -Denable_cuda=false -Denable_sycl=false
+ninja -C build
+meson test -C build --suite=fast --list   # must print >20 tests, not 0
+```
+
+---
+
 ## perf/cambi-calculate-c-values-avx512-neon-2026-05-16 (ADR-0452)
 
 **What changed**: Added `calculate_c_values_row_avx512` and
