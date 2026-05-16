@@ -103,3 +103,6 @@ model/tiny/training_runs/
 # workflow guard) is tracked, the binary itself is not.
 model/u2netp_mirror.onnx
 model/u2netp_mirror.pth
+
+# Large training/test corpora (gitignored, ~778GB local)
+.corpus/
