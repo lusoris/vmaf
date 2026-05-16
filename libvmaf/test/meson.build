@@ -602,8 +602,8 @@ test_cuda_pic_preallocation = executable('test_cuda_pic_preallocation',
     c_args: ['-DHAVE_CUDA=1']
 )
 
-test('test_gpu_picture_pool', test_gpu_picture_pool, suite : ['fast', 'gpu'])
-test('test_cuda_pic_preallocation', test_cuda_pic_preallocation, suite : ['fast', 'gpu'])
+test('test_gpu_picture_pool', test_gpu_picture_pool)
+test('test_cuda_pic_preallocation', test_cuda_pic_preallocation)
 
 # Netflix#1420 — graceful-OOM reducer. Exercises the wholesale
 # CHECK_CUDA_GOTO/_RETURN rewrite by requesting an impossible
@@ -617,7 +617,7 @@ test_cuda_buffer_alloc_oom = executable('test_cuda_buffer_alloc_oom',
     dependencies: [pthread_dependency, cuda_dependency],
     c_args: ['-DHAVE_CUDA=1']
 )
-test('test_cuda_buffer_alloc_oom', test_cuda_buffer_alloc_oom, suite : ['fast', 'gpu'])
+test('test_cuda_buffer_alloc_oom', test_cuda_buffer_alloc_oom)
 
 # Netflix#1300 / ADR-0157 — preallocation-leak reducer. Runs N
 # init/preallocate/fetch/close cycles with FULL cleanup on each cycle
@@ -632,7 +632,7 @@ test_cuda_preallocation_leak = executable('test_cuda_preallocation_leak',
     dependencies: [pthread_dependency, cuda_dependency],
     c_args: ['-DHAVE_CUDA=1']
 )
-test('test_cuda_preallocation_leak', test_cuda_preallocation_leak, suite : ['fast', 'gpu'])
+test('test_cuda_preallocation_leak', test_cuda_preallocation_leak)
 endif
 
 # T6-2b / ADR-0247 — vmaf-roi sidecar core helpers (per-CTU mean reduce
@@ -645,7 +645,7 @@ test_vmaf_roi = executable('test_vmaf_roi',
     include_directories : [libvmaf_inc, test_inc, include_directories('../tools/')],
     dependencies: [pthread_dependency, test_vmaf_roi_libm],
 )
-test('test_vmaf_roi', test_vmaf_roi, suite : ['fast'])
+test('test_vmaf_roi', test_vmaf_roi)
 
 # picture pool test - exercises vmaf_preallocate_pictures / vmaf_fetch_preallocated_picture.
 # These symbols are always linked into libvmaf (no build gate), so this test
@@ -656,7 +656,7 @@ test_pic_preallocation = executable('test_pic_preallocation',
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
     dependencies: [pthread_dependency, thread_lib],
 )
-test('test_pic_preallocation', test_pic_preallocation, suite : ['fast'])
+test('test_pic_preallocation', test_pic_preallocation)
 
 # ADR-0152 — monotonic-index guard on vmaf_read_pictures (Netflix#910).
 test_read_pictures_monotonic = executable('test_read_pictures_monotonic',
@@ -665,7 +665,7 @@ test_read_pictures_monotonic = executable('test_read_pictures_monotonic',
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
     dependencies: [pthread_dependency, thread_lib],
 )
-test('test_read_pictures_monotonic', test_read_pictures_monotonic, suite : ['fast'])
+test('test_read_pictures_monotonic', test_read_pictures_monotonic)
 
 # ADR-0154 — score_pooled returns -EAGAIN instead of -EINVAL for
 # not-yet-written features (Netflix#755).
@@ -675,7 +675,7 @@ test_score_pooled_eagain = executable('test_score_pooled_eagain',
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
     dependencies: [math_lib, pthread_dependency, thread_lib],
 )
-test('test_score_pooled_eagain', test_score_pooled_eagain, suite : ['fast'])
+test('test_score_pooled_eagain', test_score_pooled_eagain)
 
 # ADR-0153 — float_ms_ssim init rejects <176x176 (Netflix#1414).
 test_float_ms_ssim_min_dim = executable('test_float_ms_ssim_min_dim',
@@ -694,7 +694,7 @@ test_float_ms_ssim_min_dim = executable('test_float_ms_ssim_min_dim',
       libsvm_static_lib.extract_all_objects(recursive: true),
     ]
 )
-test('test_float_ms_ssim_min_dim', test_float_ms_ssim_min_dim, suite : ['fast'])
+test('test_float_ms_ssim_min_dim', test_float_ms_ssim_min_dim)
 
 # Research-0094 regression: motion init() must reject frames < 3x3 with -EINVAL
 # instead of reading out-of-bounds via the reflect-101 mirror-padding formula.
@@ -714,7 +714,7 @@ test_motion_min_dim = executable('test_motion_min_dim',
       libsvm_static_lib.extract_all_objects(recursive: true),
     ]
 )
-test('test_motion_min_dim', test_motion_min_dim, suite : ['fast'])
+test('test_motion_min_dim', test_motion_min_dim)
 
 if get_option('enable_sycl')
 test_sycl = executable('test_sycl',
@@ -733,8 +733,8 @@ test_sycl_pic_preallocation = executable('test_sycl_pic_preallocation',
     c_args: ['-DHAVE_SYCL=1']
 )
 
-test('test_sycl', test_sycl, suite : ['fast', 'gpu'])
-test('test_sycl_pic_preallocation', test_sycl_pic_preallocation, suite : ['fast', 'gpu'])
+test('test_sycl', test_sycl)
+test('test_sycl_pic_preallocation', test_sycl_pic_preallocation)
 
 test_integer_cambi_sycl = executable('test_integer_cambi_sycl',
     ['test.c', 'test_integer_cambi_sycl.c'],
@@ -743,7 +743,7 @@ test_integer_cambi_sycl = executable('test_integer_cambi_sycl',
     dependencies: [pthread_dependency, sycl_dependency],
     c_args: ['-DHAVE_SYCL=1']
 )
-test('test_integer_cambi_sycl', test_integer_cambi_sycl, suite : ['fast', 'gpu'])
+test('test_integer_cambi_sycl', test_integer_cambi_sycl)
 endif
 
 # ADR-0175 / T5-1: Vulkan backend scaffold smoke. Pins the -ENOSYS
@@ -757,7 +757,7 @@ test_vulkan_smoke = executable('test_vulkan_smoke',
     dependencies: [pthread_dependency],
     c_args: ['-DHAVE_VULKAN=1']
 )
-test('test_vulkan_smoke', test_vulkan_smoke, suite : ['fast', 'gpu'])
+test('test_vulkan_smoke', test_vulkan_smoke)
 
 # T7-29 part 4 (ADR-0251): contract smoke for the v2 async
 # pending-fence ring. Public-API only — the GPU-end-to-end
@@ -770,7 +770,7 @@ test_vulkan_async_pending_fence = executable('test_vulkan_async_pending_fence',
     dependencies: [pthread_dependency],
     c_args: ['-DHAVE_VULKAN=1']
 )
-test('test_vulkan_async_pending_fence', test_vulkan_async_pending_fence, suite : ['fast', 'gpu'])
+test('test_vulkan_async_pending_fence', test_vulkan_async_pending_fence)
 
 # ADR-0238: contract smoke for the public Vulkan picture-preallocation
 # surface (vmaf_vulkan_preallocate_pictures / vmaf_vulkan_picture_fetch).
@@ -781,31 +781,21 @@ test_vulkan_pic_preallocation = executable('test_vulkan_pic_preallocation',
     dependencies: [pthread_dependency],
     c_args: ['-DHAVE_VULKAN=1']
 )
-test('test_vulkan_pic_preallocation', test_vulkan_pic_preallocation, suite : ['fast', 'gpu'])
+test('test_vulkan_pic_preallocation', test_vulkan_pic_preallocation)
 
-# ADR-0445 / PR #865: persistent VkPipelineCache smoke — first run creates
-# the cache file, second run reads it, tampered header is rejected without
-# crash, env-var opt-out (LIBVMAF_VULKAN_PIPELINE_CACHE=0) skips I/O.
-test_vulkan_pipeline_cache = executable('test_vulkan_pipeline_cache',
-    ['test.c', 'test_vulkan_pipeline_cache.c'],
+# T3-15(c) / ADR-0219: motion3 CPU-vs-Vulkan parity gate (places=4, 1e-4 tolerance).
+# Closes the Vulkan half of the motion3 cross-backend assertion gap; the
+# CUDA half lives in PR #922 and the SYCL half in PR #927.
+# Skips cleanly when no Vulkan compute device is present (lavapipe-less CI).
+test_vulkan_motion3_parity = executable('test_vulkan_motion3_parity',
+    ['test.c', 'test_vulkan_motion3_parity.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
     dependencies: [pthread_dependency],
     c_args: ['-DHAVE_VULKAN=1']
 )
-test('test_vulkan_pipeline_cache', test_vulkan_pipeline_cache)
-
-# Research-0094 / dedup-audit-c-feature-twins-2026-05-16 finding #5:
-# Vulkan PSNR chroma-plane ceiling-division regression guard.
-# Pure-C geometry test — no Vulkan device required; runs on every host.
-test_psnr_vulkan_chroma_geom = executable('test_psnr_vulkan_chroma_geom',
-    ['test.c', 'test_psnr_vulkan_chroma_geom.c'],
-    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
-    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
-    dependencies: [pthread_dependency],
-)
-test('test_psnr_vulkan_chroma_geom', test_psnr_vulkan_chroma_geom,
-     suite: 'fast')
+test('test_vulkan_motion3_parity', test_vulkan_motion3_parity,
+    suite: ['fast', 'gpu'])
 endif
 
 # ADR-0209 / T5-2: embedded MCP scaffold smoke. Pins the -ENOSYS
@@ -821,7 +811,7 @@ test_mcp_smoke = executable('test_mcp_smoke',
     dependencies: [pthread_dependency],
     c_args: ['-DHAVE_MCP=1']
 )
-test('test_mcp_smoke', test_mcp_smoke, suite : ['slow'], timeout: 60)
+test('test_mcp_smoke', test_mcp_smoke, timeout: 60)
 endif
 
 # ADR-0212 / T7-10: HIP (AMD ROCm) backend smoke.
@@ -836,7 +826,7 @@ test_hip_smoke = executable('test_hip_smoke',
     dependencies: [pthread_dependency, hip_deps],
     c_args: ['-DHAVE_HIP=1']
 )
-test('test_hip_smoke', test_hip_smoke, suite : ['fast', 'gpu'])
+test('test_hip_smoke', test_hip_smoke)
 endif
 
 # ADR-0338 / T8-1: Metal (Apple Silicon) backend scaffold smoke. Same
@@ -853,7 +843,7 @@ test_metal_smoke = executable('test_metal_smoke',
     dependencies: [pthread_dependency],
     c_args: ['-DHAVE_METAL=1']
 )
-test('test_metal_smoke', test_metal_smoke, suite : ['fast', 'gpu'])
+test('test_metal_smoke', test_metal_smoke)
 
 # ADR-0437 — install-gate: verify libvmaf_metal.h is reachable via the
 # installed include path and that vmaf_metal_import_state + the IOSurface
@@ -868,77 +858,77 @@ test_metal_install_header = executable('test_metal_install_header',
     dependencies: [pthread_dependency],
     c_args: ['-DHAVE_METAL=1']
 )
-test('test_metal_install_header', test_metal_install_header, suite : ['fast', 'gpu'])
+test('test_metal_install_header', test_metal_install_header)
 endif
 endif
 
-test('test_picture', test_picture, suite : ['fast'])
-test('test_feature_collector', test_feature_collector, suite : ['fast'])
-test('test_output', test_output, suite : ['fast'])
-test('test_thread_pool', test_thread_pool, suite : ['fast'])
-test('test_model', test_model, suite : ['fast'])
-test('test_predict', test_predict, suite : ['fast'])
-test('test_feature_extractor', test_feature_extractor, suite : ['fast'])
-test('test_dict', test_dict, suite : ['fast'])
-test('test_opt', test_opt, suite : ['fast'])
-test('test_cpu', test_cpu, suite : ['fast'])
-test('test_ref', test_ref, suite : ['fast'])
-test('test_feature', test_feature, suite : ['fast'])
-test('test_ciede', test_ciede, suite : ['fast'])
-test('test_lpips', test_lpips, suite : ['fast'])
-test('test_dists', test_dists, suite : ['fast'])
-test('test_fastdvdnet_pre', test_fastdvdnet_pre, suite : ['fast'])
-test('test_mobilesal', test_mobilesal, suite : ['fast'])
-test('test_transnet_v2', test_transnet_v2, suite : ['fast'])
-test('test_cambi', test_cambi, suite : ['fast'])
+test('test_picture', test_picture)
+test('test_feature_collector', test_feature_collector)
+test('test_output', test_output)
+test('test_thread_pool', test_thread_pool)
+test('test_model', test_model)
+test('test_predict', test_predict)
+test('test_feature_extractor', test_feature_extractor)
+test('test_dict', test_dict)
+test('test_opt', test_opt)
+test('test_cpu', test_cpu)
+test('test_ref', test_ref)
+test('test_feature', test_feature)
+test('test_ciede', test_ciede)
+test('test_lpips', test_lpips)
+test('test_dists', test_dists)
+test('test_fastdvdnet_pre', test_fastdvdnet_pre)
+test('test_mobilesal', test_mobilesal)
+test('test_transnet_v2', test_transnet_v2)
+test('test_cambi', test_cambi)
 
 if cambi_simd_test_archs.contains(host_machine.cpu_family())
-test('test_cambi_simd', test_cambi_simd, suite : ['fast', 'simd'])
+test('test_cambi_simd', test_cambi_simd, suite : 'fast')
 endif
 if get_option('enable_float')
-test('test_speed', test_speed, suite : ['fast'])
+test('test_speed', test_speed)
 endif
-test('test_speed_qa', test_speed_qa, suite : ['fast'])
-test('test_luminance_tools', test_luminance_tools, suite : ['fast'])
-test('test_cli_parse', test_cli_parse, suite : ['fast'])
+test('test_speed_qa', test_speed_qa)
+test('test_luminance_tools', test_luminance_tools)
+test('test_cli_parse', test_cli_parse)
 if host_machine.system() != 'windows'
-    test('test_y4m_411_oob', test_y4m_411_oob, suite : ['fast'])
-    test('test_cli_parse_long_only_args', test_cli_parse_long_only_args, suite : ['fast'])
+    test('test_y4m_411_oob', test_y4m_411_oob)
+    test('test_cli_parse_long_only_args', test_cli_parse_long_only_args)
 endif
-test('test_psnr', test_psnr, suite : ['fast'])
-test('test_framesync', test_framesync, suite : ['fast'])
-test('test_propagate_metadata', test_propagate_metadata, suite : ['fast'])
-test('test_adm_csf', test_adm_csf, suite : ['fast'])
-test('test_barten_csf', test_barten_csf, suite : ['fast'])
+test('test_psnr', test_psnr)
+test('test_framesync', test_framesync)
+test('test_propagate_metadata', test_propagate_metadata)
+test('test_adm_csf', test_adm_csf)
+test('test_barten_csf', test_barten_csf)
 if ms_ssim_decimate_test_archs.contains(host_machine.cpu_family())
-test('test_ms_ssim_decimate', test_ms_ssim_decimate, suite : ['fast', 'simd'])
+test('test_ms_ssim_decimate', test_ms_ssim_decimate)
 endif
 
 if float_enabled and moment_simd_test_archs.contains(host_machine.cpu_family())
-test('test_moment_simd', test_moment_simd, suite : ['fast', 'simd'])
+test('test_moment_simd', test_moment_simd)
 endif
 
 if iqa_convolve_test_archs.contains(host_machine.cpu_family())
-test('test_iqa_convolve', test_iqa_convolve, suite : ['fast', 'simd'])
+test('test_iqa_convolve', test_iqa_convolve)
 endif
 
 if psnr_hvs_avx2_test_archs.contains(host_machine.cpu_family())
-test('test_psnr_hvs_avx2', test_psnr_hvs_avx2, suite : ['fast', 'simd'])
+test('test_psnr_hvs_avx2', test_psnr_hvs_avx2)
 endif
 
 if motion_v2_simd_test_archs.contains(host_machine.cpu_family())
-test('test_motion_v2_simd', test_motion_v2_simd, suite : ['fast', 'simd'])
+test('test_motion_v2_simd', test_motion_v2_simd)
 endif
 
 if psnr_hvs_neon_test_archs.contains(host_machine.cpu_family())
-test('test_psnr_hvs_neon', test_psnr_hvs_neon, suite : ['fast', 'simd'])
+test('test_psnr_hvs_neon', test_psnr_hvs_neon)
 endif
 
 if ssimulacra2_simd_test_archs.contains(host_machine.cpu_family())
-test('test_ssimulacra2_simd', test_ssimulacra2_simd, suite : ['fast', 'simd'])
+test('test_ssimulacra2_simd', test_ssimulacra2_simd)
 endif
 
-test('test_locale_handling', test_locale_handling, suite : ['fast'])
+test('test_locale_handling', test_locale_handling)
 
 subdir('dnn')
 subdir('fuzz')
