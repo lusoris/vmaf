@@ -235,6 +235,20 @@ def _row_to_features(row: dict[str, Any]) -> tuple[np.ndarray, float] | None:
     feats = np.zeros(N_FEATURES, dtype=np.float32)
     for idx, name in enumerate(FEATURE_COLUMNS):
         value = row.get(name)
+        # Parquet corpora produced by the CHUG materialiser store per-clip
+        # temporal averages under the ``<feature>_mean`` column name (e.g.
+        # ``adm2_mean``).  When a parquet file has mixed columns, pandas
+        # fills absent slots with NaN rather than omitting the key, so we
+        # must treat NaN as "missing" and also fall back.  Accept either
+        # form so that full-features parquet and bare-feature JSONL rows
+        # can coexist in the same corpus load.  (Regression introduced by
+        # PR #908 which dropped this fallback during the aiutils refactor.)
+        try:
+            primary_f = float(value)
+        except (TypeError, ValueError):
+            primary_f = math.nan
+        if not math.isfinite(primary_f):
+            value = row.get(f"{name}_mean")
         if value is not None:
             with contextlib.suppress(TypeError, ValueError):
                 feats[idx] = float(value)
