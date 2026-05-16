@@ -84,7 +84,6 @@
 #define SS2V_NUM_SCALES 6
 #define SS2V_WG_X 16
 #define SS2V_WG_Y 8
-#define SS2V_BLUR_WG_LINES 32 /* lines/cols per blur WG — one warp/wavefront (VK-1 fix) */
 #define SS2V_PARTIAL_SLOTS 18 /* per-WG: 6 ssim + 12 edge */
 #define SS2V_SIGMA 1.5
 #define SS2V_PI 3.14159265358979323846
@@ -943,16 +942,10 @@ static void ss2v_write_set(VkDevice dev, VkDescriptorSet set, unsigned n, VmafVu
 
 static void ss2v_barrier(VkCommandBuffer cmd)
 {
-    /* All call sites are pure read-only consumer transitions:
-     *   - mul_buf → blur H pass (blur reads mul output, writes scratch)
-     *   - blur H scratch → blur V pass (V pass reads scratch, writes output)
-     * The ssimulacra2 SSIM+EdgeDiff combine step runs host-side after
-     * the fence (ADR-0201); there is no GPU atomicAdd consumer here.
-     * Tightened to SHADER_READ_BIT only (VK-5 / perf-audit 2026-05-16). */
     VkMemoryBarrier mb = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
     };
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &mb, 0, NULL, 0, NULL);
@@ -1019,13 +1012,10 @@ static void ss2v_dispatch_blur_pass(Ssimu2VkState *s, VkCommandBuffer cmd, int s
                        &pc);
     VkPipeline p = (pass == 0) ? s->blur_pipelines_h[scale] : s->blur_pipelines_v[scale];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, p);
-    /* H pass: 32 rows per WG → dispatch (ceil(H/32), 1, 1).
-     * V pass: 32 cols per WG → dispatch (ceil(W/32), 1, 1).
-     * Shader reads gl_GlobalInvocationID.x as the line index; out-of-bounds
-     * invocations return early. local_size_x=32 fills one warp/wavefront. */
+    /* H pass: one workgroup per row → dispatch (1, height, 1).
+     * V pass: one workgroup per column → dispatch (1, width, 1). */
     uint32_t lines = (pass == 0) ? s->scale_h[scale] : s->scale_w[scale];
-    uint32_t groups = (lines + SS2V_BLUR_WG_LINES - 1u) / SS2V_BLUR_WG_LINES;
-    vkCmdDispatch(cmd, groups, 1, 1);
+    vkCmdDispatch(cmd, 1, lines, 1);
 }
 
 /* Per-plane buffer-of-3 sub-buffer offset trick: rather than
