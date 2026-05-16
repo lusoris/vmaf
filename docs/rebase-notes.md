@@ -7,18 +7,19 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
-No rebase impact: `fix/nvtx-cuda-dependency-guard-2026-05-16` adds a
-meson `error()` guard to `libvmaf/src/meson.build` for the
-`enable_nvtx=true` + `enable_cuda=false` combination. The guard is
-fork-additive: upstream Netflix/vmaf does not enable NVTX, so no
-sync-upstream conflict is expected. If upstream ever adds their own
-NVTX guard, the merge is a no-op (both sides add the same intent).
-## fix/cpu-symbol-visibility-2026-05-16
+## feat/vulkan-integer-adm-real-2026-05-16 — integer_adm_vulkan canonical extractor
 
-No rebase impact: touches only `libvmaf/src/meson.build` (adding `c_args :
-vmaf_cflags_common` to `libvmaf_cpu_static_lib`). This is a fork-local build
-rule; Netflix/vmaf does not use Meson. No upstream-shared C sources, headers,
-or feature extractors are modified. No sync-upstream conflicts expected.
+**`libvmaf/src/vulkan/meson.build`**: adds `integer_adm.comp`,
+`integer_adm_reduce.comp`, and `integer_adm_vulkan.c` to the Vulkan source
+lists. The legacy `adm_vulkan.c` is retained as a compatibility shim.
+
+If upstream Netflix ever moves or renames the Vulkan ADM path, reconcile by:
+- If upstream renames `adm_vulkan.c` to `integer_adm_vulkan.c`, drop the
+  fork's `integer_adm_vulkan.c` and update the build entry.
+- If upstream keeps `adm_vulkan.c`, the fork's canonical file remains; apply
+  any upstream algorithm changes to `integer_adm_vulkan.c` and both shaders.
+
+No rebase conflict expected — purely additive.
 
 ## fix/saliency-per-mb-eval-2026-05-15 — integer_vif enable_chroma
 

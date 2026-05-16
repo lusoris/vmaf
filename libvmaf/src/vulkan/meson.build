@@ -66,6 +66,10 @@ vulkan_shader_sources = [
     'shaders/vif_reduce.comp',
     'shaders/adm_reduce.comp',
     'shaders/motion_reduce.comp',
+    # ADR-0468 — canonical integer ADM Vulkan shaders (supersede adm.comp
+    # / adm_reduce.comp; those are retained for the legacy adm_vulkan.c).
+    'shaders/integer_adm.comp',
+    'shaders/integer_adm_reduce.comp',
     # T7-36 / ADR-0205 — cambi Vulkan integration.
     'shaders/cambi_preprocess.comp',
     'shaders/cambi_derivative.comp',
@@ -158,8 +162,9 @@ vulkan_sources += files(
     'import.c',
     'picture_vulkan.c',
     'picture_vulkan_pool.c',
-    '../feature/vulkan/adm_vulkan.c',
-    '../feature/vulkan/integer_vif_vulkan.c',
+    '../feature/vulkan/adm_vulkan.c',         # legacy — kept for backward compat (ADR-0468)
+    '../feature/vulkan/integer_adm_vulkan.c', # canonical integer ADM port (ADR-0468)
+    '../feature/vulkan/vif_vulkan.c',
     '../feature/vulkan/motion_vulkan.c',
     '../feature/vulkan/motion_v2_vulkan.c',
     '../feature/vulkan/psnr_vulkan.c',
