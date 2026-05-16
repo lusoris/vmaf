@@ -34995,3 +34995,28 @@ runtime or reading a schema-version sidecar (future work).
 python -m pytest ai/tests/test_extract_k150k_no_ssimulacra2.py -v
 # Expected: 3/3 PASS
 ```
+
+## `perf/ort-run-stack-arrays-f3b` — vmaf_ort_run stack IO arrays (F3-B)
+
+**Branch**: `perf/ort-run-stack-arrays-f3b`
+
+**Files touched**:
+`libvmaf/src/dnn/ort_backend.c`,
+`libvmaf/src/dnn/ort_backend.h`,
+`changelog.d/perf/ort-run-stack-arrays-f3b.md`.
+
+**Rebase impact**: low. `ort_backend.c/.h` are entirely fork-local;
+upstream Netflix/vmaf does not carry an ORT backend. No upstream-shared
+code is modified.
+
+**Invariant to preserve on rebase**: `VMAF_ORT_MAX_IO` (8) must remain
+greater than or equal to the maximum number of inputs or outputs in any
+shipped VMAF ONNX model. If a future model exceeds 8 IO tensors, bump
+the constant and adjust the guard in `vmaf_ort_run`.
+
+**Smoke-test after rebase**:
+
+```bash
+ninja -C build
+meson test -C build --suite=fast
+```
