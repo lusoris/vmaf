@@ -13,25 +13,22 @@ with [`vmaf`](cli.md), and emits a JSONL corpus of
 |-----------------------|--------------------------------------------------------|------------------------------------------------------------------------------------------------------|
 | `corpus`              | Multi-codec encoder grid sweep + scoring               | [ADR-0237](../adr/0237-quality-aware-encode-automation.md)                                           |
 | `recommend`           | Target-VMAF / target-bitrate predicate (Phase B)       | [Research-0061](../research/0061-vmaf-tune-capability-audit.md), buckets 4+5                         |
-| `tune-per-shot`       | Per-shot CRF zones                                     | [ADR-0392](../adr/0392-vmaf-tune-phase-d-per-shot.md)                                                |
+| `tune-per-shot`       | Per-shot CRF zones                                     | [ADR-0276](../adr/0276-vmaf-tune-phase-d-per-shot.md)                                                |
 | `recommend-saliency`  | Saliency-aware ROI tuning                              | [ADR-0287](../adr/0287-vmaf-tiny-v5-corpus-expansion.md) ecosystem; consumes `vmaf-roi` sidecars     |
 | `ladder`              | Per-title bitrate ladder (Pareto ABR)                  | [ADR-0295](../adr/0295-vmaf-tune-phase-e-bitrate-ladder.md)                                          |
 | `fast`                | Predicted-CRF fast path                                | [ADR-0276](../adr/0276-vmaf-tune-fast-path.md)                                                       |
 | `hdr`                 | HDR-aware tuning + HDR-VMAF scoring                    | (PR #434, bucket #9)                                                                                 |
 | `compare`             | Apples-to-apples codec comparison at matched VMAF      | (PR #435)                                                                                            |
-| `benchmark`           | Offline cross-codec report from an existing JSONL      | [ADR-0424](../adr/0424-vmaf-tune-corpus-benchmark.md)                                                |
-| `sidecar`             | Local predictor bias-correction training / inspection  | [ADR-0394](../adr/0394-local-sidecar-training.md)                                                    |
 
 ## Codec adapters
 
-18 adapters under `tools/vmaf-tune/src/vmaftune/codec_adapters/`:
+17 adapters under `tools/vmaf-tune/src/vmaftune/codec_adapters/`:
 
 | Family | Software           | NVIDIA NVENC                                                                                               | Intel QSV     | AMD AMF       | Apple VideoToolbox    |
 |--------|--------------------|------------------------------------------------------------------------------------------------------------|---------------|---------------|-----------------------|
 | AV1    | `libaom`, `svtav1` | `av1_nvenc` ([ADR-0290](../adr/0290-vmaf-tune-nvenc-adapters.md))                                          | `av1_qsv`     | `av1_amf`     | —                     |
 | H.264  | `x264` (Phase A)   | `h264_nvenc`                                                                                               | `h264_qsv`    | `h264_amf`    | `h264_videotoolbox`   |
 | HEVC   | `x265` ([ADR-0288](../adr/0288-vmaf-tune-codec-adapter-x265.md)) | `hevc_nvenc`                                                              | `hevc_qsv`    | `hevc_amf`    | `hevc_videotoolbox`   |
-| VP9    | `libvpx-vp9`       | —                                                                                                          | —             | —             | —                     |
 | VVC    | `vvenc`            | —                                                                                                          | —             | —             | —                     |
 
 ## Pipeline
@@ -45,7 +42,6 @@ ref.yuv ──► vmaf-tune corpus ──► encode (libx264|libx265) ──► 
 
 corpus.jsonl ──► vmaf-tune recommend --target-vmaf T   ──► smallest CRF >= T
                                     --target-bitrate B ──► CRF closest to B
-corpus.jsonl ──► vmaf-tune benchmark --target-vmaf T   ──► encoder ranking
 ```
 
 ## Install
@@ -64,74 +60,6 @@ External binaries required at runtime:
 - `ffmpeg` with `--enable-libx264` (and `--enable-libsvtav1` if you
   pass `--encoder libsvtav1`) on `PATH` (or `--ffmpeg-bin`).
 - `vmaf` (this fork's CLI, built via meson) on `PATH` (or `--vmaf-bin`).
-
-## Predictor Training Corpora
-
-`vmaftune.predictor_train` trains the per-codec ONNX predictors consumed
-by the fast, per-shot, ladder, and auto paths. `--corpus` accepts either
-a single Phase-A JSONL file or a directory of JSONL shards; directory
-inputs are scanned recursively in sorted order so the trainer can consume
-`.corpus/corpus_run/` directly:
-
-```shell
-python -m vmaftune.predictor_train \
-    --corpus .corpus/corpus_run \
-    --codec libx264 \
-    --output-dir .workingdir2/predictor-real
-```
-
-Rows are filtered per codec after schema aliases are normalised. The
-trainer accepts both current `corpus.py` rows (`encoder`, `crf`,
-`vmaf_score`, `bitrate_kbps`) and older hardware-sweep rows (`codec`,
-`q`/`cq`, `vmaf`, `actual_kbps`). If a codec has no usable rows, that
-codec still falls back to the documented synthetic-stub corpus and the
-model card records `corpus.kind: synthetic-stub-*`. Directory inputs
-are passed through the same loader as single files; a codec with rows in
-any shard records `corpus.kind: real-N=<rows>`.
-
-## Local Sidecar Bias Correction
-
-`vmaf-tune sidecar` exposes the local sidecar model from
-[`docs/ai/local-sidecar-training.md`](../ai/local-sidecar-training.md)
-as an operator CLI. It never uploads captures and never mutates the
-shipped predictor; it stores only the online-ridge correction under
-`${XDG_CACHE_HOME:-~/.cache}/vmaf-tune/sidecar/`.
-
-Inspect the current sidecar state:
-
-```shell
-vmaf-tune sidecar status --codec libx264 --json
-```
-
-Record one observed encode. `features.json` may be either a flat
-`ShotFeatures` object or `{ "features": { ... } }`; the required
-fields are `probe_bitrate_kbps`, `probe_i_frame_avg_bytes`,
-`probe_p_frame_avg_bytes`, and `probe_b_frame_avg_bytes`.
-
-```shell
-vmaf-tune sidecar record \
-    --codec libx264 \
-    --features-json features.json \
-    --crf 28 \
-    --observed-vmaf 94.2
-```
-
-Batch training accepts JSONL with one row per observed encode:
-
-```json
-{"features":{"probe_bitrate_kbps":3000,"probe_i_frame_avg_bytes":10000,"probe_p_frame_avg_bytes":2000,"probe_b_frame_avg_bytes":1000,"width":1920,"height":1080,"fps":24},"crf":28,"observed_vmaf":94.2}
-```
-
-```shell
-vmaf-tune sidecar batch-record --codec libx264 --captures-jsonl captures.jsonl
-```
-
-Prediction reports the bare predictor score, sidecar correction, and
-clamped final score:
-
-```shell
-vmaf-tune sidecar predict --codec libx264 --features-json features.json --crf 28 --json
-```
 
 ## Quick start
 
@@ -182,7 +110,6 @@ before invoking FFmpeg.
 | --- | --- | --- | --- | --- |
 | `libx264` | `0..51` | `(15, 40)` | `23` | `ultrafast`, `superfast`, `veryfast`, `faster`, `fast`, `medium`, `slow`, `slower`, `veryslow` |
 | `libsvtav1` | `0..63` | `(20, 50)` | `35` | `placebo`, `slowest`, `slower`, `slow`, `medium`, `fast`, `faster`, `veryfast` |
-| `libvpx-vp9` | `0..63` | `(0, 63)` | `32` | `placebo`, `slowest`, `slower`, `slow`, `medium`, `fast`, `faster`, `veryfast`, `superfast`, `ultrafast` |
 
 ### SVT-AV1 preset name -> integer mapping
 
@@ -221,7 +148,7 @@ The mapping is closed and order-stable; see
 | `--preset P` | — | Required. Repeatable. Preset name (see codec table below). |
 | `--crf N` | — | Required. Repeatable. CRF integer (range varies by codec). |
 | `--output PATH` | `corpus.jsonl` | JSONL destination. |
-| `--encode-dir PATH` | `.corpus/encodes` | Scratch dir; gitignored by convention. |
+| `--encode-dir PATH` | `.workingdir2/encodes` | Scratch dir; gitignored by convention. |
 | `--keep-encodes` | off | Retain encoded files after scoring. |
 | `--vmaf-model NAME` | `vmaf_v0.6.1` | Forwarded to `vmaf --model`. Only used when `--no-resolution-aware` is set; otherwise auto-picked per encode resolution (see "Resolution-aware mode" below). |
 | `--resolution-aware` / `--no-resolution-aware` | on | Auto-pick the VMAF model per encode resolution. Default on. |
@@ -234,7 +161,7 @@ The mapping is closed and order-stable; see
 | `--force-sdr` | off | Treat all sources as SDR; skip HDR detection. |
 | `--force-hdr-pq` | off | Treat all sources as HDR PQ (SMPTE-2084) without probing. Useful for raw YUV refs that ffprobe cannot read color metadata from. |
 | `--force-hdr-hlg` | off | Treat all sources as HDR HLG (ARIB STD-B67) without probing. |
-| `--two-pass` | off | Phase F (ADR-0333). Run a 2-pass encode for codecs whose adapter sets `supports_two_pass = True` (today: `libx264`, `libx265`, `libvpx-vp9`). Codecs without 2-pass support fall back to single-pass with a stderr warning. Doubles encode wall time. |
+| `--two-pass` | off | Phase F (ADR-0333). Run a 2-pass encode for codecs whose adapter sets `supports_two_pass = True` (today: `libx265`). Codecs without 2-pass support fall back to single-pass with a stderr warning. Doubles encode wall time. |
 
 ## Resolution-aware mode
 
@@ -476,40 +403,6 @@ Each emitted row carries `clip_mode="sample_10s"` (or `"full"`),
 letting Phase B/C either filter sample rows out, weight them
 differently, or rescore the chosen cell on the full source.
 
-## `benchmark` subcommand — corpus-level codec ranking
-
-`vmaf-tune benchmark` is Phase G of the tune workflow. It does not run
-FFmpeg or libvmaf; it reads an existing Phase-A JSONL corpus and ranks
-encoders by their best matched-quality point.
-
-For each encoder in the corpus, the command filters to successful rows
-with finite `vmaf_score` and `bitrate_kbps`, then chooses the lowest
-bitrate row whose VMAF clears `--target-vmaf`. Encoders that never clear
-the target stay in the report as `status=unmet` using their closest VMAF
-miss, so a too-narrow CRF sweep is visible instead of silently dropped.
-
-```shell
-vmaf-tune benchmark \
-    --from-corpus corpus.jsonl \
-    --target-vmaf 92 \
-    --baseline-encoder libx264 \
-    --format markdown
-```
-
-Output formats:
-
-| Format | Use |
-| --- | --- |
-| `markdown` | PR comments and human review. |
-| `json` | Notebooks, dashboards, and follow-up automation. |
-| `csv` | Spreadsheets and quick plots. |
-
-`--baseline-encoder` controls the bitrate-delta column. When omitted,
-the baseline is the lowest-bitrate encoder that clears the target. The
-report inherits the corpus coverage: if `libx264` was swept over 20 CRFs
-and `libx265` over 3 CRFs, the ranking reflects those sampled points
-only.
-
 ## Corpus JSONL schema
 
 Each row is one JSON object on its own line. The full key list is
@@ -569,10 +462,8 @@ edit row shape without bumping the version.
 | `enc_internal_skip_ratio` | float | Fraction of macroblocks coded as skip. v3+ (ADR-0332). |
 
 The ten `enc_internal_*` columns are populated for adapters that
-declare `supports_encoder_stats = True` (currently libx264 and
-libx265). The parser normalizes x264 macroblock counters and x265
-`icu` / `pcu` / `scu` CTU counters into the same intra / predicted /
-skip ratio columns.
+declare `supports_encoder_stats = True` (currently libx264; libx265
+is wired through but its parser is deferred to a follow-up PR).
 Hardware encoders (NVENC / AMF / QSV / VideoToolbox) and AV1 software
 encoders (libaom-av1 / libsvtav1 / libvvenc) opt out and emit `0.0`
 for every column so the schema is uniform across the corpus. The
@@ -638,12 +529,6 @@ grid flags) and applies one of two predicates:
 
 The two flags are mutually exclusive — argparse rejects passing both
 with exit code `2`.
-
-When reading a pre-built corpus, `recommend` ignores rows whose
-`exit_status` is non-zero and rows with missing or non-finite
-`vmaf_score`. The `--encoder` and `--preset` flags act as filters in
-that mode, so a mixed-codec corpus can be reused without first splitting
-it into per-codec files.
 
 ### Use a pre-built corpus
 
@@ -815,7 +700,7 @@ the fast-path is not confident.
 | `--preset` | `medium` | Encoder preset for the probe + verify encodes. |
 | `--crf-min / --crf-max` | `10` / `51` | TPE search range over the integer CRF axis. |
 | `--n-trials` | `30` (prod), `50` (smoke) | TPE trial budget. |
-| `--time-budget-s` | `300` | Soft wall-clock cap for Optuna. TPE stops scheduling new trials after the timeout; an in-flight probe finishes. |
+| `--time-budget-s` | `300` | Advisory wall-clock cap (not yet enforced). |
 | `--proxy-tolerance` | `1.5` | Max abs proxy/verify gap before exit code `3`. |
 | `--sample-chunk-seconds` | `5.0` | Probe-slice duration per TPE trial. |
 | `--smoke` | off | Synthetic curve; no ffmpeg / ONNX / GPU. |
@@ -1132,7 +1017,7 @@ ProRes is intra-only — every frame is a keyframe — so `--keyint` /
 effect. The harness still emits them so the muxer's seek-table
 density is predictable across codecs.
 
-## Saliency-aware encoding (`recommend-saliency --saliency-aware`)
+## Saliency-aware encoding (`recommend --saliency-aware`)
 
 Bucket #2 of the [PR #354](https://github.com/lusoris/vmaf/pull/354)
 audit (see [ADR-0293](../adr/0293-vmaf-tune-saliency-aware.md)) wires
@@ -1145,24 +1030,23 @@ on background.
 ### Synopsis
 
 ```shell
-vmaf-tune recommend-saliency \
+vmaf-tune recommend \
     --src ref.yuv --width 1920 --height 1080 --framerate 24 \
-    --duration-frames 240 \
-    --preset medium --crf 23 \
+    --target-vmaf 92 \
     --saliency-aware \
     [--saliency-offset -4] \
     [--saliency-model model/tiny/saliency_student_v1.onnx] \
-    [--saliency-aggregator mean|ema|max|motion-weighted] \
+    [--saliency-frames 8] \
     --output out.mp4
 ```
 
 ### How it works
 
-1. `compute_saliency_map()` samples the requested frame window from
-   the source YUV, runs those frames through
+1. `compute_saliency_map()` samples `--saliency-frames` evenly-spaced
+   frames from the source YUV, runs them through
    `saliency_student_v1.onnx` (ImageNet-normalised RGB derived from
-   YUV, NCHW `[1, 3, H, W]`), and reduces the per-frame saliency
-   outputs into one mask in `[0, 1]`.
+   luma, NCHW `[1, 3, H, W]`), and averages the per-pixel
+   saliency outputs into one mask in `[0, 1]`.
 2. `saliency_to_qp_map()` linearly maps the mask to per-pixel QP
    deltas — `--saliency-offset` is the QP delta at peak saliency
    (negative means **better** quality on salient regions). Background
@@ -1183,81 +1067,59 @@ vmaf-tune recommend-saliency \
 | --- | --- |
 | Bitrate (same VMAF) | **−10 % to −20 %** for content with strong attention focus (faces, action, sport). Background-uniform content sees little change. |
 | Encode time | **+5 %** typical (saliency inference + per-MB reduce; per-frame model time is sub-millisecond on CPU at SD/HD). |
-| Decode time | unchanged (the bitstream is standard-compliant for all five supported encoders). |
+| Decode time | unchanged (the bitstream is standard-compliant for all four supported encoders). |
 | Quality (VMAF) | unchanged at the **clip-mean** level; concentrated where the eye looks. |
 
-Numbers are indicative. Today's `recommend-saliency` subcommand is a
-one-shot encode at `--crf` (or the adapter default); target-VMAF
-selection remains the job of `recommend`, `compare`, or a
-caller-provided bisect loop.
-
-### Temporal aggregation
-
-`--saliency-aggregator` controls how sampled frame masks become the
-single ROI pattern applied to the encode:
-
-| Aggregator | Behaviour | Use when |
-| --- | --- | --- |
-| `mean` | Per-pixel arithmetic mean; preserves the original implementation. | Default, stable clips, and baseline comparisons. |
-| `ema` | Exponential moving average with `--saliency-ema-alpha` as the current-frame weight. | Motion or cuts make the latest sampled frames more representative. |
-| `max` | Per-pixel maximum over sampled masks. | Missing a brief salient object is worse than over-protecting background. |
-| `motion-weighted` | Weighted mean where each sampled frame is weighted by luma delta from the previous sampled frame. | Motion-heavy clips where changing frames should dominate the aggregate. |
-
-All four reducers use the same `saliency_student_v1` weights and the
-same downstream QP mapping, so changing the reducer does not change the
-model contract or encoder sidecar format.
+Numbers are indicative — formal Pareto data lands with Phase B
+(target-VMAF bisect). Today's `recommend` subcommand is a one-shot
+encode at `--crf` (or the adapter default), wired so Phase B can
+swap in a true bisect without changing the flag surface.
 
 ### Graceful fallback
 
 If `onnxruntime` is not installed or
 `model/tiny/saliency_student_v1.onnx` cannot be loaded,
-`recommend-saliency --saliency-aware` logs a warning and falls back to a
+`recommend --saliency-aware` logs a warning and falls back to a
 plain encode. Callers always get a result; the saliency bias is
 opportunistic. This matches the
 [`vmaf-roi`](vmaf-roi.md) C sidecar's posture.
 
 ### Encoder targets
 
-The saliency pipeline supports five encoder ROI mechanisms:
+The saliency pipeline supports four encoder ROI mechanisms:
 
 | Encoder | ROI channel | Granularity | argv slot |
 | --- | --- | --- | --- |
 | `libx264` | ASCII `--qpfile` (x264 r2390+) | 16×16 luma MB | `-x264-params qpfile=…` |
-| `libaom-av1` | patched FFmpeg `-qpfile` ROI bridge | 16×16 luma MB mapped onto libaom MI cells | `-qpfile …` |
 | `libx265` | `--zones` QP delta (per-clip mean) | full-clip spatial mean | `-x265-params zones=0,N,q=<delta>` |
 | `libsvtav1` | `--qp-file` offset map (SVT-AV1 v1.7+) | 64×64 super-block | `-svtav1-params qp-file=…` |
 | `libvvenc` | `ROIFile` CSV (VVenC v1.14.0+) | 64×64 CTU | `-vvenc-params ROIFile=…` |
 
 See [ADR-0293](../adr/0293-vmaf-tune-saliency-aware.md) (x264 baseline) and
 [ADR-0370](../adr/0370-saliency-roi-x265-svtav1-vvenc.md) (x265 / SVT-AV1 / VVenC).
-The libaom-av1 row uses the shared `-qpfile` bridge documented in
-[`vmaf-tune-ffmpeg.md`](vmaf-tune-ffmpeg.md#libaom-av1-full-roi-bridge).
 
 Per-adapter helpers in `vmaftune.saliency`:
 
 - `write_x265_zones_arg(block_offsets, duration_frames)` → zones string
-- `write_x264_qpfile(block_offsets, out_path, duration_frames)` → x264/libaom qpfile
 - `write_svtav1_qpoffset_map(block_offsets, out_path, duration_frames)` → Path
 - `write_vvenc_roi_csv(block_offsets, out_path, duration_frames)` → Path
 
 ### Caveats
 
 - **Aggregate mask, not per-frame ROI.** The current implementation
-  reduces saliency across the sampled frames and applies one delta
-  pattern across the whole clip. Per-frame ROI is on the roadmap.
+  averages saliency across the sampled frames and applies one
+  delta pattern across the whole clip. Per-frame ROI is on
+  the roadmap.
 - **x265 zones: spatial mean only.** x265's `--zones` has temporal
   granularity but not per-block spatial granularity. The zone carries
   the mean QP delta across all blocks. Per-block x265 ROI requires a
   future x265 qpfile port (different format from x264).
-- **libaom segment quantisation.** The FFmpeg bridge maps 16×16 qpfile
-  deltas onto libaom's MI grid and at most eight segment QPs. Very
-  fine-grained deltas are therefore quantised to the nearest segment.
 - **SVT-AV1 / VVenC: 64×64 granularity.** Both encoders document
   64×64 as their ROI-map unit. The saliency mask is reduced to this
   grid via `reduce_qp_map_to_blocks(qp_map, block=64)` before writing.
-- **RGB saliency input.** The student model receives BT.709-limited
-  yuv420p converted to ImageNet-normalised RGB. Chroma is
-  nearest-neighbour upsampled to luma resolution before inference.
+- **Luma-only saliency input.** The student model receives a
+  luma-replicated RGB triplet. This is sufficient for
+  foreground-vs-background discrimination; full RGB ingest is deferred.
 - **Don't use the placeholder.** `mobilesal_placeholder_v0` and the
   radial fallback inside `vmaf-roi` are smoke-test stubs. Pass an
   explicit `--saliency-model` pointing at the real fork-trained
@@ -1342,32 +1204,25 @@ to SVT-AV1 yet?"* question per-source: given one reference and a target
 VMAF, run each codec's recommend predicate in parallel and rank the
 results by smallest file. This is Bucket #7 of the
 [`vmaf-tune` capability audit](../research/0061-vmaf-tune-capability-audit.md);
-the default CLI backend is Phase B target-VMAF bisect per
-[ADR-0326](../adr/0326-vmaf-tune-phase-b-bisect.md).
+the orchestration is here today, the per-codec recommend backend lands
+with Phase B (target-VMAF bisect) per
+[ADR-0237](../adr/0237-quality-aware-encode-automation.md).
 
 ```shell
 vmaf-tune compare \
     --src ref.yuv \
-    --width 1920 --height 1080 --pix-fmt yuv420p \
-    --framerate 24 --duration 10 \
-    --sample-clip-seconds 4 \
     --target-vmaf 92 \
     --encoders libx264,libx265,libsvtav1,libaom,libvvenc \
-    --crf-min 15 --crf-max 40 \
     --format markdown
 ```
 
-The real bisect backend needs source geometry because raw YUV does not
-self-describe. Pass `--width` and `--height` explicitly; `--pix-fmt`,
-`--framerate`, and `--duration` default to the common SDR 24 fps shape
-but should be set for accurate scoring and bitrate math. Pass
-`--sample-clip-seconds N` to evaluate the centre `N` seconds of the
-source per bisect iteration; compare forwards matching
-`--frame_skip_ref` / `--frame_cnt` scorer bounds and normalises
-bitrate against the sample duration. For custom rankers or tests,
-`--predicate-module MODULE:CALLABLE` still accepts any importable
-`(codec, src, target_vmaf) -> RecommendResult` callable and bypasses
-the bisect backend.
+By default `--encoders` resolves to every adapter currently registered
+in `codec_adapters/` — Phase A wires `libx264` only, so the canonical
+four / five codec invocation above only ranks codecs whose adapters
+have already merged. Until Phase B's recommend backend lands, point
+`--predicate-module MODULE:CALLABLE` at any importable
+`(codec, src, target_vmaf) -> RecommendResult` callable to drive the
+ranking from a shim.
 
 Sample output (`--format markdown`, abridged):
 
@@ -1393,23 +1248,12 @@ Sample output (`--format markdown`, abridged):
 | Flag | Default | Notes |
 | --- | --- | --- |
 | `--src PATH` | — | Required. Single reference clip. |
-| `--target-vmaf F` | `92.0` | VMAF the bisect backend targets. |
+| `--target-vmaf F` | — | Required. VMAF the recommend predicate bisects toward. |
 | `--encoders LIST` | every registered adapter | Comma-separated codec names; e.g. `libx264,libx265,libsvtav1,libaom`. |
-| `--width / --height` | — | Required for the default real-bisect backend. |
-| `--pix-fmt` | `yuv420p` | Source pixel format forwarded to the scorer. |
-| `--framerate` | `24.0` | Source framerate. |
-| `--duration` | `0.0` | Source duration in seconds, used for bitrate math. |
-| `--sample-clip-seconds` | `0.0` | `0.0` scores the full source. Positive values shorter than `--duration` use a centre sample window for encode, score, and bitrate math (ADR-0301). |
-| `--preset` | adapter default | Preset forwarded to the codec adapter. |
-| `--crf-min / --crf-max` | adapter range | Inclusive CRF search window. Pass both or neither. |
-| `--max-iterations` | `8` | Encode+score round-trip cap per codec. |
-| `--vmaf-model` | `vmaf_v0.6.1` | VMAF model forwarded to the scorer. |
-| `--score-backend` | scorer default | `cpu`, `cuda`, `sycl`, `vulkan`, or `auto`. |
-| `--ffmpeg-bin / --vmaf-bin` | `ffmpeg` / `vmaf` | Binary overrides. |
 | `--format` | `markdown` | One of `markdown`, `json`, `csv`. |
 | `--no-parallel` | off | Run codecs sequentially (default: thread pool, one per codec). |
 | `--max-workers N` | `len(encoders)` | Cap on the parallel thread pool. |
-| `--predicate-module MOD:FN` | off | Advanced hook that bypasses the bisect backend. |
+| `--predicate-module MOD:FN` | placeholder | Inject a recommend predicate while Phase B is pending. |
 | `--output PATH` | stdout | Write the rendered report to PATH instead of stdout. |
 
 ### `compare` output schema
@@ -1444,8 +1288,7 @@ A source is classified as HDR iff its first video stream carries
 Mismatched signaling (e.g. PQ transfer with BT.709 primaries) is
 treated as SDR — misclassifying SDR as HDR is the dangerous failure
 mode. Mastering-display + max-CLL SEI side data is read when present
-and propagated to encoders that expose stable FFmpeg SEI flags (x265,
-SVT-AV1, HEVC NVENC).
+and propagated to encoders that accept it (x265, SVT-AV1, NVENC).
 
 ### Detection modes
 
@@ -1463,13 +1306,9 @@ The four flags are mutually exclusive.
 | Encoder | HDR signaling carrier |
 | --- | --- |
 | `libx264` | Container-level `-color_*` flags only (x264 has no in-stream HDR SEI). |
-| `libaom-av1` | Global `-color_*` tags only; no fork-owned private SEI mapping yet. |
 | `libx265` | Global `-color_*` + `-x265-params colorprim=bt2020:transfer=...:colormatrix=bt2020nc[:master-display=...:max-cll=...:hdr10-opt=1]`. |
 | `libsvtav1` | Global `-color_*` + `-svtav1-params color-primaries=9:transfer-characteristics=16` (PQ) or `=18` (HLG) `:matrix-coefficients=9`. |
 | `hevc_nvenc` | `-pix_fmt p010le -profile:v main10` + global `-color_*` + `-master_display` / `-max_cll` (when ffmpeg supports them). |
-| `av1_nvenc` | `-pix_fmt p010le` + global `-color_*` tags. |
-| `hevc_qsv` / `hevc_amf` / `hevc_videotoolbox` | `-pix_fmt p010le -profile:v main10` + global `-color_*` tags. |
-| `av1_qsv` / `av1_amf` | `-pix_fmt p010le` + global `-color_*` tags. |
 | `libvvenc` | Global `-color_*` only (SEI options live behind `--vvenc-params` in newer ffmpeg builds). |
 
 Encoders not in the dispatch table emit no HDR flags and the corpus
@@ -1637,12 +1476,11 @@ See [ADR-0295](../adr/0295-vmaf-tune-phase-e-bitrate-ladder.md) for
 the design and the alternatives considered (geometric ladder, JND-
 spaced, fixed Apple HLS).
 
-The default sampler is wired: for each `(resolution, target_vmaf)` cell
-it runs the canonical 5-point CRF sweep `18,23,28,33,38` through the
-normal Phase A encode-and-score path, picks the closest row to the
-target, and feeds those points into hull and knee selection. A custom
-`sampler=` callback remains supported for callers that want a finer
-grid, a bisect loop, or a precomputed corpus stream.
+> Phase E is currently **scaffold-only**: the production sampler that
+> drives Phase B's target-VMAF bisect lands once PR #347 merges. Until
+> then, the CLI raises `NotImplementedError` for the default sampler.
+> Tests inject a synthetic sampler — see
+> `tools/vmaf-tune/tests/test_ladder.py` for the smoke path.
 
 ### Canonical 5-rung invocation
 
@@ -1680,8 +1518,7 @@ vmaf-tune ladder --src ep01.yuv --format json --output ladder.json
 
 `--spacing log_bitrate` (default) doubles bandwidth per rung — Apple
 HLS authoring-spec convention. `--spacing vmaf` spaces rungs by equal
-VMAF gaps, matching how viewers perceive quality steps. `uniform` is
-accepted as a legacy alias for `vmaf`.
+VMAF gaps, matching how viewers perceive quality steps.
 
 ### Phase E ladder CLI flags
 
@@ -1692,11 +1529,8 @@ accepted as a legacy alias for `vmaf`.
 | `--resolutions WxH,...` | `1920x1080,1280x720,854x480,640x360,426x240` | Canonical 5-rung. |
 | `--target-vmafs F,...` | `95,90,85,75,65` | VMAF targets per resolution. |
 | `--quality-tiers N` | `5` | Rungs to pick from the Pareto hull. |
-| `--spacing` | `log_bitrate` | `log_bitrate` (HLS spec) or `vmaf` (perceptual); `uniform` is a legacy alias for `vmaf`. |
+| `--spacing` | `log_bitrate` | `log_bitrate` (HLS spec) or `vmaf` (perceptual). |
 | `--format` | `hls` | `hls`, `dash`, or `json`. |
-| `--with-uncertainty` | off | Apply the ADR-0279 prune/insert recipe. Sampled `vmaf_interval` payloads win; point-only rows use the active wide-interval threshold as a conservative fallback. |
-| `--uncertainty-sidecar PATH` | default thresholds | Calibration sidecar for the uncertainty recipe. |
-| `--rung-overlap-threshold F` | `0.5` | Adjacent-rung interval overlap threshold for pruning. |
 | `--output PATH` | stdout | Manifest destination. |
 
 ## Phase F — multi-pass encoding (ADR-0333)
@@ -1731,16 +1565,15 @@ vmaf-tune corpus \
 
 The driver materialises a per-encode stats file under
 `tempfile.gettempdir()` (e.g. `/tmp/vmaftune-2pass-XXXXXX/`), runs
-both passes back-to-back, and removes the stats file plus known
-encoder sidecars when the run completes — successful or not.
+both passes back-to-back, and removes the stats file (and libx265's
+sidecar `.cutree`) when the run completes — successful or not.
 
 ### Codec support matrix
 
 | Codec | `supports_two_pass` | Notes |
 | --- | --- | --- |
 | `libx265` | yes | First Phase F implementation. ADR-0333. |
-| `libx264` | yes | FFmpeg-native `-pass` / `-passlogfile` wiring. |
-| `libvpx-vp9` | yes | FFmpeg-native `-pass` / `-passlogfile`; adapter emits VP9 CRF mode via `-b:v 0`. |
+| `libx264` | not yet | Sibling PR planned. Native `-pass`/`-passlogfile`. |
 | `libsvtav1` | not yet | Sibling PR planned. Uses `-svtav1-params passes=2`. |
 | `libvvenc` | not yet | Sibling PR planned. Uses `-vvenc-params`. |
 | `libaom-av1` | not yet | Possible sibling PR; encode time prohibitive on long sources. |
@@ -1749,7 +1582,7 @@ encoder sidecars when the run completes — successful or not.
 
 When `--two-pass` is set against a codec where `supports_two_pass = False`,
 vmaf-tune writes a one-line warning to stderr and runs single-pass.
-(Mirrors the saliency.py "unsupported ROI encoder, fallback to plain encode"
+(Mirrors the saliency.py "x264-only, fallback to plain encode"
 precedent.) To fail loud instead, callers using the Python API can
 pass `on_unsupported="raise"` to `run_two_pass_encode`.
 
@@ -1768,17 +1601,17 @@ file is unique per slice. No special handling required.
 
 ## What Phase A / E / F do **not** do
 
-- No target-VMAF bisect (Phase B). Phase E uses the canonical
-  5-point CRF sweep as its production default sampler.
+- No target-VMAF bisect (Phase B). Phase E currently mocks the
+  sampler.
 - No per-title or per-shot CRF prediction (Phase C / D).
 - No real-corpus end-to-end ladder validation against a Netflix per-
-  title baseline yet.
-- 2-pass on codecs other than `libx264` / `libx265` / `libvpx-vp9`
-  (Phase F sibling PRs land one-file-at-a-time per the ADR-0288 /
-  ADR-0333 pattern).
-- Encoder-stats parsing for `libvpx-vp9`: FFmpeg's libvpx passlog is
-  binary first-pass data, not the x264/x265 text schema consumed by
-  `encoder_stats.py`.
+  title baseline — that's gated on Phase B merging.
+- 2-pass on codecs other than `libx265` (Phase F sibling PRs land
+  one-file-at-a-time per the ADR-0288 / ADR-0333 pattern).
+- The shipped `encode.py` driver only wires the `-preset` argv shape
+  used by x264/x265. The libaom-av1 adapter's metadata + preset
+  mapping land here; routing its codec-specific argv through the
+  driver follows when the codec-pluggable encode path lands.
 
 ## Phase A.5 — opt-in `fast` recommend
 
@@ -1789,11 +1622,14 @@ opt-in recommendation surface that combines three acceleration
 levers — VMAF proxy via `fr_regressor_v2`, Bayesian search via
 Optuna's TPE sampler, and GPU-accelerated VMAF for the verify step —
 to replace the exhaustive grid for the *recommendation* use case.
-The slow `corpus` path stays the canonical ground truth. Production
-mode runs the sample encode, extracts canonical-6 features, calls the
-`fr_regressor_v2` ONNX proxy, and performs a single verify pass through
-the selected VMAF backend. `--smoke` is still available for dependency-
-free CI and local plumbing checks.
+The slow `corpus` path stays the canonical ground truth.
+
+> **Status: scaffold only.** This PR ships the Optuna search loop,
+> the smoke-mode synthetic predictor, the CLI subcommand, and the
+> production-shape entry point. The real encode-extract-predict loop
+> (real ffmpeg sample encode + canonical-6 extraction + ONNX
+> inference + GPU verify) is a follow-up PR. Run with `--smoke` to
+> exercise the pipeline end-to-end.
 
 ### Install
 
@@ -1837,7 +1673,7 @@ JSON object:
 | `--crf-lo N` | `10` | Lower bound of the CRF search. |
 | `--crf-hi N` | `51` | Upper bound of the CRF search. |
 | `--n-trials N` | `50` | Optuna TPE trial count. |
-| `--time-budget-s N` | `300` | Soft wall-clock budget for Optuna. Completed trial count may be lower than `--n-trials` when the timeout is hit. |
+| `--time-budget-s N` | `300` | Soft wall-clock budget (advisory in scaffold). |
 | `--smoke` | off | Synthetic predictor — exercises the pipeline without ffmpeg / ONNX. |
 
 ### Speedup model
@@ -1853,46 +1689,32 @@ Per Research-0060 §Speedup model:
 These are upper bounds. The production claim is gated on a
 recommendation-quality benchmark against the slow grid.
 
-### Production limits
+### What's needed for production
 
-`fast` is a recommendation shortcut, not a corpus generator. It still
-needs a representative source clip, a usable encoder, and a VMAF binary
-for verification. When the proxy / verify gap exceeds
-`--proxy-tolerance`, the CLI exits with code `3` so operators can fall
-back to the slow grid:
+The scaffold deliberately leaves the following as follow-up PR
+work; flipping ADR-0276 from `Proposed` to `Accepted` requires all
+of these:
 
-```shell
-vmaf-tune fast --src ref.yuv --target-vmaf 92 || \
-    vmaf-tune recommend --from-corpus corpus.jsonl --target-vmaf 92
-```
+1. Real `fr_regressor_v2.onnx` weights trained on the Phase A
+   corpus (gated on PR #347 + corpus generation).
+2. ONNX Runtime wiring for the inference call (the current scaffold
+   exposes a `predictor=` injection seam for follow-up PRs).
+3. Sample-chunk encode loop — encode a 5-second representative
+   chunk per CRF, extract canonical-6 features, feed the proxy.
+4. GPU verify pass — invoke `vmaf` with `--cuda` / `--vulkan` /
+   `--sycl` (auto-detected) at the recommended CRF and report the
+   proxy / verify gap.
+5. NVENC / QSV / AMF auto-detection (lever C, ≈10× more speedup).
+6. Per-shot parallelisation (lever D, integrates with TransNet V2
+   and `vmaf-perShot`).
+7. Recommendation-quality benchmark — for ≥3 sources, compare
+   `fast` vs the slow grid at the recommended CRF; gate Acceptance
+   on a small VMAF tolerance (≤ 1.0 VMAF gap median).
 
-Per-shot parallelisation remains a separate integration with TransNet
-V2 and `vmaf-perShot`.
-
-`fast` accepts any registered codec adapter in production mode. Smoke
-mode remains synthetic and x264-shaped by design.
-
-## libvpx-vp9 example
-
-The VP9 adapter routes `--encoder libvpx-vp9` through FFmpeg's
-`libvpx-vp9` wrapper. It maps the shared preset vocabulary to
-`-deadline good -cpu-used N`, emits `-crf`, and forces VP9
-constant-quality mode with `-b:v 0`.
-
-```shell
-vmaf-tune corpus \
-    --encoder libvpx-vp9 \
-    --source ref.yuv \
-    --width 1920 --height 1080 --pix-fmt yuv420p \
-    --framerate 24 --duration 10 \
-    --preset medium --preset fast \
-    --crf 28 --crf 32 --crf 36 \
-    --output corpus_vp9.jsonl
-```
-
-`--two-pass` is supported for VP9 via FFmpeg's generic `-pass` /
-`-passlogfile` switches. Per-frame encoder-stats columns remain zero
-for VP9 until a binary libvpx first-pass parser lands.
+- `libsvtav1` / `libvpx-vp9` / `libvvenc` are still pending —
+  they will land via the codec adapter interface in
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/`. `libx264` and
+  `libx265` are wired today.
 
 ## x265 example
 
@@ -1917,9 +1739,21 @@ adapter reports the corresponding HEVC profile (`main10`) via
 `X265Adapter.profile_for(pix_fmt)` for downstream consumers that need
 it.
 
-The software adapters (`libx264`, `libx265`, `libsvtav1`,
-`libaom-av1`, `libvpx-vp9`, `libvvenc`) all route through the same
-codec-adapter registry; the search loop does not branch on codec name.
+- Software adapters beyond `libx264` (`libx265` / `libsvtav1` /
+  `libvpx-vp9` / `libvvenc`) ship in parallel PRs via the codec
+  adapter interface in `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
+- Software codecs other than `libx264` — `libx265` / `libsvtav1` /
+  `libvpx-vp9` / `libvvenc` are next via the codec adapter interface in
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/`. NVENC / QSV adapters
+  ship in companion PRs.
+- Beyond `libx264` + the three QSV adapters above, `libx265` /
+  `libsvtav1` / `libvpx-vp9` / `libvvenc` / NVENC / AMF land via
+  one-file additions under
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
+- Only `libx264` is registered on master; the codec adapter
+  interface is now codec-agnostic so each in-flight adapter PR
+  (#360, #362, #364, #366, #367, #368, #370, #373) can register
+  itself without touching `encode.py`.
 
 ## VVenC (H.266 / VVC)
 
@@ -2007,25 +1841,29 @@ The shipped unit tests mock `subprocess.run` so the adapter can be
 exercised without either binary present; integration smoke is gated
 to a CI runner that has a `libvvenc`-enabled FFmpeg.
 
-## Phase D — per-shot CRF tuning
+## Phase D — per-shot CRF tuning (scaffold)
 
-The `tune-per-shot` subcommand drives the Netflix-style per-shot
-encoding path. It cuts the source into shots
+The `tune-per-shot` subcommand is the orchestration scaffold for the
+Netflix-style per-shot encoding feature. It cuts the source into shots
 (via the C-side [`vmaf-perShot`](vmaf-perShot.md) binary, which wraps
 TransNet V2 — see [ADR-0223](../adr/0223-transnet-v2-shot-detector.md)),
-extracts each shot to a temporary raw-YUV reference, runs the Phase-B
-target-VMAF bisect for that shot, and emits an FFmpeg encoding plan
-that produces one segment per shot plus a final concat-demuxer command.
+picks a CRF per shot, and emits an FFmpeg encoding plan that produces
+one segment per shot plus a final concat-demuxer command.
 
-The target-VMAF predicate remains pluggable for advanced callers:
-`--predicate-module MODULE:CALLABLE` bypasses the default bisect path,
-and the Python API still accepts `tune_per_shot(..., predicate=...)`.
-Codec emission is still portable segment-and-concat output rather than
-native per-shot mechanisms (`--qpfile` for x264, `--zones` for x265, the
-SVT-AV1 segment table).
+Phase D ships **scaffolding**: the orchestration shape is stable, but
+two integration seams remain pluggable while the underlying components
+land:
+
+- The **target-VMAF predicate** defaults to the codec adapter's
+  default CRF; production wiring will use Phase B's bisect once it
+  lands as code.
+- The **codec emission** uses per-segment encodes plus concat instead
+  of native per-shot mechanisms (`--qpfile` for x264, `--zones` for
+  x265, the SVT-AV1 segment table). Native emission lands per-codec
+  alongside each new adapter.
 
 Design rationale and the decision matrix live in
-[ADR-0392](../adr/0392-vmaf-tune-phase-d-per-shot.md).
+[ADR-0276](../adr/0276-vmaf-tune-phase-d-per-shot.md).
 
 ### Quick start
 
@@ -2053,18 +1891,11 @@ shell script of the per-segment + concat commands.
 | `--pix-fmt PFMT` | `yuv420p` | Forwarded to `vmaf-perShot`. |
 | `--framerate F` | `24.0` | Used to translate frame counts to `-ss` seek seconds. |
 | `--target-vmaf V` | `92.0` | Per-shot quality target. |
-| `--encoder NAME` | `libx264` | Any registered codec adapter accepted by the Phase-B bisect backend. |
+| `--encoder NAME` | `libx264` | Phase D scaffold: `libx264` only. |
 | `--bitdepth N` | `8` | Forwarded to `vmaf-perShot` (`8`, `10`, or `12`). |
 | `--total-frames N` | `0` | Frame count for the single-shot fallback when `vmaf-perShot` is unavailable. |
 | `--per-shot-bin PATH` | `vmaf-perShot` | Override the shot detector binary. |
 | `--ffmpeg-bin PATH` | `ffmpeg` | Override the FFmpeg binary. |
-| `--vmaf-bin PATH` | `vmaf` | Override the libvmaf CLI used by the per-shot scorer. |
-| `--preset NAME` | adapter default | Codec preset forwarded to Phase-B bisect. |
-| `--crf-min / --crf-max` | adapter range | Optional inclusive CRF search bounds; pass both or neither. |
-| `--max-iterations N` | `8` | Maximum encode+score iterations per detected shot. |
-| `--vmaf-model NAME` | `vmaf_v0.6.1` | VMAF model forwarded to the per-shot scorer. |
-| `--score-backend NAME` | `auto` | libvmaf scoring backend for the per-shot scorer (`auto`, `cpu`, `cuda`, `sycl`, `vulkan`). |
-| `--predicate-module SPEC` | — | Advanced hook `MODULE:CALLABLE` matching `(shot, target_vmaf, encoder) -> (crf, measured_vmaf)`; bypasses real bisect. |
 | `--output PATH` | `per_shot_encode.mp4` | Final concatenated encode destination. |
 | `--segment-dir PATH` | `<output>.parent/segments` | Directory for per-shot segment files. |
 | `--plan-out PATH` | stdout | Write the JSON plan here instead of stdout. |
@@ -2076,7 +1907,6 @@ shell script of the per-segment + concat commands.
 {
   "encoder": "libx264",
   "framerate": 24.0,
-  "predicate": "bisect",
   "target_vmaf": 92.0,
   "shots": [
     {"start_frame": 0, "end_frame": 24, "crf": 22, "predicted_vmaf": 93.0},
@@ -2096,13 +1926,13 @@ shell script of the per-segment + concat commands.
 
 `start_frame` is inclusive, `end_frame` is exclusive (Python-slice
 convention). The `vmaf-perShot` CSV/JSON sidecar uses inclusive
-`end_frame`; the planner normalises into the half-open form and the
+`end_frame`; the scaffold normalises into the half-open form and the
 segment commands honour the half-open semantics via `-frames:v`.
 
 ### Single-shot fallback
 
 If the `vmaf-perShot` binary is not on PATH, or it exits non-zero, the
-planner falls back to a single shot covering the whole clip
+scaffold falls back to a single shot covering the whole clip
 (`[0, --total-frames)`). This keeps `tune-per-shot` usable as a smoke
 test on machines that have not built the shot-detector binary yet.
 
@@ -2110,21 +1940,26 @@ test on machines that have not built the shot-detector binary yet.
 
 - Does not run the encodes — only emits the plan. Pipe
   `--script-out plan.sh` through `sh` to execute it manually.
+- Does not yet drive Phase B's bisect; the default predicate returns
+  the codec adapter's default CRF for every shot. Inject a custom
+  predicate via the Python API (`tune_per_shot(..., predicate=...)`)
+  to experiment with real per-shot tuning.
 - Does not emit native per-codec per-shot mechanisms (x264 `--qpfile`,
   x265 `--zones`, SVT-AV1 segment tables). Per-segment encode plus
-  concat-demuxer is the portable fallback.
+  concat-demuxer is the scaffold's portable fallback.
 - Does not handle GOP-aligned shot boundaries — the per-segment
   approach side-steps this by re-encoding each shot from frame 0.
 
 ## auto
 
+`vmaf-tune auto` is the Phase F entry point (ADR-0364). One CLI verb
 `vmaf-tune auto` is the Phase F entry point (ADR-0325). One CLI verb
 composes the per-phase subcommands (`corpus`, `recommend`, `predict`,
 `tune-per-shot`, `recommend-saliency`, `ladder`, `compare`) plus the
 orthogonal modes (HDR auto-detect, sample-clip, resolution-aware) into
-a deterministic decision tree. F.1 shipped the sequential composition;
-F.2-F.5 added the short-circuits, confidence-aware fallbacks, and
-per-content recipes.
+a deterministic decision tree. F.1 ships the sequential scaffold; F.2
+adds seven short-circuits that skip stages whose output is determined
+by metadata alone.
 
 ### Synopsis
 
@@ -2140,23 +1975,12 @@ vmaf-tune auto \
     [--output plan.json]
 ```
 
-The non-smoke path probes source geometry, source duration, and HDR
-metadata through the same ffprobe/HDR helpers used by the corpus path.
-Probe failures degrade to conservative 1920x1080 SDR defaults so the
-planner can still emit a JSON plan and expose which later stages need
-real evidence. `--smoke` still exercises the composition end-to-end
-with mocked sub-phases (no ffmpeg, no ONNX). The JSON plan emitted under
-`metadata.short_circuits` records which short-circuits fired; post-hoc
-analysis uses this to measure the speedup contribution of each one.
-For each non-smoke cell, `auto` now feeds the probed metadata into the
-existing `Predictor` path, picks a codec-specific CRF for
-`metadata.effective_predictor_target_vmaf`, and records predictor
-estimates for `estimated_vmaf` and `estimated_bitrate_kbps`. These are
-planner estimates, not measured encode results, until the future
-realise/encode step scores the chosen cells. The per-cell
-`prediction_source` key distinguishes the production estimate path
-(`"predictor"`) from the `--smoke` composition placeholder
-(`"smoke-placeholder"`).
+The non-smoke path requires production probe wiring that lands in F.3;
+until then, run with `--smoke` to exercise the composition end-to-end
+with mocked sub-phases (no ffmpeg, no ONNX). The JSON plan emitted
+under `metadata.short_circuits` records which short-circuits fired —
+post-hoc analysis uses this to measure the speedup contribution of
+each one.
 
 ### Short-circuits
 
@@ -2174,10 +1998,10 @@ isolation.
 | 4 | `skip-saliency` | `meta.content_class` is photographic / live-action (not animation / screen content) | The `recommend_saliency.maybe_apply` stage (ADR-0293). |
 | 5 | `sdr-skip` | `not meta.is_hdr` (per ADR-0300 detector) | The HDR resolution + model-selection branch. |
 | 6 | `sample-clip-propagate` | `--sample-clip-seconds > 0` | Re-deciding clip length per stage; the user-supplied value propagates verbatim (ADR-0301). |
-| 7 | `skip-per-shot` | `duration < 5min` AND `shot_variance < 0.15` | The `tune_per_shot.refine` pass (ADR-0392). |
+| 7 | `skip-per-shot` | `duration < 5min` AND `shot_variance < 0.15` | The `tune_per_shot.refine` pass (ADR-0276 phase-d). |
 | 8 | `low-complexity` | `meta.complexity_score < 200 kbps` (probe-encode bitrate) | The `recommend.coarse_to_fine` sweep — the predictor's point estimate is already tight on simple content. `0.0`/`NaN` does not fire (no probe run yet). |
 | 9 | `baseline-meets-target` | `meta.baseline_vmaf >= target_vmaf` | The full predictor sweep — the default-CRF encode already satisfies the quality target. `0.0`/`NaN` does not fire (no baseline scored yet). |
-| 10 | `no-two-pass` | `adapter.supports_two_pass == False` (ADR-0333) | The two-pass calibration stage. Hardware encoders (`*_nvenc`, `*_amf`, `*_qsv`, `*_videotoolbox`) and most software encoders fire this. `libx264` and `libx265` currently set `supports_two_pass = True`. |
+| 10 | `no-two-pass` | `adapter.supports_two_pass == False` (ADR-0333) | The two-pass calibration stage. Hardware encoders (`*_nvenc`, `*_amf`, `*_qsv`, `*_videotoolbox`) and most software encoders fire this. Only `libx265` currently sets `supports_two_pass = True`. |
 
 The 5-min and 0.15 thresholds in short-circuit #7 are placeholders;
 F.3 fits them empirically once Phase F has emitted enough labelled
@@ -2197,35 +2021,6 @@ new short-circuit means appending; never reordering.
 tree. `fast` (ADR-0276 fast-path) is a different operator surface
 (proxy + Bayesian over a single codec) and remains a sibling, not a
 child, of `auto`.
-
-For HDR sources, every emitted cell records the codec-specific
-`hdr_args` produced by `vmaftune.hdr.hdr_codec_args(codec, info)`.
-That means x264 gets only container-level `-color_*` flags, x265 gets
-`-x265-params` SEI signalling, SVT-AV1 gets `-svtav1-params`, and SDR
-cells record an empty list after the `sdr-skip` short-circuit fires.
-
-### Winner selection
-
-`auto` now finishes the planning pass by selecting one estimated cell.
-The chosen cell is marked with `"selected": true` in `cells[]`; every
-other cell has `"selected": false`. The same decision is copied to
-`metadata.winner` so scripts can read a stable object without scanning
-the cell array.
-
-Winner statuses:
-
-| Status | Meaning |
-| --- | --- |
-| `budget_and_quality_met` | At least one cell met `--target-vmaf` and `--max-budget-bitrate`; the lowest estimated bitrate wins. |
-| `quality_met_budget_exceeded` | No cell was inside budget, but at least one cell met the quality target; the smallest budget overage wins. |
-| `target_unmet` | No cell met the quality target; the closest estimated VMAF miss wins so the caller still gets a concrete next encode. |
-| `no_eligible_cells` | No cell carried finite `estimated_vmaf` and `estimated_bitrate_kbps`; this is an input/planner evidence failure. |
-
-`metadata.winner` records `cell_index`, `rung`, `codec`, `crf`,
-`estimated_vmaf`, `estimated_bitrate_kbps`, `quality_margin`, and
-`budget_margin_kbps`. This is still a planning result: the selected
-cell is the next encode target, not a substitute for the final
-encode/score verification pass.
 
 ### Confidence-aware fallbacks (F.3)
 
@@ -2293,7 +2088,7 @@ are the **F.5-calibrated** thresholds emitted by
 `ai/scripts/calibrate_phase_f_recipes.py` and shipped in
 `ai/data/phase_f_recipes_calibrated.json`. The calibration was run on
 2026-05-09 against the K150K corpus
-(`.corpus/konvid-150k/konvid_150k.jsonl`, 148 543 rows out of an
+(`.workingdir2/konvid-150k/konvid_150k.jsonl`, 148 543 rows out of an
 expected 153 841 — the ingestion was ~96.6 % complete; a re-run on the
 full corpus is a follow-up PR). Threshold rationale and the per-class
 proxy-vs-corpus provenance break-down live in
@@ -2331,7 +2126,7 @@ run:
 
 ```shell
 python ai/scripts/calibrate_phase_f_recipes.py \
-    --corpus .corpus/konvid-150k/konvid_150k.jsonl \
+    --corpus .workingdir2/konvid-150k/konvid_150k.jsonl \
     --out ai/data/phase_f_recipes_calibrated.json
 ```
 
@@ -2349,16 +2144,16 @@ calibration):
   keeping text near-lossless. Predictor target nudged +1.
 - **Live-action HDR** — per [ADR-0300](../adr/0300-vmaf-tune-hdr-aware.md)
   the HDR pipeline already runs; the F.3 conformal-tight gate is
-  narrowed to `1.4` because a wide predictor interval on HDR is more
+  narrowed to `1.2` because a wide predictor interval on HDR is more
   suspect than on SDR (the predictor was largely trained on SDR per
   [ADR-0279](../adr/0279-fr-regressor-v2-probabilistic.md)).
 - **UGC** — user-generated content carries higher upstream-encode
   noise, inconsistent grading, and resolution mismatches; predictor
-  uncertainty is the baseline. Widening the F.3 tight gate to `3.5`
+  uncertainty is the baseline. Widening the F.3 tight gate to `3.0`
   avoids over-flagging UGC cells as "needs escalation" simply because
-  the interval is wider than a Netflix-grade reference. The K150K
-  calibration nudges the predictor target **up** 1.5 because the
-  corpus MOS distribution has a heavier upper tail.
+  the interval is wider than a Netflix-grade reference. The predictor
+  target is nudged **down** 1 because UGC's perceptual ceiling is
+  already capped by source-side artefacts.
 
 The recipe class is recorded in `plan.metadata.recipe_applied` (one
 of `animation`, `screen_content`, `live_action_hdr`, `ugc`, or

@@ -77,11 +77,10 @@ The filter publishes the final pooled score to FFmpeg's log as
 
 ### Fork-added options
 
-The fork's `ffmpeg-patches/` series (0001–0011) adds options to
-the `libvmaf` filter beyond the upstream surface — tiny-AI ONNX
-inference, backend selectors for SYCL / Vulkan / CUDA / HIP, and
-dedicated `libvmaf_sycl` / `libvmaf_vulkan` filters. The options
-below are from patches 0001–0003:
+The fork's `ffmpeg-patches/0001..0004` series adds five options to
+the `libvmaf` filter beyond the upstream surface — three for tiny-AI
+ONNX inference, one for the SYCL backend selector, one for the
+Vulkan scaffold:
 
 | Option | Default | Notes |
 |---|---|---|
@@ -89,12 +88,7 @@ below are from patches 0001–0003:
 | `tiny_device=auto\|cpu\|cuda\|openvino\|rocm` | `auto` | ORT device selector for the tiny model. |
 | `tiny_threads=N` | `0` | CPU-EP intra-op thread count (`0` = ORT default). |
 | `tiny_fp16=0\|1` | `0` | Request fp16 I/O when the device supports it. |
-| `sycl_device=N` | `-1` | SYCL device index, `-1` = system default (`ffmpeg-patches/0003-...`). |
 | `sycl_profile=0\|1` | `0` | Enable SYCL queue profiling (`ffmpeg-patches/0003-...`). |
-| `vulkan_device=N` | `-1` | Vulkan device index, `-1` = system default (`ffmpeg-patches/0004-...`). |
-| `cuda=0\|1` | `0` | Enable the CUDA backend on the libvmaf filter (`ffmpeg-patches/0010-...`). |
-| `hip_device=N` | `-1` | HIP device index, `-1` = system default (`ffmpeg-patches/0011-...`). |
-| `metal_device=N` | `-2` | Metal device index, `-2` = disabled, `-1` = system default, `≥0` = explicit (`ffmpeg-patches/0012-...`). The `-2` default is a fork-local convention because Metal is auto-disabled on Linux; an unset value should not enable the backend. |
 
 Backend selectors live alongside in a small dedicated table —
 see "Backend selectors on the libvmaf filter" below.
@@ -183,11 +177,11 @@ The final command line will depend on what shell you are running `ffmpeg` throug
 
 ### Per-backend copy-paste examples
 
-One ready-to-paste invocation per backend. All examples use the same
-input pair (`reference.mp4`, `distorted.mp4`); each routes the work to a
+One ready-to-paste invocation per backend. All four use the same input
+pair (`reference.mp4`, `distorted.mp4`); each routes the work to a
 different compute path. The fork-added `sycl_device=` / `vulkan_device=`
-/ `cuda=` / `hip_device=` options come from patches `0003`, `0004`,
-`0010`, and `0011`.
+/ `cuda=` options come from the `ffmpeg-patches/0003..0004` and
+`0010` patches.
 
 **CPU (default — no hwaccel, no GPU build needed):**
 
@@ -325,7 +319,7 @@ ffmpeg -hwaccel vulkan -hwaccel_output_format vulkan -i reference.mp4 \
        -f null -
 ```
 
-All four GPU backends now ship a dedicated filter that consumes
+All three GPU backends now ship a dedicated filter that consumes
 hwdec frames directly without the `hwdownload,format=yuv420p`
 round-trip:
 
@@ -335,12 +329,6 @@ round-trip:
 - `libvmaf_vulkan` — `AV_PIX_FMT_VULKAN` frames (T7-29 parts
   2 + 3, closed by
   `ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`).
-- `libvmaf_metal` — `AV_PIX_FMT_VIDEOTOOLBOX` frames (T8-IOS,
-  `ffmpeg-patches/0013-libvmaf-add-libvmaf-metal-filter.patch`).
-  Routes through the `vmaf_metal_picture_import` C API; on hosts
-  without an Apple-Family-7 MTLDevice the filter fails fast at
-  `config_props` with `AVERROR(ENODEV)`. See
-  [ADR-0423](../adr/0423-metal-iosurface-import-scaffold.md).
 
 **With `libvmaf_vulkan` (drops the bridge entirely):**
 
@@ -362,31 +350,6 @@ requirement: libvmaf compute runs on the FFmpeg decoder's
 `VkInstance` / `VkDevice` via the new
 `vmaf_vulkan_state_init_external` C-API. See
 [ADR-0186](../adr/0186-vulkan-image-import-impl.md).
-
-**With `libvmaf_metal` (VideoToolbox hwdec):**
-
-```bash
-ffmpeg -hwaccel videotoolbox -hwaccel_output_format videotoolbox -i reference.mp4 \
-       -hwaccel videotoolbox -hwaccel_output_format videotoolbox -i distorted.mp4 \
-       -filter_complex "[0:v][1:v]libvmaf_metal=log_fmt=json:log_path=/dev/stdout" \
-       -f null -
-```
-
-Build FFmpeg with `--enable-libvmaf-metal` against a libvmaf compiled
-with `-Denable_metal=enabled`. The filter pulls the `IOSurfaceRef`
-backing each `CVPixelBufferRef` via `CVPixelBufferGetIOSurface` and
-routes it through `vmaf_metal_picture_import` — which locks the
-surface read-only and memcpys each plane into a shared-storage
-`VmafPicture` (the unified-memory cost on Apple Silicon is
-equivalent to a Shared MTLBuffer copy). The libvmaf-side runtime
-falls back to `MTLCreateSystemDefaultDevice` until upstream FFmpeg
-ships an `AVMetalDeviceContext`; on multi-GPU Mac Pro hosts this
-may pick a different MTLDevice than the VideoToolbox decoder used
-— the same-device contract the Vulkan filter solves via
-`AVVulkanDeviceContext` is documented as a follow-up here. On
-non-Apple-Family-7 hosts the filter exits at `config_props` time
-with `AVERROR(ENODEV)` and a pointer to
-[ADR-0423](../adr/0423-metal-iosurface-import-scaffold.md).
 
 ### Background
 
@@ -417,11 +380,9 @@ The same fork-added selector pattern exists for SYCL and Vulkan on the
 
 | Option | Default | Notes |
 |---|---|---|
-| `sycl_device=N` | `-1` (disabled) | Pick SYCL device ordinal; `-1` keeps the CPU path. Errors out if libvmaf was built without `-Denable_sycl=true`. Patch `0003`. |
-| `sycl_profile=0\|1` | `0` | Enable SYCL queue profiling. Patch `0003`. |
-| `vulkan_device=N` | `-1` (disabled) | Pick Vulkan device ordinal; `-1` keeps the CPU path. Vulkan compute covers the full default-model surface (vif/motion/adm/psnr/cambi/ssimulacra2 and more). Errors out if libvmaf was built without `-Denable_vulkan=enabled`. Patch `0004`. |
-| `cuda=0\|1` | `0` | Enable CUDA compute path on software-decoded input. Patch `0010`. |
-| `hip_device=N` | `-1` (disabled) | Pick HIP device ordinal; `-1` keeps the CPU path. Errors out if libvmaf was built without `-Denable_hip=true`. Patch `0011` ([ADR-0380](../adr/0380-ffmpeg-hip-backend-selector.md)). |
+| `sycl_device=N` | `-1` (disabled) | Pick SYCL device ordinal; `-1` keeps the CPU path. Errors out if libvmaf was built without `-Denable_sycl=true`. |
+| `sycl_profile=0\|1` | `0` | Enable SYCL queue profiling. |
+| `vulkan_device=N` | `-1` (disabled) | Pick Vulkan device ordinal; `-1` keeps the CPU path. Vulkan compute is shipping for `vif` / `motion` / `adm` ([ADR-0177](../adr/0177-vulkan-motion-kernel.md) / [ADR-0178](../adr/0178-vulkan-adm-kernel.md)) and `psnr` luma-only ([ADR-0182](../adr/0182-gpu-long-tail-batch-1.md)); other extractors fall through to CPU. Errors out if libvmaf was built without `-Denable_vulkan=enabled`. |
 
 ## External resources
 

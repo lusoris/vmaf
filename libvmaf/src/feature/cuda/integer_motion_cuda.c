@@ -28,7 +28,6 @@
 #include "feature_name.h"
 #include "cuda/integer_motion_cuda.h"
 #include "drain_batch.h"
-#include "log.h"
 #include "mem.h"
 #include "motion_blend_tools.h"
 #include "picture.h"
@@ -43,7 +42,6 @@
 typedef struct MotionStateCuda {
     CUevent event, finished;
     CUfunction funcbpc8, funcbpc16;
-    CUmodule module;
     CUstream str;
     VmafCudaBuffer *blur[2];
     VmafCudaBuffer *sad;
@@ -257,18 +255,6 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         return -ENOTSUP;
     }
 
-    /* The 5-tap CUDA kernel uses reflect-101 mirror padding on device;
-     * mirror() returns 2*sup - idx - 2, which is negative when sup < 3.
-     * Refuse smaller frames up front to prevent out-of-bounds device
-     * reads.  Minimum: filter_width/2 + 1 = 3. */
-    if (h < 3u || w < 3u) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "motion_cuda: frame %ux%u is below the 5-tap filter minimum 3x3; "
-                 "refusing to avoid out-of-bounds mirror reads on device\n",
-                 w, h);
-        return -EINVAL;
-    }
-
     int _cuda_err = 0;
     int ctx_pushed = 0;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
@@ -277,7 +263,8 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
 
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, motion_score_ptx), fail);
+    CUmodule module;
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, motion_score_ptx), fail);
 
     CHECK_CUDA_GOTO(
         cu_f, cuModuleGetFunction(&s->funcbpc16, module, "calculate_motion_score_kernel_16bpc"),
@@ -536,8 +523,6 @@ after_event1_destroy:
 after_event2_destroy:;
 
     int ret = _cuda_err;
-    if (s->module)
-        (void)cu_f->cuModuleUnload(s->module);
 
     if (s->blur[0]) {
         ret |= vmaf_cuda_buffer_free(fex->cu_state, s->blur[0]);

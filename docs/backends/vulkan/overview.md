@@ -106,7 +106,7 @@ secondary.
     (`GL_EXT_shader_explicit_arithmetic_types_int64`) for
     deterministic reductions matching the CPU integer reference.
   - `cambi_vulkan.c` (T7-36 / [ADR-0210](../../adr/0210-cambi-vulkan-integration.md))
-    with GLSL shaders
+    + GLSL shaders
     [`shaders/cambi_preprocess.comp`](../../../libvmaf/src/feature/vulkan/shaders/cambi_preprocess.comp),
     [`cambi_derivative.comp`](../../../libvmaf/src/feature/vulkan/shaders/cambi_derivative.comp),
     [`cambi_filter_mode.comp`](../../../libvmaf/src/feature/vulkan/shaders/cambi_filter_mode.comp),
@@ -117,8 +117,8 @@ secondary.
     `PASS=0/1/2` spec const for row-SAT / col-SAT / threshold), 2×
     decimate, and 3-tap separable mode filter; the
     precision-sensitive `calculate_c_values` sliding-histogram pass
-    and top-K spatial pooling stay on the host. Bit-exact w.r.t. CPU
-    by construction (every GPU phase is integer arithmetic and the
+    + top-K spatial pooling stay on the host. Bit-exact w.r.t. CPU
+    by construction (every GPU phase is integer arithmetic + the
     host residual runs the unmodified CPU code on byte-identical
     buffers); cross-backend gate runs at `places=4`. Closes the
     GPU long-tail matrix terminus declared in
@@ -126,10 +126,10 @@ secondary.
     registered feature extractor in the fork now has at least one
     GPU twin (lpips delegates to ORT EPs per
     [ADR-0022](../../adr/0022-inference-runtime-onnx.md)).
-  - `psnr_vulkan.c` with GLSL shader
+  - `psnr_vulkan.c` + GLSL shader
     [`shaders/psnr.comp`](../../../libvmaf/src/feature/vulkan/shaders/psnr.comp).
     Single plane-agnostic compute shader (per-pixel `(ref - dis)²`
-    with per-WG `int64` reduction), dispatched three times per frame
+    + per-WG `int64` reduction), dispatched three times per frame
     against per-plane buffers — Y, Cb, Cr. Per-plane width / height
     arrive via push constants; chroma sizing follows `pix_fmt`
     (4:2:0 → w/2 × h/2, 4:2:2 → w/2 × h, 4:4:4 → w × h); YUV400
@@ -273,10 +273,10 @@ from the hot-path frame loop.
 | `motion_v2_vulkan.c` | 1 | per-frame (ping-pong ref_buf cur/prev) | PR-B (ADR-0353) |
 | `float_psnr_vulkan.c` | 1 | once at init | PR-B (ADR-0353) |
 | `float_motion_vulkan.c` | 1 | per-frame (ping-pong blur cur/prev) | PR-B (ADR-0353) |
-| `ansnr_vulkan.c` | 1 | once at init | PR-C (ADR-0354) |
-| `vif_vulkan.c` | 1 | once at init (4 pre-allocated sets) | PR-C (ADR-0354) |
-| `ssimulacra2_vulkan.c` | 1 | once at init | PR-C (ADR-0354) |
-| `cambi_vulkan.c` | 1 | once at init (multi-stage) | PR-C (ADR-0354) |
+| `ansnr_vulkan.c` | planned | planned | PR-C |
+| `vif_vulkan.c` | planned | planned | PR-C |
+| `ssimulacra2_vulkan.c` | planned | planned | PR-C |
+| `cambi_vulkan.c` | planned | planned | PR-C |
 
 **T-GPU-OPT-VK-4** (descriptor pre-allocation): kernels with fully-stable
 SSBO handles call `vkUpdateDescriptorSets` once at `init()` and reuse the
@@ -287,24 +287,15 @@ changes each frame.
 The required tear-down ordering — pool destroy before pipeline destroy —
 is documented in `libvmaf/src/feature/vulkan/AGENTS.md`.
 
-**T-GPU-OPT-VK-4 (pipeline cache)**: `vmaf_vulkan_context_new()` creates a
-`VkPipelineCache` loaded from
-`${XDG_CACHE_HOME:-$HOME/.cache}/vmaf/vulkan/<device-uuid>.bin` and passes
-it to every `vkCreateComputePipelines` call in `kernel_template.h`. On warm
-starts the driver can skip ISA re-compilation and reuse the cached native
-binary directly. Expected saving: 200–700 ms per full multi-feature Vulkan
-run (varies by driver and feature count). The cache is serialised back to
-disk on `vmaf_vulkan_context_destroy()`. Failures (read-only filesystem,
-missing home dir) fall through to uncached pipeline creation. See
-[ADR-0470](../../adr/0470-vulkan-pipeline-cache.md).
-
 ## What lands next
 
+- **T5-1c** — ADM, motion, motion_v2 Vulkan kernels using the
+  same `vif_vulkan` scaffolding (lazy-context fallback +
+  imported-state borrow path, `VkSpecializationInfo`-driven
+  pipelines, host-side reduction).
 - Self-hosted Arc runner registration to flip the `Vulkan VIF
   Cross-Backend (Arc A380, advisory)` lane from `if: false` to
   active.
-- `motion_add_uv=true` GPU path (UV-plane motion on Vulkan; see Known
-  gaps in [sycl/overview.md](../sycl/overview.md#known-gaps)).
 
 ## Caveats
 
@@ -337,6 +328,7 @@ missing home dir) fall through to uncached pipeline creation. See
   authoritative; NVIDIA hardware validation is a manual local
   gate. Tracked under
   [`docs/state.md`](../../state.md) Open bugs.
+
 
 ## Buffer classification (ADR-0357)
 
@@ -446,27 +438,3 @@ reduction shaders (ADR-0356). Falling back to CPU.
 The framework then falls back to the CPU path automatically. Linux
 and Windows targets with NVIDIA proprietary, Mesa anv, RADV, and
 lavapipe drivers all advertise the feature and follow the GPU path.
-
-
-## Pipeline cache persistence (ADR-0445)
-
-As of ADR-0445 (PR #865 profiling finding), the Vulkan backend persists its
-compiled compute pipeline cache to disk via `VkPipelineCache`. On warm
-process starts the driver replays the compiled ISA instead of recompiling
-SPIR-V, cutting cold-start from 80–120 ms to 2–5 ms on NVIDIA RTX 4090.
-
-**Cache path**: `$XDG_CACHE_HOME/libvmaf/vulkan-pipeline-cache.bin`
-(default `$HOME/.cache/libvmaf/vulkan-pipeline-cache.bin`).
-
-**Validation**: the loader checks the `VkPipelineCacheHeaderVersionOne`
-vendor ID and device ID against the current physical device before reuse.
-A mismatch (different GPU, driver update) causes silent discard and a
-one-time recompilation; the cache is then rewritten with the new blob.
-
-**Opt-out**: set `LIBVMAF_VULKAN_PIPELINE_CACHE=0` in the environment to
-skip all cache reads and writes. Recommended for CI runners where the cache
-is cold on every run and the file-I/O overhead outweighs the saving.
-
-**Bit-exactness**: the cache only stores compiled ISA. Kernel output values
-are determined entirely by SPIR-V and push constants, not by the cache.
-The existing `places=4` cross-backend gate covers this invariant.

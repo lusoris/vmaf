@@ -47,7 +47,7 @@ vulkan_shader_sources = [
     'shaders/motion_v2.comp',
     'shaders/adm.comp',
     'shaders/psnr.comp',
-    'shaders/float_moment.comp',
+    'shaders/moment.comp',
     'shaders/ciede.comp',
     'shaders/float_ssim.comp',
     'shaders/ms_ssim.comp',
@@ -72,8 +72,6 @@ vulkan_shader_sources = [
     'shaders/cambi_filter_mode.comp',
     'shaders/cambi_decimate.comp',
     'shaders/cambi_mask_dp.comp',
-    # integer_ssim Vulkan twin — reads raw uint8/uint16 samples inline.
-    'shaders/integer_ssim.comp',
 ]
 
 vulkan_shader_headers = []
@@ -102,19 +100,6 @@ psnr_hvs_strict_shaders = [
     # but the per-pixel stats expression
     # `(num_m * num_s) / denom_s` is FMA-reorderable. Keep strict.
     'shaders/ssimulacra2_ssim.comp',
-    # float_vif scale 2/3 numerical saturation bug (PR #718 / ADR-0352):
-    # the SPIR-V optimizer's reassociation of the per-pixel vertical-pass
-    # inner loop (`a_xx += c_k * ref_v * ref_v`) and the horizontal-pass
-    # sigma computation (`sigma1_sq = xx - mu1*mu1`) causes catastrophic
-    # cancellation at scales 2+3 where the smoothed signal has very low
-    # local variance.  The resulting underestimated sigma1_sq pushes
-    # nearly all pixels into the low-sigma branch (`sigma1_sq < 2.0`),
-    # inflating the per-scale score to ~1.0.  -O0 disables the
-    # reassociation / FMA-contraction that triggers the regression.
-    # The precise qualifiers in the shader provide defence-in-depth
-    # against driver-side contraction (Vulkan 1.4 NVIDIA and newer MoltenVK
-    # allow the shader compiler to contract even after SPIR-V emission).
-    'shaders/float_vif.comp',
 ]
 foreach shader : vulkan_shader_sources
     shader_name = shader.split('/')[-1].replace('.comp', '')
@@ -159,11 +144,11 @@ vulkan_sources += files(
     'picture_vulkan.c',
     'picture_vulkan_pool.c',
     '../feature/vulkan/adm_vulkan.c',
-    '../feature/vulkan/integer_vif_vulkan.c',
+    '../feature/vulkan/vif_vulkan.c',
     '../feature/vulkan/motion_vulkan.c',
     '../feature/vulkan/motion_v2_vulkan.c',
     '../feature/vulkan/psnr_vulkan.c',
-    '../feature/vulkan/float_moment_vulkan.c',
+    '../feature/vulkan/moment_vulkan.c',
     '../feature/vulkan/ciede_vulkan.c',
     '../feature/vulkan/float_ssim_vulkan.c',
     '../feature/vulkan/ms_ssim_vulkan.c',
@@ -175,7 +160,6 @@ vulkan_sources += files(
     '../feature/vulkan/float_adm_vulkan.c',
     '../feature/vulkan/ssimulacra2_vulkan.c',
     '../feature/vulkan/cambi_vulkan.c',
-    '../feature/vulkan/integer_ssim_vulkan.c',
 )
 
 vulkan_sources += vulkan_shader_headers

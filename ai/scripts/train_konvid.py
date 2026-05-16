@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# Copyright 2026 Lusoris and Claude (Anthropic)
-# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
 """Drive C2 + C3 training on KoNViD-1k frames extracted by
 ``ai/scripts/extract_konvid_frames.py``.
 
@@ -25,7 +23,6 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import cast
 
 import pytorch_lightning as L
 import torch
@@ -104,7 +101,7 @@ def _train_one(
         callbacks=[ckpt_cb, early_cb],
         default_root_dir=output_dir,
         log_every_n_steps=10,
-        precision=cast(object, precision),  # type: ignore[arg-type]  # argparse gives str
+        precision=precision,
         deterministic=True,
         accelerator="auto",
     )

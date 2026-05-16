@@ -1,10 +1,8 @@
-# GPU backends C API — `libvmaf_cuda.h` / `libvmaf_sycl.h` / `libvmaf_vulkan.h` / `libvmaf_hip.h` / `libvmaf_metal.h`
+# GPU backends C API — `libvmaf_cuda.h` / `libvmaf_sycl.h` / `libvmaf_vulkan.h`
 
-Each GPU backend adds its own small API on top of the core
+The CUDA and SYCL backends each add their own small API on top of the core
 `libvmaf.h` surface — a state object, picture preallocation helpers, and
-(SYCL / Vulkan / Metal) zero-copy import paths. This page is the reference for
-all five backends; HIP still has three unported feature kernels, while Metal
-has a live Apple-Silicon runtime and first kernel batch.
+(SYCL only) zero-copy import paths. This page is the reference for both.
 
 Core API primer: [index.md](index.md). CLI equivalents:
 [../usage/cli.md#backend-selection](../usage/cli.md#backend-selection).
@@ -18,17 +16,8 @@ Backend dispatch rules + runtime precedence:
   are absent and calls won't link.
 - The SYCL header is only useful in a build with `-Denable_sycl=true`
   (linking oneAPI / Level Zero). Same rule.
-- The Vulkan header requires `-Denable_vulkan=true` (linking volk + the
-  compute-shader feature kernels). Same rule.
-- The HIP header requires `-Denable_hip=true -Denable_hipcc=true` (linking
-  ROCm). 8 of 11 feature kernels are real; 3 stubs (`adm`, `vif`,
-  `integer_motion`) return `-ENOSYS`.
-- The Metal header requires `-Denable_metal=auto/enabled` on macOS.
-  Runtime entry points are live on Apple Silicon; unsupported devices
-  return `-ENODEV`. Eight feature kernels are currently wired.
 - To write portable code that compiles against any libvmaf build, wrap
-  GPU-specific sections in `#ifdef HAVE_CUDA` / `#ifdef HAVE_SYCL` /
-  `#ifdef HAVE_VULKAN` / `#ifdef HAVE_HIP` / `#ifdef HAVE_METAL`, which
+  GPU-specific sections in `#ifdef HAVE_CUDA` / `#ifdef HAVE_SYCL`, which
   `pkg-config --cflags libvmaf` surfaces automatically.
 
 ## CUDA
@@ -256,27 +245,22 @@ int vmaf_sycl_preallocate_pictures(VmafContext *ctx, VmafSyclPictureConfiguratio
 int vmaf_sycl_picture_fetch(VmafContext *ctx, VmafPicture *pic);
 ```
 
-`vmaf_sycl_preallocate_pictures` now honors the enum and creates a 2-deep
-SYCL picture pool when `DEVICE` or `HOST` is selected:
-
-| Method | Backing | Use case |
-| --- | --- | --- |
-| `VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_NONE` | no pool; `vmaf_sycl_picture_fetch` falls back to `vmaf_picture_alloc()` | CPU-fed callers and test harnesses |
-| `VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_DEVICE` | `sycl::malloc_device` USM | decoder / uploader writes directly into GPU-resident planes |
-| `VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_HOST` | `sycl::malloc_host` USM | CPU-visible pooled planes with SYCL-friendly lifetime semantics |
-
-The caller owns each `VmafPicture` reference returned by
-`vmaf_sycl_picture_fetch()` and must release it with `vmaf_picture_unref()`
-after submitting it through `vmaf_read_pictures()`. The pool keeps its own
-references until `vmaf_close()` tears down the context.
+**Known bug — do not rely on this API.** Unlike the CUDA flavour, the SYCL
+simple path does **not** currently honor its preallocation enum.
+`vmaf_sycl_preallocate_pictures` is a no-op stub and
+`vmaf_sycl_picture_fetch` allocates via the regular host
+`vmaf_picture_alloc()` — the `DEVICE` / `HOST` enum values are declared for
+symmetry with CUDA but are silently ignored
+([`libvmaf/src/libvmaf.c`](../../libvmaf/src/libvmaf.c)). Tracked as
+[issue #26](https://github.com/lusoris/vmaf/issues/26). Use the frame-buffer
+API below — that is the real GPU-resident path on SYCL today.
 
 ### Zero-copy frame-buffer path
 
 For callers that own a GPU-resident decode pipeline (Intel VPL, VA-API,
-D3D11), the frame-buffer API exposes two shared Y-plane buffers (ref + dis)
-and alternative ingest entry points. Use it when the pipeline wants the
-SYCL backend's built-in double-buffered Y-plane upload path instead of
-managing whole `VmafPicture` instances from the preallocation pool.
+D3D11), the simple preallocation path forces an unnecessary copy. The
+zero-copy API exposes two shared Y-plane buffers (ref + dis) and
+alternative ingest entry points that skip `vmaf_picture_alloc` entirely.
 
 ```c
 int vmaf_sycl_init_frame_buffers (VmafContext *ctx, unsigned w, unsigned h, unsigned bpc);
@@ -547,87 +531,8 @@ back to a host-backed picture if the caller skipped
   zero-copy through `AVVulkanDeviceContext` is wired by
   `ffmpeg-patches/0004-libvmaf-wire-vulkan-backend-selector.patch`
   on top of T7-29's `_state_init_external` API.
-- HIP / AMD-ROCm support: `libvmaf_hip.h` is shipping (T7-10 scaffold,
-  ADR-0212; runtime + 8/11 real feature kernels via PRs #686/#695/#696/#710/#712).
-  3 kernels remain `-ENOSYS` stubs (adm/vif/integer_motion). FFmpeg
-  integration is wired by `ffmpeg-patches/0011-libvmaf-wire-hip-backend-selector.patch`
-  (`--enable-libvmaf-hip` + `hip_device=N`, ADR-0380).
-
-## HIP
-
-`libvmaf_hip.h` exposes the AMD ROCm/HIP lifecycle surface. It follows the
-CUDA header shape closely:
-
-- `vmaf_hip_state_init` creates a backend state for a selected HIP device.
-- `vmaf_hip_import_state` hands the state to a `VmafContext`. Note:
-  `vmaf_hip_import_state` currently returns `-ENOSYS` — it remains a stub
-  until the first real HIP feature extractor wires HIP dispatch
-  (`vmaf_hip_state_init` and `vmaf_hip_list_devices` are fully implemented).
-- `vmaf_hip_state_free` releases the state and any backend-owned resources.
-- `vmaf_hip_list_devices` enumerates visible ROCm devices.
-
-The HIP backend is compile-time gated behind `-Denable_hip=true` and the HIP
-compiler option used by this fork's build matrix. Runtime support depends on a
-ROCm-capable AMD GPU and a matching driver stack. The public API is stable, but
-the feature set is still narrower than CUDA/SYCL/Vulkan: PSNR, CIEDE, float
-PSNR, float ANSNR, float moment, SSIM, MS-SSIM, PSNR-HVS, CAMBI, and
-SSIMULACRA 2 are wired; ADM, VIF, and integer motion remain the known
-follow-up kernels.
-
-## Metal
-
-`libvmaf_metal.h` exposes the Apple Metal lifecycle and IOSurface import
-surface. It is available only on macOS builds with `-Denable_metal=auto` or
-`-Denable_metal=enabled`; unsupported hosts return `-ENODEV` instead of
-silently falling back to CPU. The header is installed into the system prefix by
-`meson install` whenever Metal is enabled, so that downstream FFmpeg
-`--enable-libvmaf-metal` configure probes can locate it (ADR-0437).
-
-### Core lifecycle API
-
-| Symbol | Description |
-| --- | --- |
-| `vmaf_metal_available` | Returns 1 if the library was built with Metal support; 0 otherwise. |
-| `vmaf_metal_state_init` | Allocates a `VmafMetalState`, selecting a device by index (-1 = system default). Returns `-ENODEV` on non-Apple-Family-7 hosts. |
-| `vmaf_metal_import_state` | Hands an allocated `VmafMetalState` to a `VmafContext` for use during feature extraction. The caller retains ownership and must call `vmaf_metal_state_free` after `vmaf_close`. |
-| `vmaf_metal_state_free` | Releases a state allocated via `vmaf_metal_state_init` or `vmaf_metal_state_init_external`. Safe to pass `NULL`. |
-| `vmaf_metal_list_devices` | Enumerates Apple-Family-7+ Metal devices. Returns device count or `-ENOSYS` when built without Metal. |
-
-Typical call sequence:
-
-```text
-vmaf_init()
-vmaf_metal_state_init(&state, cfg)     ← new
-vmaf_metal_import_state(vmaf, state)   ← new; hands state to ctx
-loop:
-  vmaf_metal_picture_import(state, iosurface, plane, w, h, bpc, is_ref, index)
-  vmaf_metal_wait_compute(state)
-  vmaf_metal_read_imported_pictures(vmaf, index)
-vmaf_score_pooled(vmaf, ...)
-vmaf_close(vmaf)
-vmaf_metal_state_free(&state)
-```
-
-### IOSurface zero-copy import (ADR-0423)
-
-For FFmpeg/VideoToolbox callers that hold `CVPixelBufferRef`-backed frames, the
-fork ships a zero-copy IOSurface import path. The caller pulls the `IOSurface`
-via `CVPixelBufferGetIOSurface` and hands it to libvmaf; the Metal feature
-kernels read the frame without a host round-trip.
-
-| Symbol | Description |
-| --- | --- |
-| `VmafMetalExternalHandles` | Struct carrying an `id<MTLDevice>` and `id<MTLCommandQueue>` as `uintptr_t` to keep the header Metal-framework-free. |
-| `vmaf_metal_state_init_external` | Allocates a `VmafMetalState` that adopts caller-supplied Metal handles instead of creating its own device/queue. Required when the IOSurface source and libvmaf compute must share the same `MTLDevice`. |
-| `vmaf_metal_picture_import` | Imports a single plane of an `IOSurfaceRef` (as `uintptr_t`) into the libvmaf Metal pipeline. The caller retains ownership; libvmaf locks the surface read-only and copies the plane into a shared-storage `VmafPicture`. |
-| `vmaf_metal_wait_compute` | Blocks until all Metal compute work on `state` has finished. Currently a synchronous no-op (v1 import path is a host-side memcpy); future async paths replace this with an `MTLSharedEvent` drain. |
-| `vmaf_metal_read_imported_pictures` | Triggers a libvmaf score read for the ref+dis IOSurfaces at `index`. Mirrors `vmaf_vulkan_read_imported_pictures`. |
-
-Metal currently targets Apple Silicon (Apple-Family-7, M1 and later) and ships
-runtime dispatch for 8 feature kernels. VIF, ADM, CIEDE, CAMBI, SSIMULACRA2,
-MS-SSIM, PSNR-HVS, and motion3 are tracked as follow-up kernels. Intel-Mac
-paths remain MoltenVK/Vulkan-oriented unless a future ADR adds a dedicated
-Metal runtime contract for those devices.
+- HIP / AMD-ROCm support is scaffolded under T7-10 (PR #200);
+  a public `libvmaf_hip.h` is planned to mirror this surface.
 
 ## Related
 

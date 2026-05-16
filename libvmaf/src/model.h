@@ -54,7 +54,7 @@ typedef struct VmafModel {
     enum VmafModelType type;
     double slope, intercept;
     VmafModelFeature *feature;
-    unsigned n_features, feature_cap;
+    unsigned n_features;
     struct {
         bool enabled;
         double min, max;
@@ -73,7 +73,7 @@ typedef struct VmafModel {
         struct {
             bool enabled;
             VmafPoint *list;
-            unsigned n_knots, cap;
+            unsigned n_knots;
         } knots;
         bool out_lte_in, out_gte_in;
     } score_transform;

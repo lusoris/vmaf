@@ -45,7 +45,6 @@ __attribute__((weak)) char __libc_single_threaded = 1;
 #include "libvmaf/feature.h"
 #include "libvmaf/picture.h"
 
-#include "bootstrap_names.h"
 #include "cpu.h"
 #include "dnn/dnn_ctx.h"
 #include "dnn/tensor_io.h"
@@ -84,11 +83,6 @@ __attribute__((weak)) char __libc_single_threaded = 1;
 #include "vulkan/import_picture.h"
 #include "vulkan/picture_vulkan.h"
 #include "vulkan/vulkan_internal.h"
-#endif
-
-#ifdef HAVE_METAL
-#include "libvmaf/libvmaf_metal.h"
-#include "metal/import.h"
 #endif
 
 typedef struct VmafContext {
@@ -133,15 +127,6 @@ typedef struct VmafContext {
         VmafVulkanState *state;
         VmafVulkanPicturePool *pool;
     } vulkan;
-#endif
-#ifdef HAVE_METAL
-    /* T8-IOS (ADR-0423): caller-imported MTLDevice + IOSurface ring.
-     * Ownership stays with the caller — vmaf_metal_state_free()
-     * after vmaf_close(), same lifetime model as the Vulkan + SYCL
-     * backends. */
-    struct {
-        VmafMetalState *state;
-    } metal;
 #endif
     struct {
         unsigned w, h;
@@ -209,10 +194,7 @@ int vmaf_init(VmafContext **vmaf, VmafConfiguration cfg)
 #endif
 
     vmaf_init_cpu();
-    /* cpumask is uint64_t in the public API; the internal mask is unsigned
-     * (all defined flag bits fit in 32 bits). Truncate explicitly so that
-     * -fsanitize=integer does not fire on the implicit narrowing. */
-    vmaf_set_cpu_flags_mask((unsigned)(~cfg.cpumask));
+    vmaf_set_cpu_flags_mask(~cfg.cpumask);
 
     vmaf_set_log_level(cfg.log_level);
 
@@ -649,46 +631,6 @@ int vmaf_vulkan_picture_fetch(VmafContext *vmaf, VmafPicture *pic)
 }
 #endif
 
-#ifdef HAVE_METAL
-/* T8-IOS (ADR-0423): mirror of vmaf_vulkan_import_state /
- * vmaf_vulkan_read_imported_pictures. The Metal runtime (T8-1b) was
- * already shipped; this PR adds the caller-imported IOSurface route
- * by stashing the external state on the VmafContext and routing
- * read_imported_pictures through vmaf_read_pictures. */
-int vmaf_metal_import_state(VmafContext *vmaf, VmafMetalState *state)
-{
-    if (!vmaf)
-        return -EINVAL;
-    if (!state)
-        return -EINVAL;
-
-    vmaf->metal.state = state;
-    return 0;
-}
-
-int vmaf_metal_read_imported_pictures(VmafContext *vmaf, unsigned index)
-{
-    if (!vmaf)
-        return -EINVAL;
-    if (!vmaf->metal.state)
-        return -EINVAL;
-    if (vmaf->flushed)
-        return -EINVAL;
-
-    VmafPicture ref = {0};
-    VmafPicture dis = {0};
-    int err = vmaf_metal_state_build_pictures(vmaf->metal.state, index, &ref, &dis);
-    if (err)
-        return err;
-
-    /* vmaf_read_pictures takes ownership and unrefs both pictures
-     * (including on the error path); the import ring already
-     * cleared its slot in build_pictures so no further cleanup is
-     * needed here. */
-    return vmaf_read_pictures(vmaf, &ref, &dis, index);
-}
-#endif
-
 static int set_fex_framesync(VmafFeatureExtractorContext *fex_ctx, VmafContext *vmaf)
 {
     if (fex_ctx->fex->flags & VMAF_FEATURE_FRAME_SYNC)
@@ -859,11 +801,6 @@ int vmaf_close(VmafContext *vmaf)
      * vmaf_vulkan_import_state(), so we do not free it here.
      * The caller must call vmaf_vulkan_state_free() after vmaf_close(). */
     vmaf->vulkan.state = NULL;
-#endif
-#ifdef HAVE_METAL
-    /* Same lifetime contract as Vulkan: caller owns metal.state
-     * and must call vmaf_metal_state_free() after vmaf_close(). */
-    vmaf->metal.state = NULL;
 #endif
     free(vmaf);
 
@@ -2233,31 +2170,31 @@ int vmaf_score_pooled_model_collection(VmafContext *vmaf, VmafModelCollection *m
 
     score->type = VMAF_MODEL_COLLECTION_SCORE_BOOTSTRAP;
 
-    /* Suffix constants and BOOTSTRAP_NAME_BUF_SZ() shared with the per-index
-     * append path in predict.c via bootstrap_names.h (ADR-0480).
-     * The callee functions differ (vmaf_feature_score_pooled here vs
-     * vmaf_feature_collector_append in predict.c), so the loops cannot be
-     * merged further without introducing a function-pointer indirection. */
-    const size_t name_sz = BOOTSTRAP_NAME_BUF_SZ(model_collection->name);
+    //TODO: dedupe, vmaf_bootstrap_predict_score_at_index()
+    const char *suffix_lo = "_ci_p95_lo";
+    const char *suffix_hi = "_ci_p95_hi";
+    const char *suffix_bagging = "_bagging";
+    const char *suffix_stddev = "_stddev";
+    const size_t name_sz = strlen(model_collection->name) + strlen(suffix_lo) + 1;
     /* Heap-allocated for MSVC portability (no VLAs). The buffer is short-lived
      * and freed before return. */
     char *name = (char *)calloc(1u, name_sz);
     if (!name)
         return -ENOMEM;
 
-    (void)snprintf(name, name_sz, "%s%s", model_collection->name, BOOTSTRAP_SUFFIX_BAGGING);
+    (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_bagging);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.bagging_score,
                                      index_low, index_high);
 
-    (void)snprintf(name, name_sz, "%s%s", model_collection->name, BOOTSTRAP_SUFFIX_STDDEV);
+    (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_stddev);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.stddev, index_low,
                                      index_high);
 
-    (void)snprintf(name, name_sz, "%s%s", model_collection->name, BOOTSTRAP_SUFFIX_CI_LO);
+    (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_lo);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.ci.p95.lo,
                                      index_low, index_high);
 
-    (void)snprintf(name, name_sz, "%s%s", model_collection->name, BOOTSTRAP_SUFFIX_CI_HI);
+    (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_hi);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.ci.p95.hi,
                                      index_low, index_high);
 

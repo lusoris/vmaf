@@ -12,16 +12,12 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import importlib
 import json
-import subprocess
 import sys
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
 from . import __version__
-from .bisect import bisect_target_vmaf
 from .codec_adapters import get_adapter, known_codecs
 from .corpus import CorpusJob, CorpusOptions, coarse_to_fine_search, iter_rows, write_jsonl
 from .encode import iter_grid
@@ -33,9 +29,7 @@ from .fast import (
     SMOKE_N_TRIALS,
     fast_recommend,
 )
-from .per_shot import PredicateFn as PerShotPredicateFn
 from .per_shot import (
-    Shot,
     detect_shots,
     merge_shots,
     plan_to_shell_script,
@@ -79,7 +73,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--encoder",
         default="libx264",
         choices=list(known_codecs()),
-        help="codec adapter (default libx264; any registered adapter is accepted)",
+        help="codec adapter (Phase A: libx264 only)",
     )
     corpus.add_argument(
         "--preset",
@@ -106,8 +100,8 @@ def _build_parser() -> argparse.ArgumentParser:
     corpus.add_argument(
         "--encode-dir",
         type=Path,
-        default=Path(".corpus/encodes"),
-        help="scratch dir for encodes (default .corpus/encodes, gitignored)",
+        default=Path(".workingdir2/encodes"),
+        help="scratch dir for encodes (default .workingdir2/encodes, gitignored)",
     )
     corpus.add_argument(
         "--keep-encodes",
@@ -143,8 +137,8 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Phase F (ADR-0333): run a 2-pass encode for codecs that "
-            "support it (libx264 / libx265 today; libsvtav1 / libvvenc "
-            "follow as sibling PRs). Default off; single-pass remains "
+            "support it (libx265 today; libx264 / libsvtav1 / libvvenc "
+            "follow as sibling PRs). Default off — single-pass remains "
             "the canonical path. Adapters where supports_two_pass = "
             "False fall back to single-pass with a stderr warning."
         ),
@@ -334,8 +328,8 @@ def _build_parser() -> argparse.ArgumentParser:
     per_shot = sub.add_parser(
         "tune-per-shot",
         help=(
-            "Phase D — detect shots via vmaf-perShot/TransNet V2, run "
-            "Phase-B bisect per shot, and emit an FFmpeg encoding plan."
+            "Phase D scaffold — detect shots via vmaf-perShot/TransNet V2, "
+            "tune CRF per shot, and emit an FFmpeg encoding plan."
         ),
     )
     per_shot.add_argument(
@@ -358,7 +352,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--encoder",
         default="libx264",
         choices=list(known_codecs()),
-        help="codec adapter (default libx264; any registered adapter is accepted)",
+        help="codec adapter (Phase D scaffold: libx264 only)",
     )
     per_shot.add_argument(
         "--bitdepth",
@@ -384,44 +378,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--ffmpeg-bin",
         default="ffmpeg",
         help="path to the ffmpeg binary (default ffmpeg on PATH)",
-    )
-    per_shot.add_argument(
-        "--vmaf-bin",
-        default="vmaf",
-        help="path to the vmaf binary used by the per-shot bisect scorer",
-    )
-    per_shot.add_argument(
-        "--preset",
-        default=None,
-        help="codec preset forwarded to the per-shot bisect backend",
-    )
-    per_shot.add_argument("--crf-min", type=int, default=None, help="inclusive lower CRF bound")
-    per_shot.add_argument("--crf-max", type=int, default=None, help="inclusive upper CRF bound")
-    per_shot.add_argument(
-        "--max-iterations",
-        type=int,
-        default=8,
-        help="maximum encode+score iterations per detected shot",
-    )
-    per_shot.add_argument(
-        "--vmaf-model",
-        default="vmaf_v0.6.1",
-        help="VMAF model name forwarded to the per-shot bisect scorer",
-    )
-    per_shot.add_argument(
-        "--score-backend",
-        default="auto",
-        choices=("auto", *ALL_BACKENDS),
-        help="libvmaf score backend for the per-shot bisect scorer",
-    )
-    per_shot.add_argument(
-        "--predicate-module",
-        default=None,
-        help=(
-            "advanced hook MODULE:CALLABLE matching "
-            "(shot, target_vmaf, encoder) -> (crf, measured_vmaf); "
-            "bypasses real bisect"
-        ),
     )
     per_shot.add_argument(
         "--output",
@@ -465,10 +421,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--encoder",
         default="libx264",
         choices=list(known_codecs()),
-        help=(
-            "codec adapter; saliency ROI supports libx264, libaom-av1, "
-            "libx265, libsvtav1, and libvvenc"
-        ),
+        help="codec adapter (saliency QP-offset map is currently x264-only)",
     )
     rec_sal.add_argument("--preset", default="medium", help="encoder preset")
     rec_sal.add_argument(
@@ -499,22 +452,6 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="path to saliency_student_v1.onnx (default: shipped fork model)",
-    )
-    rec_sal.add_argument(
-        "--saliency-aggregator",
-        choices=("mean", "ema", "max", "motion-weighted"),
-        default="mean",
-        help=(
-            "temporal reducer for sampled saliency masks: mean preserves "
-            "the historical behaviour; ema/max/motion-weighted are "
-            "video-saliency baselines"
-        ),
-    )
-    rec_sal.add_argument(
-        "--saliency-ema-alpha",
-        type=float,
-        default=0.6,
-        help="current-frame weight for --saliency-aggregator=ema (default 0.6)",
     )
     rec_sal.add_argument("--ffmpeg-bin", default="ffmpeg")
     rec_sal.add_argument(
@@ -569,11 +506,8 @@ def _build_parser() -> argparse.ArgumentParser:
     ladder.add_argument(
         "--spacing",
         default="log_bitrate",
-        choices=("log_bitrate", "vmaf", "uniform"),
-        help=(
-            "knee spacing strategy on the hull: log_bitrate or vmaf "
-            "(legacy alias: uniform). Default log_bitrate"
-        ),
+        choices=("log_bitrate", "uniform"),
+        help="knee spacing strategy on the hull (default log_bitrate)",
     )
     ladder.add_argument(
         "--output",
@@ -662,96 +596,6 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="report destination (default: stdout)",
     )
-    compare.add_argument("--width", type=int, default=None, help="source width for real bisect")
-    compare.add_argument("--height", type=int, default=None, help="source height for real bisect")
-    compare.add_argument("--pix-fmt", default="yuv420p", help="source pixel format")
-    compare.add_argument("--framerate", type=float, default=24.0, help="source framerate")
-    compare.add_argument(
-        "--duration",
-        type=float,
-        default=0.0,
-        help="source duration in seconds, used for bitrate math",
-    )
-    compare.add_argument(
-        "--sample-clip-seconds",
-        type=float,
-        default=0.0,
-        help=(
-            "score a centered N-second source window per bisect iteration "
-            "(ADR-0301). 0 = full source."
-        ),
-    )
-    compare.add_argument("--preset", default=None, help="codec preset for the bisect backend")
-    compare.add_argument("--crf-min", type=int, default=None, help="inclusive lower CRF bound")
-    compare.add_argument("--crf-max", type=int, default=None, help="inclusive upper CRF bound")
-    compare.add_argument(
-        "--max-iterations",
-        type=int,
-        default=8,
-        help="maximum encode+score iterations per codec",
-    )
-    compare.add_argument(
-        "--vmaf-model",
-        default="vmaf_v0.6.1",
-        help="VMAF model name forwarded to the bisect scorer",
-    )
-    compare.add_argument(
-        "--score-backend",
-        default=None,
-        choices=(*ALL_BACKENDS, "auto"),
-        help="libvmaf score backend for the bisect scorer",
-    )
-    compare.add_argument("--ffmpeg-bin", default="ffmpeg", help="ffmpeg binary")
-    compare.add_argument("--vmaf-bin", default="vmaf", help="vmaf binary")
-    compare.add_argument(
-        "--predicate-module",
-        default=None,
-        help=(
-            "advanced hook MODULE:CALLABLE matching "
-            "(codec, src, target_vmaf) -> RecommendResult; bypasses real bisect"
-        ),
-    )
-
-    benchmark = sub.add_parser(
-        "benchmark",
-        help=(
-            "Phase G — rank encoders from an existing corpus JSONL at a "
-            "matched target VMAF, without running new encodes"
-        ),
-    )
-    benchmark.add_argument(
-        "--from-corpus",
-        type=Path,
-        required=True,
-        metavar="JSONL",
-        help="Phase-A corpus JSONL to benchmark",
-    )
-    benchmark.add_argument(
-        "--target-vmaf",
-        type=float,
-        default=92.0,
-        help="matched-quality threshold each encoder must clear (default 92)",
-    )
-    benchmark.add_argument(
-        "--baseline-encoder",
-        default=None,
-        help=(
-            "encoder used for bitrate-delta percentages. Default: lowest-bitrate "
-            "encoder that clears the target."
-        ),
-    )
-    benchmark.add_argument(
-        "--format",
-        default="markdown",
-        choices=("markdown", "json", "csv"),
-        help="report format (default markdown)",
-    )
-    benchmark.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help="report destination (default: stdout)",
-    )
 
     auto = sub.add_parser(
         "auto",
@@ -759,7 +603,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Phase F — adaptive recipe-aware tuning entry point "
             "(ADR-0364). Composes the per-phase subcommands into one "
             "deterministic decision tree with seven short-circuits "
-            "and non-smoke source metadata probing."
+            "(F.1 scaffold + F.2 short-circuits)."
         ),
     )
     auto.add_argument(
@@ -811,7 +655,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "exercise the composition end-to-end with mocked sub-phases "
-            "(no ffmpeg, no ONNX); non-smoke probes source metadata."
+            "(no ffmpeg, no ONNX). Production wiring lands in F.3+."
         ),
     )
     auto.add_argument(
@@ -831,86 +675,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_fast_args(fast)
 
-    sidecar = sub.add_parser(
-        "sidecar",
-        help=(
-            "train and inspect the local on-host predictor sidecar "
-            "(ADR-0394 bias-correction model)"
-        ),
-    )
-    _add_sidecar_args(sidecar)
-
     return parser
-
-
-def _add_sidecar_common_args(p: argparse.ArgumentParser) -> None:
-    """Wire the shared local-sidecar configuration flags."""
-    from .sidecar import DEFAULT_PREDICTOR_VERSION
-
-    p.add_argument(
-        "--codec",
-        default="libx264",
-        choices=list(known_codecs()),
-        help="codec bucket for the sidecar state (default libx264)",
-    )
-    p.add_argument(
-        "--cache-dir",
-        type=Path,
-        default=None,
-        help="sidecar cache root (default ${XDG_CACHE_HOME:-~/.cache}/vmaf-tune/sidecar)",
-    )
-    p.add_argument(
-        "--predictor-version",
-        default=DEFAULT_PREDICTOR_VERSION,
-        help=f"predictor version namespace (default {DEFAULT_PREDICTOR_VERSION})",
-    )
-    p.add_argument(
-        "--model",
-        type=Path,
-        default=None,
-        help="optional predictor_<codec>.onnx path; default uses analytical fallback",
-    )
-
-
-def _add_sidecar_args(p: argparse.ArgumentParser) -> None:
-    """Wire ``vmaf-tune sidecar`` nested subcommands."""
-    sub = p.add_subparsers(dest="sidecar_cmd", required=True)
-
-    status = sub.add_parser("status", help="print sidecar state metadata")
-    _add_sidecar_common_args(status)
-    status.add_argument("--json", action="store_true", help="emit machine-readable JSON")
-
-    predict = sub.add_parser(
-        "predict",
-        help="predict VMAF with the sidecar correction folded in",
-    )
-    _add_sidecar_common_args(predict)
-    predict.add_argument("--features-json", type=Path, required=True)
-    predict.add_argument("--crf", type=int, required=True)
-    predict.add_argument("--json", action="store_true", help="emit machine-readable JSON")
-
-    record = sub.add_parser(
-        "record",
-        help="record one observed encode result into the sidecar fit",
-    )
-    _add_sidecar_common_args(record)
-    record.add_argument("--features-json", type=Path, required=True)
-    record.add_argument("--crf", type=int, required=True)
-    record.add_argument("--observed-vmaf", type=float, required=True)
-    record.add_argument(
-        "--no-persist",
-        action="store_true",
-        help="update in memory only; mainly useful for tests",
-    )
-    record.add_argument("--json", action="store_true", help="emit machine-readable JSON")
-
-    batch = sub.add_parser(
-        "batch-record",
-        help="record a JSONL capture file with one encode observation per row",
-    )
-    _add_sidecar_common_args(batch)
-    batch.add_argument("--captures-jsonl", type=Path, required=True)
-    batch.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
 
 def _add_coarse_to_fine_flags(p: argparse.ArgumentParser) -> None:
@@ -964,16 +729,14 @@ def _add_recommend_args(p: argparse.ArgumentParser) -> None:
     aligned with ``corpus`` means downstream scripts can swap one for
     the other without re-learning the CLI.
     """
-    # --source / --width / --height / --preset are only required when
-    # not using --from-corpus. Validation happens in the handler.
-    p.add_argument("--source", type=Path, action="append", default=None)
-    p.add_argument("--width", type=int, default=None)
-    p.add_argument("--height", type=int, default=None)
+    p.add_argument("--source", type=Path, action="append", required=True)
+    p.add_argument("--width", type=int, required=True)
+    p.add_argument("--height", type=int, required=True)
     p.add_argument("--pix-fmt", default="yuv420p")
     p.add_argument("--framerate", type=float, default=24.0)
     p.add_argument("--duration", type=float, default=0.0)
     p.add_argument("--encoder", default="libx264", choices=list(known_codecs()))
-    p.add_argument("--preset", action="append", default=None)
+    p.add_argument("--preset", action="append", required=True)
     p.add_argument(
         "--output",
         type=Path,
@@ -983,7 +746,7 @@ def _add_recommend_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--encode-dir",
         type=Path,
-        default=Path(".corpus/encodes"),
+        default=Path(".workingdir2/encodes"),
     )
     p.add_argument("--keep-encodes", action="store_true")
     p.add_argument("--vmaf-model", default="vmaf_v0.6.1")
@@ -1009,36 +772,6 @@ def _add_recommend_args(p: argparse.ArgumentParser) -> None:
     )
     _add_coarse_to_fine_flags(p)
     _add_recommend_uncertainty_flags(p)
-
-    p.add_argument(
-        "--from-corpus",
-        type=Path,
-        default=None,
-        metavar="JSONL",
-        help=(
-            "pick from an existing corpus JSONL instead of running new "
-            "encodes. When set, --source / --width / --height / --preset "
-            "are not required. Use --target-vmaf or --target-bitrate to "
-            "select the recommendation strategy."
-        ),
-    )
-    grp = p.add_mutually_exclusive_group()
-    grp.add_argument(
-        "--target-bitrate",
-        type=float,
-        default=None,
-        metavar="KBPS",
-        help=(
-            "when using --from-corpus: pick the row whose bitrate is "
-            "closest to this target (in kbps)."
-        ),
-    )
-    p.add_argument(
-        "--json",
-        action="store_true",
-        dest="json_output",
-        help="emit the recommendation as a single JSON object to stdout.",
-    )
 
 
 def _add_recommend_uncertainty_flags(p: argparse.ArgumentParser) -> None:
@@ -1159,72 +892,7 @@ def _run_corpus(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_recommend_from_corpus(args: argparse.Namespace) -> int:
-    """Pick a recommendation from a pre-built corpus JSONL (no new encodes)."""
-    import json as _json  # noqa: PLC0415
-
-    from .recommend import RecommendRequest, recommend  # noqa: PLC0415
-
-    corpus_path: Path = args.from_corpus
-    if not corpus_path.exists():
-        sys.stderr.write(f"recommend: corpus file not found: {corpus_path}\n")
-        return 2
-
-    rows: list[dict] = []
-    with corpus_path.open(encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if line:
-                rows.append(_json.loads(line))
-
-    target_vmaf: float | None = getattr(args, "target_vmaf", None)
-    target_bitrate: float | None = getattr(args, "target_bitrate", None)
-
-    if target_vmaf is not None and target_bitrate is not None:
-        sys.stderr.write("recommend: --target-vmaf and --target-bitrate are mutually exclusive\n")
-        return 2
-
-    try:
-        pick = recommend(
-            rows,
-            RecommendRequest(
-                target_vmaf=target_vmaf,
-                target_bitrate_kbps=target_bitrate,
-                encoder=args.encoder,
-                preset=args.preset[0] if args.preset else None,
-            ),
-        )
-    except ValueError as exc:
-        sys.stderr.write(f"recommend: {exc}\n")
-        return 2
-
-    json_output: bool = getattr(args, "json_output", False)
-    if json_output:
-        sys.stdout.write(_json.dumps(pick.row) + "\n")
-    else:
-        crf = pick.row.get("crf", "?")
-        vmaf = pick.row.get("vmaf_score", float("nan"))
-        kbps = pick.row.get("bitrate_kbps", float("nan"))
-        predicate = pick.predicate
-        status = "UNMET" if pick.margin < 0 else "OK"
-        sys.stdout.write(
-            f"crf={crf}  vmaf={vmaf:.3f}  kbps={kbps:.0f}" f"  predicate={predicate}  [{status}]\n"
-        )
-    return 0
-
-
 def _run_recommend(args: argparse.Namespace) -> int:
-    if getattr(args, "from_corpus", None) is not None:
-        return _run_recommend_from_corpus(args)
-
-    # Encode-driven path: validate required args.
-    if not args.source or not args.width or not args.height or not args.preset:
-        sys.stderr.write(
-            "recommend: --source, --width, --height, --preset are required "
-            "unless --from-corpus is used\n"
-        )
-        return 2
-
     if args.target_vmaf is None:
         sys.stderr.write("recommend requires --target-vmaf\n")
         return 2
@@ -1353,7 +1021,7 @@ def _run_predict(args: argparse.Namespace) -> int:
     import tempfile
 
     from .encode import EncodeRequest, run_encode
-    from .per_shot import detect_shots
+    from .per_shot import Shot, detect_shots
     from .predictor import Predictor
     from .predictor_features import FeatureExtractorConfig, _probe_video_geometry, extract_features
     from .predictor_validate import Verdict, validate_predictor
@@ -1573,36 +1241,11 @@ def _run_tune_per_shot(args: argparse.Namespace) -> int:
         total_frames=total_frames,
         per_shot_bin=args.per_shot_bin,
     )
-    predicate_label = "bisect"
-    scratch_ctx = None
-    try:
-        if args.predicate_module:
-            predicate = _load_per_shot_predicate(args.predicate_module)
-            predicate_label = args.predicate_module
-        else:
-            crf_range = _parse_optional_crf_range(
-                args.crf_min,
-                args.crf_max,
-            )
-            scratch_ctx = tempfile.TemporaryDirectory(prefix="vmaf-tune-per-shot-")
-            predicate = _build_per_shot_bisect_predicate(
-                args,
-                scratch=Path(scratch_ctx.name),
-                crf_range=crf_range,
-            )
-        recs = tune_per_shot(
-            shots,
-            target_vmaf=args.target_vmaf,
-            encoder=args.encoder,
-            predicate=predicate,
-        )
-    except (AttributeError, ImportError, RuntimeError, ValueError) as exc:
-        sys.stderr.write(f"vmaf-tune tune-per-shot: {exc}\n")
-        return 2
-    finally:
-        if scratch_ctx is not None:
-            scratch_ctx.cleanup()
-
+    recs = tune_per_shot(
+        shots,
+        target_vmaf=args.target_vmaf,
+        encoder=args.encoder,
+    )
     plan = merge_shots(
         recs,
         source=args.src,
@@ -1616,7 +1259,6 @@ def _run_tune_per_shot(args: argparse.Namespace) -> int:
     plan_doc = {
         "encoder": plan.encoder,
         "framerate": plan.framerate,
-        "predicate": predicate_label,
         "target_vmaf": args.target_vmaf,
         "shots": [
             {
@@ -1649,144 +1291,16 @@ def _run_tune_per_shot(args: argparse.Namespace) -> int:
     return 0
 
 
-def _parse_optional_crf_range(
-    crf_min: int | None,
-    crf_max: int | None,
-) -> tuple[int, int] | None:
-    """Validate optional ``--crf-min`` / ``--crf-max`` pairs."""
-    if crf_min is None and crf_max is None:
-        return None
-    if crf_min is None or crf_max is None:
-        raise ValueError("pass both --crf-min and --crf-max")
-    if crf_min > crf_max:
-        raise ValueError(f"invalid CRF range [{crf_min}, {crf_max}]")
-    return (int(crf_min), int(crf_max))
-
-
-def _build_per_shot_bisect_predicate(
-    args: argparse.Namespace,
-    *,
-    scratch: Path,
-    crf_range: tuple[int, int] | None,
-) -> PerShotPredicateFn:
-    """Build the production Phase-D predicate from Phase-B bisect.
-
-    ``bisect_target_vmaf`` operates on raw YUV references, so the
-    per-shot CLI first extracts each detected shot to a temporary raw
-    YUV file and then runs the existing encode+score bisect loop over
-    that isolated shot.
-    """
-    if args.width <= 0 or args.height <= 0:
-        raise ValueError("--width and --height must be positive for per-shot bisect")
-    if args.framerate <= 0:
-        raise ValueError("--framerate must be positive for per-shot bisect")
-
-    scratch.mkdir(parents=True, exist_ok=True)
-    refs_dir = scratch / "refs"
-    work_dir = scratch / "bisect"
-    refs_dir.mkdir(parents=True, exist_ok=True)
-    work_dir.mkdir(parents=True, exist_ok=True)
-    score_backend = None if args.score_backend == "auto" else args.score_backend
-
-    def _predicate(shot: Shot, target_vmaf: float, encoder: str) -> tuple[int, float]:
-        ref_yuv = refs_dir / f"shot_{shot.start_frame}_{shot.end_frame}.yuv"
-        _extract_shot_to_raw_yuv(args, shot=shot, output=ref_yuv)
-        result = bisect_target_vmaf(
-            ref_yuv,
-            encoder,
-            float(target_vmaf),
-            width=args.width,
-            height=args.height,
-            pix_fmt=args.pix_fmt,
-            framerate=args.framerate,
-            duration_s=shot.length / args.framerate,
-            preset=args.preset,
-            crf_range=crf_range,
-            max_iterations=args.max_iterations,
-            vmaf_model=args.vmaf_model,
-            score_backend=score_backend,
-            ffmpeg_bin=args.ffmpeg_bin,
-            vmaf_bin=args.vmaf_bin,
-            workdir=work_dir / f"shot_{shot.start_frame}_{shot.end_frame}",
-        )
-        if not result.ok:
-            raise RuntimeError(
-                "bisect failed for shot " f"[{shot.start_frame}, {shot.end_frame}): {result.error}"
-            )
-        return (result.best_crf, result.measured_vmaf)
-
-    return _predicate
-
-
-def _extract_shot_to_raw_yuv(
-    args: argparse.Namespace,
-    *,
-    shot: Shot,
-    output: Path,
-) -> None:
-    """Extract one half-open shot range to raw YUV for Phase-B scoring."""
-    output.parent.mkdir(parents=True, exist_ok=True)
-    start_seconds = shot.start_frame / args.framerate
-    cmd = [
-        args.ffmpeg_bin,
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-    ]
-    if _source_needs_rawvideo_demux(args.src):
-        cmd.extend(
-            [
-                "-f",
-                "rawvideo",
-                "-pix_fmt",
-                args.pix_fmt,
-                "-s",
-                f"{args.width}x{args.height}",
-                "-r",
-                str(args.framerate),
-            ]
-        )
-    cmd.extend(
-        [
-            "-ss",
-            f"{start_seconds:.6f}",
-            "-i",
-            str(args.src),
-            "-frames:v",
-            str(shot.length),
-            "-pix_fmt",
-            args.pix_fmt,
-            "-f",
-            "rawvideo",
-            str(output),
-        ]
-    )
-    completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if completed.returncode != 0 or not output.exists():
-        tail = (completed.stderr or "").strip().splitlines()
-        detail = tail[-1] if tail else "no stderr"
-        raise RuntimeError(
-            f"ffmpeg shot extraction failed for "
-            f"[{shot.start_frame}, {shot.end_frame}) (exit={completed.returncode}): {detail}"
-        )
-
-
-def _source_needs_rawvideo_demux(src: Path) -> bool:
-    """Return True for extension-only raw YUV inputs."""
-    return src.suffix.lower() in {".yuv", ".raw"}
-
-
 def _run_recommend_saliency(args: argparse.Namespace) -> int:
     """Bucket #2 — single saliency-aware encode (ADR-0287).
 
     Builds an :class:`~vmaftune.encode.EncodeRequest` from the CLI
     flags and delegates to :func:`vmaftune.saliency.saliency_aware_encode`,
     which runs the fork's ``saliency_student_v1`` ONNX model over the
-    source, materialises the selected encoder's ROI sidecar/argv, and
-    runs one encode biased toward salient regions. Falls back to a
-    plain encode when onnxruntime / the model are unavailable so the
-    caller always gets a result.
+    source, materialises an x264 ``--qpfile``, and runs one encode
+    biased toward salient regions. Falls back to a plain encode when
+    onnxruntime / the model are unavailable so the caller always gets
+    a result.
     """
     from .encode import EncodeRequest
     from .saliency import SaliencyConfig, saliency_aware_encode
@@ -1804,15 +1318,7 @@ def _run_recommend_saliency(args: argparse.Namespace) -> int:
         crf=crf,
         output=args.output,
     )
-    cfg = (
-        SaliencyConfig(
-            foreground_offset=args.saliency_offset,
-            temporal_aggregator=args.saliency_aggregator,
-            ema_alpha=args.saliency_ema_alpha,
-        )
-        if args.saliency_aware
-        else None
-    )
+    cfg = SaliencyConfig(foreground_offset=args.saliency_offset) if args.saliency_aware else None
     result = saliency_aware_encode(
         request,
         duration_frames=args.duration_frames,
@@ -1830,7 +1336,6 @@ def _run_recommend_saliency(args: argparse.Namespace) -> int:
         "ffmpeg_version": result.ffmpeg_version,
         "encoder_version": result.encoder_version,
         "saliency_aware": bool(args.saliency_aware),
-        "saliency_aggregator": args.saliency_aggregator,
         "exit_status": result.exit_status,
     }
     sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
@@ -1871,20 +1376,23 @@ def _run_ladder(args: argparse.Namespace) -> int:
     used by default; tests can inject a stub via the ``ladder.SamplerFn``
     parameter.
 
-    When ``--with-uncertainty`` is set the production path preserves
-    per-row ``vmaf_interval`` payloads from the corpus sampler,
-    applies :func:`vmaftune.ladder.apply_uncertainty_recipe`, and
-    then selects knees from the adjusted rung set. Point-only sampler
-    rows get a conservative centred interval using the active
-    ``wide_interval_min_width`` threshold, so they still participate
-    in midpoint insertion instead of bypassing the recipe.
+    When ``--with-uncertainty`` is set the CLI emits an informational
+    notice — the production path that wires per-rung intervals
+    through the sampler ships in a follow-up PR (see ADR-0279
+    status update); the library API
+    :func:`vmaftune.ladder.apply_uncertainty_recipe` is fully
+    functional today and is exercised by the unit tests.
     """
     from .ladder import build_and_emit
-    from .uncertainty import load_confidence_thresholds
 
-    thresholds = None
     if getattr(args, "with_uncertainty", False):
-        thresholds = load_confidence_thresholds(getattr(args, "uncertainty_sidecar", None))
+        sys.stderr.write(
+            "vmaf-tune ladder: --with-uncertainty set; the default "
+            "sampler still emits point-only rungs. The library API "
+            "vmaftune.ladder.apply_uncertainty_recipe is the entry "
+            "point for callers shipping their own interval-aware "
+            "sampler. Manifest unchanged.\n"
+        )
     resolutions = _parse_resolutions(args.resolutions)
     target_vmafs = _parse_target_vmafs(args.target_vmafs)
     manifest = build_and_emit(
@@ -1895,9 +1403,6 @@ def _run_ladder(args: argparse.Namespace) -> int:
         quality_tiers=args.quality_tiers,
         format=args.format,
         spacing=args.spacing,
-        with_uncertainty=bool(getattr(args, "with_uncertainty", False)),
-        uncertainty_thresholds=thresholds,
-        rung_overlap_threshold=getattr(args, "rung_overlap_threshold", None),
     )
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -1911,20 +1416,17 @@ def _run_ladder(args: argparse.Namespace) -> int:
 
 
 def _run_compare(args: argparse.Namespace) -> int:
-    """Compare codec adapters at a target VMAF using Phase B bisect.
+    """Compare codec adapters at a target VMAF — Phase B-lite ranking.
 
     Parses the comma-separated ``--encoders`` list, delegates to
     :func:`vmaftune.compare.compare_codecs` (which runs the per-codec
     predicate in a thread pool and ranks by smallest bitrate), then
     emits a markdown / JSON / CSV report via
-    :func:`vmaftune.compare.emit_report`.
-
-    Default CLI behaviour now binds :func:`vmaftune.bisect.make_bisect_predicate`
-    from the source geometry flags, so ``compare`` is no longer a
-    report-only scaffold. ``--predicate-module`` remains as an advanced
-    test/operator hook and bypasses the bisect backend.
+    :func:`vmaftune.compare.emit_report`. Falls back to the module's
+    default predicate (which raises ``NotImplementedError`` pending the
+    Phase B bisect wiring); production callers inject their own via
+    the module-level Python API.
     """
-    from .bisect import make_bisect_predicate
     from .compare import compare_codecs, emit_report, supported_formats
 
     encoders = [token.strip() for token in args.encoders.split(",") if token.strip()]
@@ -1937,51 +1439,12 @@ def _run_compare(args: argparse.Namespace) -> int:
             f"expected one of {supported_formats()}\n"
         )
         return 2
-    predicate = None
-    if args.predicate_module:
-        try:
-            predicate = _load_compare_predicate(args.predicate_module)
-        except (AttributeError, ImportError, ValueError) as exc:
-            sys.stderr.write(f"vmaf-tune compare: invalid --predicate-module: {exc}\n")
-            return 2
-    else:
-        if args.width is None or args.height is None:
-            sys.stderr.write(
-                "vmaf-tune compare: --width and --height are required for the "
-                "real bisect backend. Use --predicate-module MODULE:CALLABLE "
-                "to provide a custom predicate.\n"
-            )
-            return 2
-        crf_range = None
-        if args.crf_min is not None or args.crf_max is not None:
-            if args.crf_min is None or args.crf_max is None:
-                sys.stderr.write("vmaf-tune compare: pass both --crf-min and --crf-max\n")
-                return 2
-            crf_range = (args.crf_min, args.crf_max)
-        score_backend = None if args.score_backend in (None, "auto") else args.score_backend
-        predicate = make_bisect_predicate(
-            target_vmaf=args.target_vmaf,
-            width=args.width,
-            height=args.height,
-            pix_fmt=args.pix_fmt,
-            framerate=args.framerate,
-            duration_s=args.duration,
-            sample_clip_seconds=args.sample_clip_seconds,
-            preset=args.preset,
-            crf_range=crf_range,
-            max_iterations=args.max_iterations,
-            vmaf_model=args.vmaf_model,
-            score_backend=score_backend,
-            ffmpeg_bin=args.ffmpeg_bin,
-            vmaf_bin=args.vmaf_bin,
-        )
     report = compare_codecs(
         src=args.src,
         target_vmaf=args.target_vmaf,
         encoders=encoders,
         parallel=not args.no_parallel,
         max_workers=args.max_workers,
-        predicate=predicate,
     )
     rendered = emit_report(report, format=args.format)
     if args.output is not None:
@@ -1995,69 +1458,13 @@ def _run_compare(args: argparse.Namespace) -> int:
     return 0 if report.best() is not None else 1
 
 
-def _run_benchmark(args: argparse.Namespace) -> int:
-    """Phase G — cross-codec report from an existing corpus JSONL."""
-    from .benchmark import render_benchmark, summarize_benchmark
-    from .recommend import load_corpus_jsonl
-
-    corpus_path: Path = args.from_corpus
-    if not corpus_path.exists():
-        sys.stderr.write(f"vmaf-tune benchmark: corpus file not found: {corpus_path}\n")
-        return 2
-    try:
-        summaries = summarize_benchmark(
-            load_corpus_jsonl(corpus_path),
-            target_vmaf=args.target_vmaf,
-            baseline_encoder=args.baseline_encoder,
-        )
-        rendered = render_benchmark(summaries, fmt=args.format)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        sys.stderr.write(f"vmaf-tune benchmark: {exc}\n")
-        return 2
-
-    if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(rendered, encoding="utf-8")
-        sys.stderr.write(f"wrote benchmark report -> {args.output}\n")
-    else:
-        sys.stdout.write(rendered)
-    return 0
-
-
-def _load_compare_predicate(spec: str):
-    """Load ``MODULE:CALLABLE`` for ``vmaf-tune compare``."""
-    if ":" not in spec:
-        raise ValueError("expected MODULE:CALLABLE")
-    module_name, attr_name = spec.split(":", 1)
-    if not module_name or not attr_name:
-        raise ValueError("expected MODULE:CALLABLE")
-    module = importlib.import_module(module_name)
-    predicate = getattr(module, attr_name)
-    if not callable(predicate):
-        raise ValueError(f"{spec!r} is not callable")
-    return predicate
-
-
-def _load_per_shot_predicate(spec: str) -> PerShotPredicateFn:
-    """Load ``MODULE:CALLABLE`` for ``vmaf-tune tune-per-shot``."""
-    if ":" not in spec:
-        raise ValueError("expected MODULE:CALLABLE")
-    module_name, attr_name = spec.split(":", 1)
-    if not module_name or not attr_name:
-        raise ValueError("expected MODULE:CALLABLE")
-    module = importlib.import_module(module_name)
-    predicate = getattr(module, attr_name)
-    if not callable(predicate):
-        raise ValueError(f"{spec!r} is not callable")
-    return predicate
-
-
 def _run_auto(args: argparse.Namespace) -> int:
     """Phase F — ``vmaf-tune auto`` (ADR-0364).
 
-    Runs the Phase F decision tree. Non-smoke mode probes source
-    geometry, duration, and HDR metadata before planning; ``--smoke``
-    exercises the same composition with synthetic metadata.
+    F.1 scaffold + F.2 short-circuits. The non-smoke path raises
+    :class:`NotImplementedError` until the production probe wiring
+    follow-up lands; ``--smoke`` exercises the composition with
+    mocked sub-phases so this surface is testable from F.1 onward.
     """
     from .auto import emit_plan_json, run_auto
 
@@ -2166,10 +1573,7 @@ def _add_fast_args(p: argparse.ArgumentParser) -> None:
         "--time-budget-s",
         type=int,
         default=300,
-        help=(
-            "soft wall-clock cap in seconds for the Optuna TPE loop "
-            "(default 300; in-flight trials are allowed to finish)"
-        ),
+        help="advisory wall-clock cap in seconds (default 300; not yet enforced)",
     )
     p.add_argument(
         "--proxy-tolerance",
@@ -2483,9 +1887,8 @@ def _run_fast(args: argparse.Namespace) -> int:
             encode_runner=encode_runner,
             proxy_tolerance=args.proxy_tolerance,
         )
-    except (RuntimeError, ValueError) as exc:
-        # fast.fast_recommend raises RuntimeError when Optuna is missing
-        # and ValueError for invalid in-process arguments.
+    except RuntimeError as exc:
+        # fast.fast_recommend raises RuntimeError when Optuna is missing.
         sys.stderr.write(f"vmaf-tune fast: {exc}\n")
         return 2
     except NotImplementedError as exc:
@@ -2510,223 +1913,6 @@ def _run_fast(args: argparse.Namespace) -> int:
     return 0
 
 
-_SIDECAR_REQUIRED_FEATURE_KEYS: tuple[str, ...] = (
-    "probe_bitrate_kbps",
-    "probe_i_frame_avg_bytes",
-    "probe_p_frame_avg_bytes",
-    "probe_b_frame_avg_bytes",
-)
-
-
-def _read_json_object(path: Path) -> dict[str, object]:
-    """Read a JSON object from ``path`` or raise ``ValueError``."""
-    try:
-        doc = json.loads(path.read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise ValueError(f"cannot read {path}: {exc}") from exc
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{path} is not valid JSON: {exc}") from exc
-    if not isinstance(doc, dict):
-        raise ValueError(f"{path} must contain a JSON object")
-    return doc
-
-
-def _sidecar_features_from_mapping(row: dict[str, object]):
-    """Build ``ShotFeatures`` from a JSON object or a ``features`` wrapper."""
-    from .predictor import ShotFeatures
-
-    raw = row.get("features", row)
-    if not isinstance(raw, dict):
-        raise ValueError("'features' must be a JSON object")
-    missing = [key for key in _SIDECAR_REQUIRED_FEATURE_KEYS if key not in raw]
-    if missing:
-        raise ValueError(f"features missing required keys: {', '.join(missing)}")
-
-    kwargs: dict[str, object] = {}
-    for field in dataclasses.fields(ShotFeatures):
-        if field.name in raw:
-            kwargs[field.name] = raw[field.name]
-    try:
-        return ShotFeatures(
-            probe_bitrate_kbps=float(kwargs["probe_bitrate_kbps"]),
-            probe_i_frame_avg_bytes=float(kwargs["probe_i_frame_avg_bytes"]),
-            probe_p_frame_avg_bytes=float(kwargs["probe_p_frame_avg_bytes"]),
-            probe_b_frame_avg_bytes=float(kwargs["probe_b_frame_avg_bytes"]),
-            saliency_mean=float(kwargs.get("saliency_mean", 0.0)),
-            saliency_var=float(kwargs.get("saliency_var", 0.0)),
-            frame_diff_mean=float(kwargs.get("frame_diff_mean", 0.0)),
-            y_avg=float(kwargs.get("y_avg", 0.0)),
-            y_var=float(kwargs.get("y_var", 0.0)),
-            shot_length_frames=int(kwargs.get("shot_length_frames", 0)),
-            fps=float(kwargs.get("fps", 0.0)),
-            width=int(kwargs.get("width", 0)),
-            height=int(kwargs.get("height", 0)),
-        )
-    except (TypeError, ValueError, KeyError) as exc:
-        raise ValueError(f"invalid sidecar feature value: {exc}") from exc
-
-
-def _build_sidecar_predictor(args: argparse.Namespace):
-    """Construct the configured ``SidecarPredictor`` for CLI handlers."""
-    from .predictor import Predictor
-    from .sidecar import SidecarConfig, SidecarPredictor
-
-    cfg_kwargs: dict[str, object] = {
-        "predictor_version": args.predictor_version,
-    }
-    if args.cache_dir is not None:
-        cfg_kwargs["cache_dir"] = args.cache_dir
-    cfg = SidecarConfig(**cfg_kwargs)
-    predictor = Predictor(model_path=args.model)
-    return SidecarPredictor.for_codec(predictor, codec=args.codec, config=cfg)
-
-
-def _sidecar_status_payload(sp) -> dict[str, object]:
-    """Return the machine-readable status payload for a sidecar."""
-    return {
-        "schema": "vmaf-tune-sidecar-status/v1",
-        "codec": sp.codec,
-        "host_uuid": sp.host_uuid,
-        "state_path": str(sp.state_path),
-        "predictor_version": sp.model.config.predictor_version,
-        "schema_version": sp.model.to_dict()["schema_version"],
-        "n_updates": sp.model.n_updates,
-        "recent_residual_rms": sp.model.recent_residual_rms,
-    }
-
-
-def _emit_sidecar_status(payload: dict[str, object], as_json: bool) -> None:
-    """Write a sidecar status payload to stdout."""
-    if as_json:
-        sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-        return
-    sys.stdout.write(
-        "codec={codec} predictor_version={predictor_version} "
-        "updates={n_updates} residual_rms={recent_residual_rms:.6f} "
-        "state={state_path}\n".format(**payload)
-    )
-
-
-def _run_sidecar(args: argparse.Namespace) -> int:
-    """Run the ``vmaf-tune sidecar`` operator surface."""
-    try:
-        sp = _build_sidecar_predictor(args)
-    except (FileNotFoundError, RuntimeError, ValueError) as exc:
-        sys.stderr.write(f"vmaf-tune sidecar: {exc}\n")
-        return 2
-
-    if args.sidecar_cmd == "status":
-        _emit_sidecar_status(_sidecar_status_payload(sp), args.json)
-        return 0
-
-    if args.sidecar_cmd == "predict":
-        try:
-            features = _sidecar_features_from_mapping(_read_json_object(args.features_json))
-        except ValueError as exc:
-            sys.stderr.write(f"vmaf-tune sidecar predict: {exc}\n")
-            return 2
-        base = sp.predictor.predict_vmaf(features, args.crf, args.codec)
-        correction = sp.model.predict_correction(features, args.crf)
-        payload = {
-            "schema": "vmaf-tune-sidecar-predict/v1",
-            "codec": args.codec,
-            "crf": args.crf,
-            "base_vmaf": base,
-            "correction": correction,
-            "sidecar_vmaf": sp.predict_vmaf(features, args.crf),
-            "n_updates": sp.model.n_updates,
-        }
-        if args.json:
-            sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-        else:
-            sys.stdout.write(
-                "base={base_vmaf:.6f} correction={correction:.6f} "
-                "sidecar={sidecar_vmaf:.6f} updates={n_updates}\n".format(**payload)
-            )
-        return 0
-
-    if args.sidecar_cmd == "record":
-        try:
-            features = _sidecar_features_from_mapping(_read_json_object(args.features_json))
-        except ValueError as exc:
-            sys.stderr.write(f"vmaf-tune sidecar record: {exc}\n")
-            return 2
-        base = sp.predictor.predict_vmaf(features, args.crf, args.codec)
-        sp.record_capture(
-            features,
-            crf=args.crf,
-            observed_vmaf=args.observed_vmaf,
-            persist=not args.no_persist,
-        )
-        payload = _sidecar_status_payload(sp)
-        payload.update(
-            {
-                "schema": "vmaf-tune-sidecar-record/v1",
-                "crf": args.crf,
-                "observed_vmaf": args.observed_vmaf,
-                "base_vmaf": base,
-                "residual": args.observed_vmaf - base,
-            }
-        )
-        if args.json:
-            sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-        else:
-            sys.stdout.write(
-                "recorded updates={n_updates} residual={residual:.6f} "
-                "state={state_path}\n".format(**payload)
-            )
-        return 0
-
-    if args.sidecar_cmd == "batch-record":
-        rows = 0
-        skipped = 0
-        try:
-            with args.captures_jsonl.open(encoding="utf-8") as fh:
-                for lineno, line in enumerate(fh, start=1):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        row = json.loads(line)
-                        if not isinstance(row, dict):
-                            raise ValueError("row is not an object")
-                        features = _sidecar_features_from_mapping(row)
-                        crf = int(row["crf"])
-                        observed = float(row["observed_vmaf"])
-                    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-                        skipped += 1
-                        sys.stderr.write(
-                            f"vmaf-tune sidecar batch-record: skip line {lineno}: {exc}\n"
-                        )
-                        continue
-                    sp.record_capture(features, crf=crf, observed_vmaf=observed, persist=False)
-                    rows += 1
-        except OSError as exc:
-            sys.stderr.write(f"vmaf-tune sidecar batch-record: cannot read input: {exc}\n")
-            return 2
-        if rows:
-            sp.save()
-        payload = _sidecar_status_payload(sp)
-        payload.update(
-            {
-                "schema": "vmaf-tune-sidecar-batch-record/v1",
-                "rows_recorded": rows,
-                "rows_skipped": skipped,
-            }
-        )
-        if args.json:
-            sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-        else:
-            sys.stdout.write(
-                "recorded={rows_recorded} skipped={rows_skipped} "
-                "updates={n_updates} state={state_path}\n".format(**payload)
-            )
-        return 0
-
-    sys.stderr.write(f"vmaf-tune sidecar: unknown subcommand {args.sidecar_cmd!r}\n")
-    return 2
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -2744,14 +1930,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_ladder(args)
     if args.cmd == "compare":
         return _run_compare(args)
-    if args.cmd == "benchmark":
-        return _run_benchmark(args)
     if args.cmd == "auto":
         return _run_auto(args)
     if args.cmd == "fast":
         return _run_fast(args)
-    if args.cmd == "sidecar":
-        return _run_sidecar(args)
     parser.print_help()
     return 2
 

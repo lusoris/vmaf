@@ -204,8 +204,9 @@ gets removed and the lane name is added to
 
 ## Relationship to the native Metal backend
 
-This lane is **not** a replacement for the native Metal backend. The
-native Metal path addresses different performance characteristics:
+This lane is **not** a replacement for a native Metal backend. The
+native Metal path (separate scaffold) addresses different
+performance characteristics:
 
 - No translation overhead — direct Metal compute encoder dispatches.
 - Direct access to Metal-native primitives (threadgroup memory
@@ -215,9 +216,8 @@ native Metal path addresses different performance characteristics:
   rewrite obfuscation.
 
 MoltenVK is the **portability and cross-platform parity story**;
-native Metal is the **macOS performance story**. The fork ships both:
-MoltenVK remains the Vulkan-on-macOS validation path, while native
-Metal owns Apple-Silicon performance work.
+native Metal is the **macOS performance story**. The fork ships
+both once the Metal scaffold lands.
 
 ## References
 

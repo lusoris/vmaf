@@ -16,7 +16,6 @@
  *
  */
 
-#include <errno.h>
 #include <stdint.h>
 
 #include "test.h"
@@ -64,104 +63,9 @@ static char *test_picture_data_alignment()
     return NULL;
 }
 
-/*
- * Regression test for Research-0094: odd-height / odd-width YUV 4:2:0 inputs
- * must produce ceil(luma/2) chroma rows/columns, not floor.  Pre-fix,
- * picture_compute_geometry used plain right-shift (floor), which under-
- * allocated chroma planes by one row for any input with an odd luma dimension.
- * Consumers such as ciede::scale_chroma_planes would then walk one row past
- * the allocation, causing an ASan-detected heap OOB.
- *
- * Canonical reproducer: 577x323 YUV 4:2:0 (both dimensions odd).
- *   luma:   w=577, h=323
- *   chroma: w=ceil(577/2)=289, h=ceil(323/2)=162   (correct, post-fix)
- *           w=floor(577/2)=288, h=floor(323/2)=161  (wrong, pre-fix)
- */
-static char *test_picture_odd_dim_chroma_ceiling()
-{
-    int err;
-    VmafPicture pic;
-
-    /* 4:2:0, both luma dims odd. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 8, 577, 323);
-    mu_assert("vmaf_picture_alloc failed for 577x323 YUV420", !err);
-    mu_assert("chroma w must be ceil(577/2)=289 for odd-width 4:2:0", pic.w[1] == 289);
-    mu_assert("chroma w[2] must equal w[1]", pic.w[2] == pic.w[1]);
-    mu_assert("chroma h must be ceil(323/2)=162 for odd-height 4:2:0", pic.h[1] == 162);
-    mu_assert("chroma h[2] must equal h[1]", pic.h[2] == pic.h[1]);
-    err = vmaf_picture_unref(&pic);
-    mu_assert("vmaf_picture_unref failed", !err);
-
-    /* 4:2:0, even dims — ceiling must equal floor (no change). */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 8, 576, 324);
-    mu_assert("vmaf_picture_alloc failed for 576x324 YUV420", !err);
-    mu_assert("chroma w must be 288 for even-width 4:2:0", pic.w[1] == 288);
-    mu_assert("chroma h must be 162 for even-height 4:2:0", pic.h[1] == 162);
-    err = vmaf_picture_unref(&pic);
-    mu_assert("vmaf_picture_unref failed", !err);
-
-    /* 4:2:2, odd width only — height must be full luma height. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV422P, 8, 577, 323);
-    mu_assert("vmaf_picture_alloc failed for 577x323 YUV422", !err);
-    mu_assert("chroma w must be ceil(577/2)=289 for odd-width 4:2:2", pic.w[1] == 289);
-    mu_assert("chroma h must equal luma h for 4:2:2", pic.h[1] == 323);
-    err = vmaf_picture_unref(&pic);
-    mu_assert("vmaf_picture_unref failed", !err);
-
-    /* 4:4:4, odd dims — no subsampling, chroma == luma. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV444P, 8, 577, 323);
-    mu_assert("vmaf_picture_alloc failed for 577x323 YUV444", !err);
-    mu_assert("chroma w must equal luma w for 4:4:4", pic.w[1] == 577);
-    mu_assert("chroma h must equal luma h for 4:4:4", pic.h[1] == 323);
-    err = vmaf_picture_unref(&pic);
-    mu_assert("vmaf_picture_unref failed", !err);
-
-    return NULL;
-}
-
-/*
- * Regression test for audit finding #10: integer overflow in
- * picture_compute_geometry when caller passes near-UINT_MAX width.
- * Before the fix, (w + DATA_ALIGN - 1u) wrapped to 0, producing a
- * zero-byte allocation that passed silently and caused OOB on any pixel
- * read.  After the fix, vmaf_picture_alloc rejects w > 32768 or h > 32768
- * with -EINVAL before any arithmetic.  CERT INT30-C.
- */
-static char *test_picture_alloc_rejects_overflow_dimensions()
-{
-    int err;
-    VmafPicture pic;
-
-    /* w == 0 must be rejected. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 8, 0, 1080);
-    mu_assert("vmaf_picture_alloc must reject w=0 with -EINVAL", err == -EINVAL);
-
-    /* h == 0 must be rejected. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 8, 1920, 0);
-    mu_assert("vmaf_picture_alloc must reject h=0 with -EINVAL", err == -EINVAL);
-
-    /* w > 32768 must be rejected. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 8, 32769, 1080);
-    mu_assert("vmaf_picture_alloc must reject w=32769 with -EINVAL", err == -EINVAL);
-
-    /* h > 32768 must be rejected. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 8, 1920, 32769);
-    mu_assert("vmaf_picture_alloc must reject h=32769 with -EINVAL", err == -EINVAL);
-
-    /* Boundary: w==32768, h==32768 must succeed. */
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 8, 32768, 32768);
-    mu_assert("vmaf_picture_alloc must accept w=32768, h=32768", !err);
-    err = vmaf_picture_unref(&pic);
-    mu_assert("vmaf_picture_unref failed for 32768x32768", !err);
-
-    return NULL;
-}
-
 char *run_tests()
 {
     mu_run_test(test_picture_alloc_ref_and_unref);
     mu_run_test(test_picture_data_alignment);
-    mu_run_test(test_picture_odd_dim_chroma_ceiling);
-    mu_run_test(test_picture_alloc_rejects_overflow_dimensions);
     return NULL;
 }

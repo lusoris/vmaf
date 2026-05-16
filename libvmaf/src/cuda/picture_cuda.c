@@ -46,7 +46,7 @@ int vmaf_cuda_picture_download_async(VmafPicture *cuda_pic, VmafPicture *pic, ui
         m.srcPitch = cuda_pic->stride[i];
         m.dstHost = pic->data[i];
         m.dstPitch = pic->stride[i];
-        m.WidthInBytes = (size_t)cuda_pic->w[i] * ((pic->bpc + 7) / 8);
+        m.WidthInBytes = cuda_pic->w[i] * ((pic->bpc + 7) / 8);
         m.Height = cuda_pic->h[i];
         if ((bitmask >> i) & 1)
             CHECK_CUDA_RETURN(cu_f, cuMemcpy2DAsync(&m, cuda_priv->cuda.str));
@@ -73,7 +73,7 @@ int vmaf_cuda_picture_upload_async(VmafPicture *cuda_pic, VmafPicture *pic, uint
         m.srcPitch = pic->stride[i];
         m.dstDevice = (CUdeviceptr)cuda_pic->data[i];
         m.dstPitch = cuda_pic->stride[i];
-        m.WidthInBytes = (size_t)cuda_pic->w[i] * ((pic->bpc + 7) / 8);
+        m.WidthInBytes = cuda_pic->w[i] * ((pic->bpc + 7) / 8);
         m.Height = cuda_pic->h[i];
         if ((bitmask >> i) & 1)
             CHECK_CUDA_RETURN(cu_f, cuMemcpy2DAsync(&m, cuda_priv->cuda.str));
@@ -126,15 +126,14 @@ int vmaf_cuda_picture_alloc_pinned(VmafPicture *pic, enum VmafPixelFormat pix_fm
     const int ss_hor = pic->pix_fmt != VMAF_PIX_FMT_YUV444P;
     const int ss_ver = pic->pix_fmt == VMAF_PIX_FMT_YUV420P;
     pic->w[0] = w;
-    /* Ceiling division — mirrors picture.c fix (Research-0094). */
-    pic->w[1] = pic->w[2] = (w + ((unsigned)ss_hor)) >> ss_hor;
+    pic->w[1] = pic->w[2] = w >> ss_hor;
     pic->h[0] = h;
-    pic->h[1] = pic->h[2] = (h + ((unsigned)ss_ver)) >> ss_ver;
+    pic->h[1] = pic->h[2] = h >> ss_ver;
     if (pic->pix_fmt == VMAF_PIX_FMT_YUV400P)
         pic->w[1] = pic->w[2] = pic->h[1] = pic->h[2] = 0;
 
-    const unsigned aligned_y = (pic->w[0] + DATA_ALIGN_PINNED - 1u) & ~(DATA_ALIGN_PINNED - 1u);
-    const unsigned aligned_c = (pic->w[1] + DATA_ALIGN_PINNED - 1u) & ~(DATA_ALIGN_PINNED - 1u);
+    const int aligned_y = (pic->w[0] + DATA_ALIGN_PINNED - 1) & ~(DATA_ALIGN_PINNED - 1);
+    const int aligned_c = (pic->w[1] + DATA_ALIGN_PINNED - 1) & ~(DATA_ALIGN_PINNED - 1);
     const int hbd = pic->bpc > 8;
     pic->stride[0] = aligned_y << hbd;
     pic->stride[1] = pic->stride[2] = aligned_c << hbd;
@@ -159,23 +158,16 @@ int vmaf_cuda_picture_alloc_pinned(VmafPicture *pic, enum VmafPixelFormat pix_fm
     if (pic->pix_fmt == VMAF_PIX_FMT_YUV400P)
         pic->data[1] = pic->data[2] = NULL;
 
-    /* vmaf_picture_priv_init allocates pic->priv; check before touching it.
-     * Mirrors the fix in picture.c (PR #700, CWE-476): the |= idiom evaluates
-     * the right-hand side unconditionally, so a priv-init failure would leave
-     * pic->priv == NULL and the subsequent field writes would null-deref. */
-    err = vmaf_picture_priv_init(pic);
-    if (err)
-        goto free_data;
-
+    err |= vmaf_picture_priv_init(pic);
     VmafPicturePrivate *priv = pic->priv;
     priv->cuda.state = cuda_state;
     priv->cuda.ctx = cuda_state->ctx;
-    err = vmaf_picture_set_release_callback(pic, NULL, default_release_pinned_picture);
+    err |= vmaf_picture_set_release_callback(pic, NULL, default_release_pinned_picture);
     if (err)
-        goto free_priv;
+        goto free_data;
     priv->buf_type = VMAF_PICTURE_BUFFER_TYPE_CUDA_HOST_PINNED;
 
-    err = vmaf_ref_init(&pic->ref);
+    err |= vmaf_ref_init(&pic->ref);
     if (err)
         goto free_priv;
 
@@ -214,10 +206,9 @@ int vmaf_cuda_picture_alloc(VmafPicture *pic, void *cookie)
     const int ss_hor = pic->pix_fmt != VMAF_PIX_FMT_YUV444P;
     const int ss_ver = pic->pix_fmt == VMAF_PIX_FMT_YUV420P;
     pic->w[0] = cuda_cookie->w;
-    /* Ceiling division — mirrors picture.c fix (Research-0094). */
-    pic->w[1] = pic->w[2] = (cuda_cookie->w + ((unsigned)ss_hor)) >> ss_hor;
+    pic->w[1] = pic->w[2] = cuda_cookie->w >> ss_hor;
     pic->h[0] = cuda_cookie->h;
-    pic->h[1] = pic->h[2] = (cuda_cookie->h + ((unsigned)ss_ver)) >> ss_ver;
+    pic->h[1] = pic->h[2] = cuda_cookie->h >> ss_ver;
     if (pic->pix_fmt == VMAF_PIX_FMT_YUV400P)
         pic->w[1] = pic->w[2] = pic->h[1] = pic->h[2] = 0;
 
@@ -232,17 +223,7 @@ int vmaf_cuda_picture_alloc(VmafPicture *pic, void *cookie)
     priv->cuda.state = cuda_cookie->state;
     priv->cuda.ctx = cuda_cookie->state->ctx;
     CudaFunctions *cu_f = priv->cuda.state->f;
-    /* Use CU_STREAM_NON_BLOCKING so this picture-upload stream does not
-     * implicitly serialise with the legacy NULL (default) stream.
-     * CU_STREAM_DEFAULT causes every operation on this stream to act as if
-     * the default stream were involved, meaning all other non-default streams
-     * must complete before any work on this stream starts (and vice versa).
-     * At sub-4K resolutions that per-frame round-trip serialisation dominates
-     * compute time and makes CUDA motion ~0.55× slower than CPU scalar.
-     * CU_STREAM_NON_BLOCKING removes the implicit barrier.
-     * ADR-0378. */
-    CHECK_CUDA_GOTO(cu_f, cuStreamCreateWithPriority(&priv->cuda.str, CU_STREAM_NON_BLOCKING, 0),
-                    fail);
+    CHECK_CUDA_GOTO(cu_f, cuStreamCreate(&priv->cuda.str, CU_STREAM_DEFAULT), fail);
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&priv->cuda.ready, CU_EVENT_DEFAULT), fail);
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&priv->cuda.finished, CU_EVENT_DEFAULT), fail);
     CHECK_CUDA_GOTO(cu_f, cuEventRecord(priv->cuda.finished, priv->cuda.str), fail);
@@ -257,8 +238,7 @@ int vmaf_cuda_picture_alloc(VmafPicture *pic, void *cookie)
         }
         CHECK_CUDA_GOTO(cu_f,
                         cuMemAllocPitch((CUdeviceptr *)&pic->data[i], (size_t *)&pic->stride[i],
-                                        (size_t)pic->w[i] * ((pic->bpc + 7) / 8), pic->h[i],
-                                        8 << hbd),
+                                        pic->w[i] * ((pic->bpc + 7) / 8), pic->h[i], 8 << hbd),
                         fail);
     }
 
@@ -283,7 +263,7 @@ int vmaf_cuda_picture_free(VmafPicture *pic, void *cookie)
     if (!pic)
         return -EINVAL;
 
-    long err = vmaf_ref_load(pic->ref);
+    int err = vmaf_ref_load(pic->ref);
     if (!err)
         return -EINVAL;
 
@@ -352,9 +332,4 @@ CUevent vmaf_cuda_picture_get_finished_event(VmafPicture *pic)
 {
     VmafPicturePrivate *priv = pic->priv;
     return priv->cuda.finished;
-}
-
-enum VmafPixelFormat vmaf_cuda_picture_get_pix_fmt(const VmafPicture *pic)
-{
-    return pic->pix_fmt;
 }

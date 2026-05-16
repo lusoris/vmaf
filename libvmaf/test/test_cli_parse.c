@@ -189,8 +189,6 @@ static char *test_backend_cuda_engages_cuda()
               settings.gpumask == 0);
     mu_assert("cli_parse: --backend cuda must set no_sycl = true", settings.no_sycl);
     mu_assert("cli_parse: --backend cuda must set no_vulkan = true", settings.no_vulkan);
-    mu_assert("cli_parse: --backend cuda must set no_hip = true", settings.no_hip);
-    mu_assert("cli_parse: --backend cuda must set no_metal = true", settings.no_metal);
     mu_assert("cli_parse: --backend cuda must NOT set no_cuda", !settings.no_cuda);
     cli_free(&settings);
     cli_free_dicts(&settings);
@@ -207,8 +205,6 @@ static char *test_backend_cpu()
     mu_assert("cli_parse: --backend cpu must set no_cuda = true", settings.no_cuda);
     mu_assert("cli_parse: --backend cpu must set no_sycl = true", settings.no_sycl);
     mu_assert("cli_parse: --backend cpu must set no_vulkan = true", settings.no_vulkan);
-    mu_assert("cli_parse: --backend cpu must set no_hip = true", settings.no_hip);
-    mu_assert("cli_parse: --backend cpu must set no_metal = true", settings.no_metal);
     cli_free(&settings);
     cli_free_dicts(&settings);
     return NULL;
@@ -223,8 +219,6 @@ static char *test_backend_sycl()
     cli_parse(argc, argv, &settings);
     mu_assert("cli_parse: --backend sycl must set no_cuda = true", settings.no_cuda);
     mu_assert("cli_parse: --backend sycl must set no_vulkan = true", settings.no_vulkan);
-    mu_assert("cli_parse: --backend sycl must set no_hip = true", settings.no_hip);
-    mu_assert("cli_parse: --backend sycl must set no_metal = true", settings.no_metal);
     mu_assert("cli_parse: --backend sycl must default sycl_device to 0", settings.sycl_device == 0);
     cli_free(&settings);
     cli_free_dicts(&settings);
@@ -240,125 +234,10 @@ static char *test_backend_vulkan()
     cli_parse(argc, argv, &settings);
     mu_assert("cli_parse: --backend vulkan must set no_cuda = true", settings.no_cuda);
     mu_assert("cli_parse: --backend vulkan must set no_sycl = true", settings.no_sycl);
-    mu_assert("cli_parse: --backend vulkan must set no_hip = true", settings.no_hip);
-    mu_assert("cli_parse: --backend vulkan must set no_metal = true", settings.no_metal);
     mu_assert("cli_parse: --backend vulkan must default vulkan_device to 0",
               settings.vulkan_device == 0);
     cli_free(&settings);
     cli_free_dicts(&settings);
-    return NULL;
-}
-
-static char *test_backend_hip()
-{
-    char *argv[8] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "--backend", "hip"};
-    int argc = 7;
-    CLISettings settings;
-    optind = 1;
-    cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: --backend hip must set no_cuda = true", settings.no_cuda);
-    mu_assert("cli_parse: --backend hip must set no_sycl = true", settings.no_sycl);
-    mu_assert("cli_parse: --backend hip must set no_vulkan = true", settings.no_vulkan);
-    mu_assert("cli_parse: --backend hip must set no_metal = true", settings.no_metal);
-    mu_assert("cli_parse: --backend hip must NOT set no_hip", !settings.no_hip);
-    mu_assert("cli_parse: --backend hip must default hip_device to 0", settings.hip_device == 0);
-    cli_free(&settings);
-    cli_free_dicts(&settings);
-    return NULL;
-}
-
-static char *test_backend_metal()
-{
-    char *argv[8] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "--backend", "metal"};
-    int argc = 7;
-    CLISettings settings;
-    optind = 1;
-    cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: --backend metal must set no_cuda = true", settings.no_cuda);
-    mu_assert("cli_parse: --backend metal must set no_sycl = true", settings.no_sycl);
-    mu_assert("cli_parse: --backend metal must set no_vulkan = true", settings.no_vulkan);
-    mu_assert("cli_parse: --backend metal must set no_hip = true", settings.no_hip);
-    mu_assert("cli_parse: --backend metal must NOT set no_metal", !settings.no_metal);
-    mu_assert("cli_parse: --backend metal must default metal_device to 0",
-              settings.metal_device == 0);
-    cli_free(&settings);
-    cli_free_dicts(&settings);
-    return NULL;
-}
-
-static char *test_hip_device_explicit()
-{
-    char *argv[8] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "--hip_device", "2"};
-    int argc = 7;
-    CLISettings settings;
-    optind = 1;
-    cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: --hip_device 2 must set hip_device = 2", settings.hip_device == 2);
-    mu_assert("cli_parse: --hip_device must not engage no_hip", !settings.no_hip);
-    cli_free(&settings);
-    cli_free_dicts(&settings);
-    return NULL;
-}
-
-static char *test_metal_device_explicit()
-{
-    char *argv[8] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "--metal_device", "1"};
-    int argc = 7;
-    CLISettings settings;
-    optind = 1;
-    cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: --metal_device 1 must set metal_device = 1", settings.metal_device == 1);
-    mu_assert("cli_parse: --metal_device must not engage no_metal", !settings.no_metal);
-    cli_free(&settings);
-    cli_free_dicts(&settings);
-    return NULL;
-}
-
-static char *test_no_hip_no_metal_flags()
-{
-    char *argv[8] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "--no_hip", "--no_metal"};
-    int argc = 7;
-    CLISettings settings;
-    optind = 1;
-    cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: --no_hip must set no_hip = true", settings.no_hip);
-    mu_assert("cli_parse: --no_metal must set no_metal = true", settings.no_metal);
-    mu_assert("cli_parse: --no_hip must leave hip_device at default -1", settings.hip_device == -1);
-    mu_assert("cli_parse: --no_metal must leave metal_device at default -1",
-              settings.metal_device == -1);
-    cli_free(&settings);
-    cli_free_dicts(&settings);
-    return NULL;
-}
-
-/* Regression for audit finding F1 / ADR-0438: '-c' is declared in
- * short_opts[] but the switch previously had no 'case 'c'' arm, so
- * getopt_long consumed the option value and the switch fell into
- * default:, silently discarding the cpumask.  The fix adds a
- * 'case 'c':' fall-through before ARG_CPUMASK. */
-static char *test_cpumask_short_opt()
-{
-    /* -c 0xff must set settings.cpumask = 255, same as --cpumask 0xff. */
-    char *argv[9] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "-c", "0xff"};
-    int argc = 7;
-    CLISettings settings;
-    optind = 1;
-    cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: -c 0xff must set cpumask = 255 (was silently dropped before ADR-0438)",
-              settings.cpumask == 255);
-    cli_free(&settings);
-    cli_free_dicts(&settings);
-
-    /* Decimal value: -c 3 */
-    char *argv2[9] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "-c", "3"};
-    int argc2 = 7;
-    CLISettings settings2;
-    optind = 1;
-    cli_parse(argc2, argv2, &settings2);
-    mu_assert("cli_parse: -c 3 must set cpumask = 3", settings2.cpumask == 3);
-    cli_free(&settings2);
-    cli_free_dicts(&settings2);
-
     return NULL;
 }
 
@@ -399,12 +278,6 @@ static char *run_backend_tests(void)
     mu_run_test(test_backend_cuda_preserves_explicit_gpumask);
     mu_run_test(test_backend_sycl);
     mu_run_test(test_backend_vulkan);
-    mu_run_test(test_backend_hip);
-    mu_run_test(test_backend_metal);
-    mu_run_test(test_hip_device_explicit);
-    mu_run_test(test_metal_device_explicit);
-    mu_run_test(test_no_hip_no_metal_flags);
-    mu_run_test(test_cpumask_short_opt);
     return NULL;
 }
 

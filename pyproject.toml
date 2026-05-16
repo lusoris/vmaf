@@ -27,8 +27,7 @@ extend-exclude = '''
 [tool.isort]
 profile = "black"
 line_length = 100
-known_first_party = ["vmaf", "ai", "vmaf_train", "corpus", "aiutils"]
-src_paths = ["ai/src", "python"]
+known_first_party = ["vmaf", "ai", "vmaf_train", "corpus"]
 skip_glob = [
   "build/*",
   "subprojects/*",
@@ -67,11 +66,6 @@ ignore = [
   "S101",          # assert is fine in tests
 ]
 
-[tool.ruff.lint.isort]
-# Must mirror [tool.isort].known_first_party so isort and ruff-check agree
-# on first-party import grouping. aiutils lives in ai/src/ (added by #908).
-known-first-party = ["vmaf", "ai", "vmaf_train", "corpus", "aiutils"]
-
 [tool.ruff.lint.per-file-ignores]
 # Upstream Netflix Python is not our style canon. Keep F821 (undefined
 # name) and real-bug pyflakes catching defects; silence bugbear /
@@ -106,10 +100,6 @@ known-first-party = ["vmaf", "ai", "vmaf_train", "corpus", "aiutils"]
 [tool.pytest.ini_options]
 testpaths = ["python/test", "ai/tests"]
 addopts = "-ra --strict-markers"
-# ai/src/ is the aiutils package root; add it so tests can ``import aiutils``
-# without a pip-editable install.  (ai/scripts/ is added by each test file
-# that imports a trainer script directly via sys.path.insert.)
-pythonpath = ["ai/src", "ai/scripts"]
 markers = [
   "netflix_golden: the 3 Netflix CPU golden test pairs (D24) — must always pass",
   "slow: tests that take more than 30s",
@@ -119,47 +109,8 @@ markers = [
 [tool.mypy]
 python_version = "3.10"
 strict = true
-# ai/src/ is the vmaf_train package source root. Declaring it via mypy_path lets
-# mypy resolve `vmaf_train.*` imports in ai/scripts/ and ai/tests/ without the
-# package being pip-installed. ai/src/ itself is excluded from the file-scan list
-# to prevent the duplicate-module-name error (mypy would otherwise see each module
-# twice: once as "ai.src.vmaf_train.X" from the ai/ argument and once as
-# "vmaf_train.X" from mypy_path).
-mypy_path = "ai/src"
-exclude = [
-  "build/",
-  "subprojects/",
-  "python/test/resource/",
-  "ai/src/",
-]
+exclude = ["build/", "subprojects/", "python/test/resource/"]
 
 [[tool.mypy.overrides]]
 module = "vmaf.*"
 ignore_errors = true   # upstream library — not our type stubs to maintain
-
-[[tool.mypy.overrides]]
-# Suppress "Source file found twice" errors for the ai.src.vmaf_train.* namespace.
-# This fires when a script imports vmaf_train.X (resolved via mypy_path → ai/src/)
-# and mypy also sees the same file in the ai.src namespace via the legacy ai/ scan.
-# The ai.src namespace is never used at runtime; only vmaf_train.* is.
-module = ["ai.src.*", "ai.src.vmaf_train.*"]
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-# Packages that ship no py.typed marker and have no usable third-party stubs.
-# Call sites are already type-safe at the boundary (explicit casts / guards).
-module = [
-  "onnxruntime",
-  "onnxruntime.*",
-  "lpips",
-  "openvino",
-  "openvino.*",
-  "jsonschema",
-  "sklearn",
-  "sklearn.*",
-  "tensorflow",
-  "tensorflow.*",
-  "pyarrow",
-  "pyarrow.*",
-]
-ignore_missing_imports = true

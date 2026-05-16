@@ -47,9 +47,7 @@ Runtime directly.
   New tiny-AI feature extractors use the helpers in
   [`tiny_extractor_template.h`](tiny_extractor_template.h)
   (`vmaf_tiny_ai_resolve_model_path` / `vmaf_tiny_ai_open_session` /
-  `vmaf_tiny_ai_yuv8_to_rgb8_planes` /
-  `vmaf_tiny_ai_yuv_to_rgb8_planes` /
-  `VMAF_TINY_AI_MODEL_PATH_OPTION`).
+  `vmaf_tiny_ai_yuv8_to_rgb8_planes` / `VMAF_TINY_AI_MODEL_PATH_OPTION`).
   The user-facing log lines (`<name>: no model path …`, `<name>:
   vmaf_dnn_session_open(<path>) failed: <rc>`) are wire-format-stable
   across extractors — downstream tooling greps them. Don't introduce
@@ -67,14 +65,6 @@ Runtime directly.
   path in `model_loader.c` parses the registry inline (no JSON dep) and
   spawns `cosign` via `posix_spawnp(3p)`; `system(3)` is and stays
   banned.
-- **`VMAF_TINY_MODEL_DIR` is the optional path jail**. When the env var
-  is set, `model_loader.c` canonicalises the requested ONNX path and
-  requires it to sit below the canonicalised jail directory before any
-  model stat/read. Missing jail dirs, non-directory jail paths,
-  sibling-prefix escapes, and symlink escapes fail closed with
-  `-EACCES`; keep the regression cases in
-  [`test_model_loader.c`](../../test/dnn/test_model_loader.c) together
-  with any loader changes.
 
 ## Governing ADRs
 
@@ -102,20 +92,6 @@ Runtime directly.
 
 ## Rebase-sensitive invariants (DNN-side surfaces in flight)
 
-- **`f16_to_f32_one` subnormal path uses `int32_t exp_adj`, not
-  `uint32_t exp`** (fork-local, round-5 `-fsanitize=integer` sweep,
-  PR fix/picture-align-unsigned-narrowing): the normalisation loop in
-  `tensor_io.c:f16_to_f32_one` iterates a local `int32_t exp_adj = 1`
-  counter that is bounded to `[-9, 1]` (10-bit f16 mantissa). An
-  earlier implementation used the `uint32_t exp` variable from the
-  outer scope, which wrapped through `UINT32_MAX` twice to produce the
-  correct f32 biased exponent by modular arithmetic — functionally
-  correct but trips `-fsanitize=integer`. Do not revert to the `uint32_t`
-  wrap idiom. The `test_f16_to_f32_subnormal` test asserts the exact
-  bit-pattern for `0x0001` (smallest positive f16 subnormal, value
-  `2^-24`) to catch any accidental regression. See
-  [docs/rebase-notes.md](../../../../docs/rebase-notes.md)
-  §PR-fix-picture-align-unsigned-narrowing.
 - **CoreML EP wiring (ADR-0365, this PR)** — `VmafDnnDevice`
   values 5..8 (`COREML`, `COREML_ANE`, `COREML_GPU`, `COREML_CPU`)
   and the `--tiny-device=coreml{,-ane,-gpu,-cpu}` CLI keywords are
@@ -159,10 +135,9 @@ Runtime directly.
   path in `model/tiny/registry.json`.
 - **MobileSal (T6-2a, PR #208 open, ADR-0218 placeholder)** —
   saliency feature extractor; opens session via `vmaf_dnn_*`.
-- **TransNet V2 (T6-3a + real weights, ADR-0223 + ADR-0261)** —
-  shot-boundary detector with real upstream weights; uses the
-  bounded-Loop guard from ADR-0171.
-- **FastDVDnet (T6-7 / T6-7b, ADR-0215 + ADR-0255)** —
+- **TransNet V2 (T6-3a, PR #210 open)** — shot-boundary detector
+  ~1M params; uses bounded-Loop guard from ADR-0171.
+- **FastDVDnet (T6-7, PR #203 open, ADR-0215 placeholder)** —
   5-frame window pre-filter; same DNN session contract.
 - **OpenVINO NPU EP wiring (ADR-0332, 2026-05-08)** — the
   `VmafDnnDevice` enum carries three explicit OpenVINO selectors

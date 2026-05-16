@@ -39,12 +39,11 @@ ninja -C build
 | `sycl_compiler` | string | `icpx` | Path or name of the SYCL compiler — only consulted when `enable_sycl=true` |
 | `enable_dnn` | feature | `auto` | Build the tiny-AI ONNX Runtime surface. `auto` tries to link ORT and silently disables if it's missing; `enabled` fails the configure step when ORT is unavailable; `disabled` omits the `dnn.h` symbols entirely |
 | `enable_vulkan` | feature | `disabled` | Compile the Vulkan compute backend. Scaffold landed via [ADR-0175](../adr/0175-vulkan-backend-scaffold.md), runtime via ADR-0178 (T5-1b), default-model kernel matrix complete per ADR-0193 (VIF + ADM + motion + motion_v2 + ssimulacra2 plus the GPU long-tail batches). Default `disabled` — `auto` would silently flip on in builds with a Vulkan SDK installed and we keep it opt-in. When enabled, requires `volk` + Vulkan SDK ≥ 1.3 + `glslc` + VMA. |
-| `enable_mcp` | bool | `false` | Compile the embedded MCP (Model Context Protocol) server inside libvmaf. The runtime serves `list_features` and `compute_vmaf` over stdio, UDS, and loopback SSE when the matching transport flags are enabled; mutating measurement-thread tools remain future v4 work. See [`docs/mcp/embedded.md`](../mcp/embedded.md). |
-| `enable_mcp_sse` | feature | `auto` | Compile in the SSE (Server-Sent Events / loopback HTTP) transport for the embedded MCP server. Requires `enable_mcp=true`; implemented with plain POSIX sockets and no third-party HTTP library. |
-| `enable_mcp_uds` | bool | `false` | Compile in the Unix-domain-socket transport. Requires `enable_mcp=true`. POSIX-only; non-POSIX hosts return `-ENODEV` at runtime. |
-| `enable_mcp_stdio` | bool | `false` | Compile in the stdio transport: newline-delimited JSON-RPC on a caller-supplied fd pair. Requires `enable_mcp=true`; LSP `Content-Length:` framing remains a future compatibility addition. |
-| `enable_hip` | bool | `false` | Compile the HIP (AMD ROCm) compute backend. Default off. With `enable_hipcc=false` the public C-API entry points return `-ENOSYS` for unported features; with `enable_hipcc=true` the real kernels are compiled and 8/11 features run on-device (psnr, integer_psnr, float_ansnr, float_motion, float_moment, float_ssim, ciede, integer_motion_v2). Adm/vif/integer_motion remain `-ENOSYS` stubs. ROCm 6+ + `gfx1036` (RDNA 2) tested. See [ADR-0212](../adr/0212-hip-backend-scaffold.md), [ADR-0373](../adr/0373-hip-batch2-float-motion.md), [backends/hip/overview.md](../backends/hip/overview.md). |
-| `enable_hipcc` | bool | `false` | Compile real HIP kernels via `hipcc` (vs ENOSYS-stub host TUs only). Required for any real-on-device kernel dispatch. Pair with `enable_hip=true`. |
+| `enable_mcp` | bool | `false` | Compile the embedded MCP (Model Context Protocol) server scaffold ([ADR-0209](../adr/0209-mcp-embedded-scaffold.md)). Audit-first stub: every entry point in `libvmaf_mcp.h` returns `-ENOSYS`. Runtime bodies (cJSON + mongoose, dedicated MCP pthread, SPSC ring buffer, transports) land in T5-2b. See [`docs/mcp/embedded.md`](../mcp/embedded.md). |
+| `enable_mcp_sse` | bool | `false` | Compile in the SSE (Server-Sent Events / loopback HTTP) transport for the embedded MCP server. Requires `enable_mcp=true`. Stub-only until T5-2b ships transport bodies. |
+| `enable_mcp_uds` | bool | `false` | Compile in the Unix-domain-socket transport. Requires `enable_mcp=true`. POSIX-only; non-POSIX hosts return `-ENODEV` at runtime. Stub-only until T5-2b. |
+| `enable_mcp_stdio` | bool | `false` | Compile in the stdio (LSP-framed JSON-RPC on caller-supplied fd pair) transport. Requires `enable_mcp=true`. Stub-only until T5-2b. |
+| `enable_hip` | bool | `false` | Compile the HIP (AMD ROCm) compute backend scaffold. Default off; every public C-API entry point returns `-ENOSYS` until the runtime PR (T7-10b) lands — see [ADR-0212](../adr/0212-hip-backend-scaffold.md) and [backends/hip/overview.md](../backends/hip/overview.md). The scaffold has no hard runtime dependencies; ROCm 6+ is required only when the kernels arrive. |
 | `fuzz` | bool | `false` | Build libFuzzer harnesses under `libvmaf/test/fuzz/` ([ADR-0270](../adr/0270-fuzzing-scaffold.md), OSSF Scorecard `Fuzzing` remediation). Requires `clang`. Pair with `-Db_sanitize=address` for heap coverage. Default off — opt-in only. |
 
 ### Flag interactions
@@ -147,33 +146,6 @@ meson configure build | head -40
 ```
 
 ## Related
-
-## Symbol visibility
-
-All translation units in `libvmaf` are compiled with `-fvisibility=hidden`
-(see `libvmaf/src/meson.build`). Only symbols explicitly annotated with
-`VMAF_EXPORT` (defined in `libvmaf/include/libvmaf/macros.h`) appear in
-the dynamic symbol table of `libvmaf.so`. This eliminates silent symbol
-interposition from embedded third-party code (libsvm, pdjson) and internal
-helper symbols.
-
-**For downstream consumers** building their own code with `-fvisibility=hidden`:
-the `VMAF_EXPORT` attribute on every declaration in the installed public headers
-means you do **not** need to add manual visibility overrides for libvmaf entry
-points.
-
-**Verification gate**:
-
-```bash
-nm -D --defined-only build/src/libvmaf.so.* | grep ' [TW] ' | grep -v ' vmaf_' | wc -l
-# Must print 0
-```
-
-See [ADR-0379](../adr/0379-libvmaf-symbol-visibility.md) and
-[Research-0092](../research/0092-round4-symbol-visibility-audit.md) for
-the original 207-symbol audit and fix rationale.
-
-## See also
 
 - [ADR-0100](../adr/0100-project-wide-doc-substance-rule.md) — project-wide
   doc-substance rule (this page satisfies the Build-flag bar).

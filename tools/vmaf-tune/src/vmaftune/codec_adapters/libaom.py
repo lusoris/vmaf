@@ -1,6 +1,6 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""libaom-av1 codec adapter.
+"""libaom-av1 codec adapter — Phase A scaffold.
 
 libaom is Google's reference AV1 encoder. Compared with the SVT-AV1
 adapter shipped alongside this one, libaom is meaningfully slower at
@@ -19,17 +19,15 @@ parity with x264/x265 we expose human-readable preset names that map
 onto the ``cpu-used`` integer; the search loop only ever speaks
 ``preset`` and ``crf`` and never branches on codec identity.
 
-The adapter is live through the codec-dispatcher path in
-``encode.py``: :meth:`ffmpeg_codec_args` emits libaom's
-``-cpu-used`` shape rather than the generic ``-preset`` flag, and the
-search loop stays codec-agnostic by speaking only ``preset`` and
-``crf``.
+Phase A wires this adapter's metadata only — `encode.py` is not yet
+codec-pluggable for non-`-preset` encoders, so live grid sweeps with
+libaom unblock once that lands. The mapping table below is the
+contract Phase B+ reads.
 """
 
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
 
@@ -73,8 +71,7 @@ class LibaomAdapter:
     # canonical preset name maps to cpu-used 9 in _PRESET_CPU_USED.
     probe_preset: str = "ultrafast"
     probe_quality: int = 35
-    supports_qpfile: bool = True
-    supports_saliency_roi: bool = True
+    supports_qpfile: bool = False
     # ADR-0332: this encoder has no parseable first-pass stats file.
     supports_encoder_stats: bool = False
 
@@ -129,18 +126,6 @@ class LibaomAdapter:
     def extra_params(self) -> tuple[str, ...]:
         """No additional non-codec argv for libaom-av1."""
         return ()
-
-    def qpfile_from_saliency(
-        self,
-        block_offsets: object,
-        out_path: Path,
-        *,
-        duration_frames: int = 1,
-    ) -> Path:
-        """Write the x264-style qpfile consumed by patched FFmpeg libaom."""
-        from vmaftune.saliency import write_x264_qpfile
-
-        return write_x264_qpfile(block_offsets, Path(out_path), duration_frames=duration_frames)
 
     def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
         """FFmpeg ``-g`` / ``-keyint_min``, honoured by libaom-av1."""

@@ -51,7 +51,6 @@ typedef struct PsnrHvsStateCuda {
      * template's single-pair readback bundle. */
     VmafCudaKernelLifecycle lc;
     CUfunction func_psnr_hvs;
-    CUmodule module;
 
     /* Dedicated H2D upload stream + completion event (T-GPU-OPT-2).
      * H2Ds run on `upload_str` so DMA can overlap kernel launches on
@@ -123,13 +122,11 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     s->height[0] = h;
     switch (pix_fmt) {
     case VMAF_PIX_FMT_YUV420P:
-        /* Ceiling division — mirrors picture.c fix (Research-0094). */
-        s->width[1] = s->width[2] = (w + 1u) >> 1;
-        s->height[1] = s->height[2] = (h + 1u) >> 1;
+        s->width[1] = s->width[2] = w >> 1;
+        s->height[1] = s->height[2] = h >> 1;
         break;
     case VMAF_PIX_FMT_YUV422P:
-        /* Ceiling division for horizontal subsampling only. */
-        s->width[1] = s->width[2] = (w + 1u) >> 1;
+        s->width[1] = s->width[2] = w >> 1;
         s->height[1] = s->height[2] = h;
         break;
     case VMAF_PIX_FMT_YUV444P:
@@ -169,7 +166,8 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
                     fail);
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->upload_done, CU_EVENT_DISABLE_TIMING), fail);
 
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, psnr_hvs_score_ptx), fail);
+    CUmodule module;
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, psnr_hvs_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_psnr_hvs, module, "psnr_hvs"), fail);
 
     CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
@@ -356,18 +354,6 @@ static int launch_plane_kernels(PsnrHvsStateCuda *s, VmafFeatureExtractor *fex)
     return 0;
 }
 
-static int enqueue_partials_readback(PsnrHvsStateCuda *s, VmafFeatureExtractor *fex)
-{
-    CudaFunctions *cu_f = fex->cu_state->f;
-    for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
-        const size_t partials_bytes = (size_t)s->num_blocks[p] * sizeof(float);
-        CHECK_CUDA_RETURN(cu_f,
-                          cuMemcpyDtoHAsync(s->h_partials[p], (CUdeviceptr)s->d_partials[p]->data,
-                                            partials_bytes, s->lc.str));
-    }
-    return 0;
-}
-
 static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                            VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index)
 {
@@ -385,25 +371,23 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
      * plane kernels.  The kernel handles all 3 planes via the
      * CSF_TABLES[plane] lookup; PLANE + BPC are runtime args. */
     CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->lc.str, s->upload_done, CU_EVENT_WAIT_DEFAULT));
-    err = launch_plane_kernels(s, fex);
-    if (err)
-        return err;
-
-    err = enqueue_partials_readback(s, fex);
-    if (err)
-        return err;
-
-    return vmaf_cuda_kernel_submit_post_record(&s->lc, fex->cu_state);
+    return launch_plane_kernels(s, fex);
 }
 
 static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
     PsnrHvsStateCuda *s = fex->priv;
+    CudaFunctions *cu_f = fex->cu_state->f;
 
-    int wait_err = vmaf_cuda_kernel_collect_wait(&s->lc, fex->cu_state);
-    if (wait_err)
-        return wait_err;
+    /* D2H readback all 3 planes' partials, then sync. */
+    for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
+        const size_t partials_bytes = (size_t)s->num_blocks[p] * sizeof(float);
+        CHECK_CUDA_RETURN(cu_f,
+                          cuMemcpyDtoHAsync(s->h_partials[p], (CUdeviceptr)s->d_partials[p]->data,
+                                            partials_bytes, s->lc.str));
+    }
+    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->lc.str));
 
     /* Per-plane reduction matching CPU's float `ret` register
      * semantics (see psnr_hvs_vulkan.c for the rationale). */
@@ -436,8 +420,6 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
     PsnrHvsStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
     int ret = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
-    if (s->module)
-        (void)fex->cu_state->f->cuModuleUnload(s->module);
 
     /* T-GPU-OPT-2: tear down dedicated upload stream + event.
      * Drain first so any in-flight H2D completes before the pinned

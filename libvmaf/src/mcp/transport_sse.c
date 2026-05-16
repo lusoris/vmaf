@@ -55,7 +55,6 @@
  */
 
 #include <arpa/inet.h>
-#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>

@@ -204,9 +204,7 @@ void vmaf_model_destroy(VmafModel *model)
     free(model->path);
     free(model->name);
     svm_free_and_destroy_model(&(model->svm));
-    const unsigned feature_count =
-        model->feature_cap > model->n_features ? model->feature_cap : model->n_features;
-    for (unsigned i = 0; i < feature_count; i++) {
+    for (unsigned i = 0; i < model->n_features; i++) {
         free(model->feature[i].name);
         vmaf_dictionary_free(&model->feature[i].opts_dict);
     }

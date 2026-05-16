@@ -75,7 +75,7 @@ extern "C" {
  * (`enable_mcp_sse`, `enable_mcp_uds`, `enable_mcp_stdio`); use
  * @ref vmaf_mcp_transport_available to query a specific transport.
  */
-VMAF_EXPORT int vmaf_mcp_available(void);
+int vmaf_mcp_available(void);
 
 /**
  * Transport identifiers — used by @ref vmaf_mcp_transport_available
@@ -92,7 +92,7 @@ typedef enum VmafMcpTransport {
  * time (e.g. `-Denable_mcp_sse=true`), 0 otherwise. Returns 0 for
  * unknown transport ids.
  */
-VMAF_EXPORT int vmaf_mcp_transport_available(VmafMcpTransport transport);
+int vmaf_mcp_transport_available(VmafMcpTransport transport);
 
 /**
  * Opaque handle to an embedded MCP server. One handle pins one
@@ -146,7 +146,7 @@ typedef struct VmafMcpConfig {
  *         on bad arguments, -ENOMEM on ring allocation failure,
  *         -EBUSY if measurement is already in flight.
  */
-VMAF_EXPORT int vmaf_mcp_init(VmafMcpServer **out, VmafContext *ctx, const VmafMcpConfig *cfg);
+int vmaf_mcp_init(VmafMcpServer **out, VmafContext *ctx, const VmafMcpConfig *cfg);
 
 /**
  * SSE transport configuration. Populated by the host before
@@ -174,7 +174,7 @@ typedef struct VmafMcpSseConfig {
  *         -EADDRINUSE if the requested port is busy, -EBUSY if
  *         the transport is already running on this server.
  */
-VMAF_EXPORT int vmaf_mcp_start_sse(VmafMcpServer *server, VmafMcpSseConfig *cfg);
+int vmaf_mcp_start_sse(VmafMcpServer *server, VmafMcpSseConfig *cfg);
 
 /**
  * UDS (Unix domain socket) transport configuration.
@@ -199,7 +199,7 @@ typedef struct VmafMcpUdsConfig {
  *         -EADDRINUSE if the path is already bound, -EBUSY if the
  *         transport is already running.
  */
-VMAF_EXPORT int vmaf_mcp_start_uds(VmafMcpServer *server, const VmafMcpUdsConfig *cfg);
+int vmaf_mcp_start_uds(VmafMcpServer *server, const VmafMcpUdsConfig *cfg);
 
 /**
  * stdio transport configuration. Per ADR-0128 + Research-0005, the
@@ -228,7 +228,7 @@ typedef struct VmafMcpStdioConfig {
  *         (negative fds), -EBUSY if the transport is already
  *         running.
  */
-VMAF_EXPORT int vmaf_mcp_start_stdio(VmafMcpServer *server, const VmafMcpStdioConfig *cfg);
+int vmaf_mcp_start_stdio(VmafMcpServer *server, const VmafMcpStdioConfig *cfg);
 
 /**
  * Stop all running transports on @p server, joining their
@@ -238,7 +238,7 @@ VMAF_EXPORT int vmaf_mcp_start_stdio(VmafMcpServer *server, const VmafMcpStdioCo
  *
  * @return 0 on success, -EINVAL on NULL @p server.
  */
-VMAF_EXPORT int vmaf_mcp_stop(VmafMcpServer *server);
+int vmaf_mcp_stop(VmafMcpServer *server);
 
 /**
  * Release a server handle previously created via
@@ -248,7 +248,7 @@ VMAF_EXPORT int vmaf_mcp_stop(VmafMcpServer *server);
  * Implicitly calls @ref vmaf_mcp_stop if any transport is still
  * running.
  */
-VMAF_EXPORT void vmaf_mcp_close(VmafMcpServer **server);
+void vmaf_mcp_close(VmafMcpServer **server);
 
 #ifdef __cplusplus
 }

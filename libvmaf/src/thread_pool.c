@@ -50,11 +50,7 @@ typedef struct VmafThreadPool {
         VmafThreadPoolJob *head, *tail;
     } queue;
     pthread_cond_t working;
-    /* n_threads: live worker count; decremented by each runner on exit (lock held).
-     * n_workers_created: immutable after pool_create; used by destroy to iterate
-     * the workers[] array without racing the decrement in runner. */
     unsigned n_threads;
-    unsigned n_workers_created;
     unsigned n_working;
     bool stop;
     VmafThreadPoolWorker *workers;
@@ -142,67 +138,6 @@ static void *vmaf_thread_pool_runner(void *p)
     return NULL;
 }
 
-/* Initialise the three synchronisation primitives in `p` in dependency
- * order (mutex first, then both cond vars).  On failure, tears down only
- * the objects that were successfully initialised and returns -ENOMEM.
- * pthread_*_init can fail with ENOMEM on constrained / embedded systems;
- * ignoring the return value leaves the pool in undefined state. */
-static int pool_init_primitives(VmafThreadPool *p, VmafThreadPool **pool_out_to_null)
-{
-    if (pthread_mutex_init(&(p->queue.lock), NULL) != 0) {
-        free(p->workers);
-        free(p);
-        *pool_out_to_null = NULL;
-        return -ENOMEM;
-    }
-    if (pthread_cond_init(&(p->queue.empty), NULL) != 0) {
-        pthread_mutex_destroy(&(p->queue.lock));
-        free(p->workers);
-        free(p);
-        *pool_out_to_null = NULL;
-        return -ENOMEM;
-    }
-    if (pthread_cond_init(&(p->working), NULL) != 0) {
-        pthread_cond_destroy(&(p->queue.empty));
-        pthread_mutex_destroy(&(p->queue.lock));
-        free(p->workers);
-        free(p);
-        *pool_out_to_null = NULL;
-        return -ENOMEM;
-    }
-    return 0;
-}
-
-/* Spawn up to `cfg.n_threads` worker threads into `p`.  On partial failure
- * (EAGAIN under process-limit pressure) the pool stays usable at a reduced
- * width; on total failure (i == 0 thread started) tears down and returns. */
-static int pool_spawn_workers(VmafThreadPool *p, VmafThreadPoolConfig cfg,
-                              VmafThreadPool **pool_out_to_null)
-{
-    for (unsigned i = 0; i < cfg.n_threads; i++) {
-        p->workers[i].pool = p;
-        pthread_t thread;
-        const int rc = pthread_create(&thread, NULL, vmaf_thread_pool_runner, &p->workers[i]);
-        if (rc != 0) {
-            p->n_threads = i;
-            p->n_workers_created = i;
-            if (i == 0) {
-                pthread_mutex_destroy(&(p->queue.lock));
-                pthread_cond_destroy(&(p->queue.empty));
-                pthread_cond_destroy(&(p->working));
-                free(p->workers);
-                free(p);
-                *pool_out_to_null = NULL;
-                return -rc;
-            }
-            pthread_cond_broadcast(&(p->queue.empty));
-            break;
-        }
-        pthread_detach(thread);
-    }
-    return 0;
-}
-
 int vmaf_thread_pool_create(VmafThreadPool **pool, VmafThreadPoolConfig cfg)
 {
     if (!pool)
@@ -215,7 +150,6 @@ int vmaf_thread_pool_create(VmafThreadPool **pool, VmafThreadPoolConfig cfg)
         return -ENOMEM;
     memset(p, 0, sizeof(*p));
     p->n_threads = cfg.n_threads;
-    p->n_workers_created = cfg.n_threads;
     p->thread_data_free = cfg.thread_data_free;
 
     p->workers = malloc(sizeof(*p->workers) * cfg.n_threads);
@@ -225,11 +159,18 @@ int vmaf_thread_pool_create(VmafThreadPool **pool, VmafThreadPoolConfig cfg)
     }
     memset(p->workers, 0, sizeof(*p->workers) * cfg.n_threads);
 
-    int err = pool_init_primitives(p, pool);
-    if (err)
-        return err;
+    pthread_mutex_init(&(p->queue.lock), NULL);
+    pthread_cond_init(&(p->queue.empty), NULL);
+    pthread_cond_init(&(p->working), NULL);
 
-    return pool_spawn_workers(p, cfg, pool);
+    for (unsigned i = 0; i < cfg.n_threads; i++) {
+        p->workers[i].pool = p;
+        pthread_t thread;
+        pthread_create(&thread, NULL, vmaf_thread_pool_runner, &p->workers[i]);
+        pthread_detach(thread);
+    }
+
+    return 0;
 }
 
 int vmaf_thread_pool_enqueue(VmafThreadPool *pool, void (*func)(void *data, void **thread_data),
@@ -307,11 +248,7 @@ int vmaf_thread_pool_destroy(VmafThreadPool *pool)
     if (!pool)
         return -EINVAL;
 
-    /* n_workers_created is written once at pool_create and never modified
-     * afterwards, so it is safe to read without the lock.  Using n_threads
-     * here would be a data race: runner threads decrement it under the lock
-     * as they exit, which can race with this unsynchronised read. */
-    const unsigned n_workers = pool->n_workers_created;
+    const unsigned n_workers = pool->n_threads;
 
     pthread_mutex_lock(&(pool->queue.lock));
 

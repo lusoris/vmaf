@@ -1,17 +1,19 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""Phase D — per-shot CRF tuning.
+"""Phase D scaffold — per-shot CRF tuning.
 
 The "Netflix per-shot encoding" table-stakes feature for `vmaf-tune`.
 TransNet V2 (real weights, ADR-0223) cuts the source into shots; for
-each shot callers provide a target-VMAF predicate, usually the Phase-B
-bisect backend, to pick a CRF; then we emit an FFmpeg encoding plan
-that produces a per-shot CRF-varying encode and concatenates the
-segments.
+each shot we run a target-VMAF predicate (Phase B bisect, here a
+pluggable callback while Phase B is in flight) to pick a CRF; then we
+emit an FFmpeg encoding plan that produces a per-shot CRF-varying
+encode and concatenates the segments.
 
-The library API keeps the predicate pluggable so tests and custom
-operators can inject deterministic or content-aware selectors. The CLI
-binds that seam to Phase-B bisect by default.
+This file is a **scaffold**: the public API shape is stable, but the
+two integration seams (shot detection via :data:`vmaf-perShot`, target
+predicate via Phase B bisect) are pluggable so the tests run with
+mocks and the production wiring can land in follow-up PRs without
+breaking the surface. See ADR-0276.
 
 Public surface:
 
@@ -25,10 +27,12 @@ Public surface:
 * :func:`merge_shots` — collapses recommendations into an
   :class:`EncodingPlan`.
 
-The planner still stops short of executing the final segment encodes;
-operators inspect or run the emitted FFmpeg command list. Native
-per-codec zone/qpfile emission remains a later optimization over the
-segment-and-concat path.
+The scaffold deliberately stops short of running encodes — Phase D's
+end-to-end loop is gated on Phase B's bisect landing as code, on the
+codec adapters growing per-shot ``--zones`` / ``--qpfile`` emit hooks
+(ADR-0237 §Consequences), and on a per-shot held-out validation
+corpus. This file ships the orchestration shape so those follow-ups
+are drop-in.
 """
 
 from __future__ import annotations
@@ -47,9 +51,8 @@ from pathlib import Path
 from .codec_adapters import get_adapter
 
 # Pluggable predicate signature: given a shot + target VMAF + encoder
-# name, return ``(crf, measured_or_predicted_vmaf)``. The CLI calls
-# Phase B's bisect; tests and advanced callers may inject a deterministic
-# selector.
+# name, return ``(crf, predicted_vmaf)``. Production wiring will call
+# Phase B's bisect; tests inject a deterministic stub.
 PredicateFn = Callable[["Shot", float, str], tuple[int, float]]
 
 
@@ -260,11 +263,11 @@ def tune_per_shot(
     """Pick a per-shot CRF for each shot.
 
     ``predicate`` is the integration seam for Phase B's target-VMAF
-    bisect. The CLI wires :func:`vmaftune.bisect.bisect_target_vmaf`;
-    tests and advanced callers inject custom selectors. The default
+    bisect. Production callers wire :func:`vmaftune.bisect.find_crf`
+    (Phase B); tests inject a complexity-aware stub. The default
     predicate uses the codec adapter's ``quality_default`` clamped
-    into the codec's quality range so the library API remains usable
-    in dry-run contexts without launching encodes.
+    into the codec's quality range — enough to round-trip the
+    scaffold without doing real searches.
     """
     if not shots:
         raise ValueError("tune_per_shot requires at least one shot")
@@ -284,7 +287,7 @@ def _default_predicate(shot: Shot, target_vmaf: float, encoder: str) -> tuple[in
     """Trivial fallback predicate.
 
     Used only when the caller does not pass a real bisect; exists so
-    dry runs stay deterministic. Returns the codec's default
+    the scaffold runs end-to-end in tests. Returns the codec's default
     quality value alongside the requested target VMAF.
     """
     _ = shot  # length unused in the trivial predicate
@@ -458,10 +461,10 @@ def plan_to_shell_script(plan: EncodingPlan) -> str:
 def _shell_join(parts: Iterable[str]) -> str:
     """Quote-aware join — minimum viable, no exotic shell escaping.
 
-    Stops short of full ``shlex.quote`` because the plan argv is
-    constructed in-process and does not contain shell metacharacters in
-    normal usage; the helper exists for human-readable output, not for
-    safe shell evaluation.
+    Stops short of full ``shlex.quote`` because the scaffold's argv is
+    constructed in-process and does not contain user-controlled
+    metacharacters; the helper exists for human-readable output, not
+    for safe shell evaluation.
     """
     return " ".join(parts)
 

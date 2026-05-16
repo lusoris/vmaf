@@ -24,21 +24,14 @@ Shipped and wired:
   `vf_libvmaf`; `ffmpeg-patches/0002` adds the `vmaf_pre` learned-filter
   filter.
 
-Shipped since the original "not shipped" list was written:
+Not shipped yet:
 
-- **Checkpoints shipped.** `model/tiny/` now contains 24 registry entries
-  (fr_regressor_v1/v2, vmaf_tiny_v2/v3/v4, nr_metric_v1, learned_filter_v1,
-  lpips_sq_v1, dists_sq_placeholder_v0, mobilesal_placeholder_v0,
-  transnet_v2, fastdvdnet_pre, and smoke/ensemble variants). See
-  [model-registry.md](model-registry.md).
-- **Model signing verification shipped** (ADR-0211 / T6-9). The
-  `--tiny-model-verify` flag is wired to `cosign verify-blob`; `registry.json`
-  carries SHA-256 pins and Sigstore bundle paths.
-
-Still outstanding:
-
+- **No checkpoints.** `model/tiny/` is empty. The whole surface is a
+  loaded gun with no bullets.
 - **No GPU-parity CI.** Cross-execution-provider variance is verified
   manually.
+- **No model signing verification** at load time. The `--tiny-model-verify`
+  flag is stubbed.
 
 ## 2. Wave 1 — what lands next
 
@@ -78,15 +71,6 @@ own composite features.
 Exports cleanly at opset 17. No custom ops. Upstream reference:
 [`richzhang/PerceptualSimilarity`](https://github.com/richzhang/PerceptualSimilarity).
 
-### 2.3 DISTS-Sq as the LPIPS companion
-
-**Why.** Bristol VI-Lab's NVC audit flags DISTS as the deep-feature FR
-companion to LPIPS. The extractor surface is now shipped with a smoke
-checkpoint; production weights remain `T7-DISTS-followup`.
-
-**Integration.** `libvmaf/src/feature/feature_dists.c` mirrors LPIPS'
-two-input DNN session and emits `dists_sq` per frame.
-
 ### 2.3 MobileSal → saliency-weighted VMAF *and* encoder ROI
 
 **Why.** The same ~2.5M saliency model feeds two surfaces:
@@ -101,34 +85,23 @@ two-input DNN session and emits `dists_sq` per frame.
 **Integration.** Two outputs from one model:
 
 - A new `mobilesal` (scoring-side, T6-2a) feature extractor inside
-  libvmaf — emits a scalar `saliency_mean` per frame today. Shipped
-  with the historical smoke checkpoint first; production use now points
-  at the fork-trained [`saliency_student_v1`](models/saliency_student_v1.md)
-  weights while `mobilesal_placeholder_v0` remains a registry smoke /
-  legacy artefact. See [`models/mobilesal.md`](models/mobilesal.md) and
+  libvmaf — emits a scalar `saliency_mean` per frame today; the
+  saliency-weighted FR variant lands with T6-2b. Shipped — see
+  [`models/mobilesal.md`](models/mobilesal.md) and
   [ADR-0218](../adr/0218-mobilesal-saliency-extractor.md).
 - A new CLI `tools/vmaf-roi` (encoder-side, T6-2b) that writes an
   encoder-native sidecar (format matches whatever encoder we're
   feeding). Shipped — ASCII grid for x265 (`--qpfile-style`) and
-  raw `int8_t` binary for SVT-AV1 (`--roi-map-file`); accepts 8/10/12/16-bit
-  planar YUV input and remains one-frame-per-invocation. See
+  raw `int8_t` binary for SVT-AV1 (`--roi-map-file`); 8-bit only,
+  one-frame-per-invocation. See
   [`docs/usage/vmaf-roi.md`](../usage/vmaf-roi.md). Wave-2
-  follow-ups: multi-frame batch mode and `--blend edge-density`.
-- The saliency evaluation side now has
-  [`eval_saliency_per_mb.py`](saliency-per-mb-eval.md), which reports
-  IoU after reducing masks to the same block grids the encoder ROI
-  paths consume. Use this before promoting a temporal or video-saliency
-  model.
+  follow-ups: multi-frame batch mode, `--blend edge-density`,
+  10/12-bit when `mobilesal`'s bit-depth contract lands.
 
-**ONNX notes.** The upstream MobileSal swap is no longer the production
-path: ADR-0257 records the CC BY-NC-SA / Google-Drive / RGB-D blockers.
-The production path is the fork-trained DUTS saliency student,
-which keeps the same `input` / `saliency_map` tensor contract as the
-placeholder. **`saliency_student_v2` is the production default since
-2026-05-15** (IoU 0.7105 vs v1's 0.6558, +8.3%;
-[ADR-0444](../adr/0444-saliency-student-v2-production-promotion.md)).
-Use `model/tiny/saliency_student_v2.onnx` for new encodes.
-`saliency_student_v1` is retained for regression baselines.
+**ONNX notes.** MobileSal is MobileNet-V3-based, simple to export. The
+T6-2a PR ships a *synthetic placeholder* `model/tiny/mobilesal.onnx`
+(330 bytes, smoke-only) that matches the upstream I/O contract; real
+upstream MIT-licensed weights are tracked as T6-2a-followup.
 
 ### 2.4 Per-shot CRF predictor + TransNet V2 shot boundaries
 
@@ -148,20 +121,18 @@ disproportionate bitrate-at-quality savings.
 encoder-ingestible sidecar. Does **not** run inside libvmaf — its output
 is a parameter hint, not a quality score.
 
-**Status.** **Shot-boundary contract shipped (T6-3a, 2026-04-29) and
-real upstream weights shipped (T6-3a-followup, ADR-0261).** The
-libvmaf-side extractor (`transnet_v2`, 100-slot ring buffer,
-`[1, 100, 3, 27, 48] -> [1, 100]` ONNX contract) now uses the real
-Soucek & Lokoc 2020 MIT checkpoint under `model/tiny/transnet_v2.onnx`
-(`smoke: false` in the registry), wrapped by the fork's NTCHW adapter.
-It emits per-frame `shot_boundary_probability` + `shot_boundary` flags.
-See [`docs/ai/models/transnet_v2.md`](models/transnet_v2.md).
+**Status.** **Shot-boundary contract + placeholder shipped (T6-3a, 2026-04-29)**
+— [ADR-0220](../adr/0223-transnet-v2-shot-detector.md). The libvmaf-side
+extractor (`transnet_v2`, 100-slot ring buffer, `[1, 100, 3, 27, 48] →
+[1, 100]` ONNX contract) lands with a smoke-only placeholder checkpoint
+emitting per-frame `shot_boundary_probability` + `shot_boundary` flag;
+real upstream weights (Soucek & Lokoc 2020 MIT) are tracked as
+**T6-3a-followup**. See [`docs/ai/models/transnet_v2.md`](models/transnet_v2.md).
 **T6-3b shipped 2026-04-29** —
 [`tools/vmaf-perShot`](../usage/vmaf-perShot.md) sidecar landed under
 [ADR-0222](../adr/0222-vmaf-per-shot-tool.md). v1 uses a transparent
-linear-blend predictor + frame-difference shot detector fallback path;
-TransNet V2 is available as the libvmaf feature extractor for pipelines
-that consume feature-collector output directly. v2
+linear-blend predictor + frame-difference shot detector (fallback path;
+the TransNet V2 extractor wires in once T6-3a / ADR-0220 merges). v2
 will swap the linear blend for a small trained MLP under the same
 CSV / JSON schema (separate ADR, deferred until a labelled per-shot
 CRF corpus is in hand).
@@ -206,14 +177,13 @@ per-frame filters. Deferred if Wave 1 is already too wide.
 **Integration.** New `vmaf_pre_temporal` filter, or a mode flag on
 `vmaf_pre`.
 
-**Status.** **Contract shipped (T6-7, 2026-04-29) and real upstream
-weights shipped (T6-7b, ADR-0255).** The libvmaf-side extractor
-(`fastdvdnet_pre`, 5-slot ring buffer, `[1, 5, H, W] → [1, 1, H, W]`
-ONNX contract) now uses the real m-tassano/FastDVDnet checkpoint under
-`model/tiny/fastdvdnet_pre.onnx` (`smoke: false` in the registry),
-wrapped by the fork's luma adapter. The remaining downstream work is
-the FFmpeg `vmaf_pre_temporal` filter that consumes the denoised frame
-buffer. See [`docs/ai/models/fastdvdnet_pre.md`](models/fastdvdnet_pre.md).
+**Status.** **Contract + placeholder shipped (T6-7, 2026-04-29)** —
+[ADR-0215](../adr/0215-fastdvdnet-pre-filter.md). The libvmaf-side
+extractor (`fastdvdnet_pre`, 5-slot ring buffer, `[1, 5, H, W] →
+[1, 1, H, W]` ONNX contract) lands with a smoke-only placeholder
+checkpoint; real upstream weights + the FFmpeg `vmaf_pre_temporal`
+filter that consumes the denoised frame buffer are tracked as
+**T6-7b**. See [`docs/ai/models/fastdvdnet_pre.md`](models/fastdvdnet_pre.md).
 
 ## 4. Op-allowlist expansion — bounded `Loop` / `If`
 
@@ -284,11 +254,11 @@ Not in Wave 1 but called out here so they don't get forgotten:
 - **GPU-parity CI** — CPU ↔ CUDA, CPU ↔ OpenVINO cross-device variance,
   as a required status check (≤ 1e-4 FP32, ≤ 1e-2 FP16 per
   [`inference.md`](inference.md)).
-- **Sigstore verification** — **shipped** (ADR-0211). `--tiny-model-verify`
-  is wired to `cosign verify-blob`; production deployments should set it on.
-- **Model registry** — **shipped** (ADR-0211). `model/tiny/registry.json`
-  carries SHA-256 pins, Sigstore bundle paths, and license metadata for all
-  19 entries. See [model-registry.md](model-registry.md).
+- **Sigstore verification** — wire the stubbed `--tiny-model-verify`
+  flag through to `cosign verify-blob` on the sidecar bundle.
+- **Model registry** — current sidecar JSON is informal. A tracked
+  registry file under `model/tiny/registry.json` with SHA + Sigstore
+  bundle path + license gives us an auditable manifest.
 
 ## 8. Out of scope (non-goals)
 

@@ -12,11 +12,6 @@ vmaf_base_include = include_directories('./', './feature/common', '../include')
 vmaf_cflags_common = [
     '-pedantic',
     '-DOC_NEW_STYLE_INCLUDES',
-    # ADR-0377: hide all symbols by default; only vmaf_*-prefixed entry
-    # points annotated with VMAF_EXPORT in the public headers are visible
-    # in the final libvmaf.so. This eliminates the 207-symbol leak
-    # found by Research-0092 (libsvm C API, pdjson, SIMD internals, etc.)
-    '-fvisibility=hidden',
 ]
 
 
@@ -71,21 +66,9 @@ else
 endif
 is_avx512_enabled = get_option('enable_avx512') == true
 is_nvtx_enabled = get_option('enable_nvtx') == true
-if is_avx512_enabled and not is_asm_enabled
-    warning('enable_avx512=true has no effect when enable_asm=false')
-endif
 if is_nvtx_enabled and host_machine.system() == 'windows'
     warning('NVTX is not supported on Windows, disabling.')
     is_nvtx_enabled = false
-endif
-# NVTX requires the CUDA toolkit headers even when enable_cuda=false because
-# nvToolsExt.h lives under /usr/local/cuda/include. Without this guard, meson
-# hard-errors on any host without a CUDA installation when enable_nvtx=true and
-# enable_cuda=false (the include_directories call at line ~484 fails with
-# "Include dir /usr/local/cuda/include does not exist").
-# Audit finding: build-matrix-symbols-audit-2026-05-16.md §1a.
-if is_nvtx_enabled and not is_cuda_enabled
-    error('enable_nvtx=true requires enable_cuda=true (NVTX headers reside in the CUDA toolkit)')
 endif
 
 # DNN runtime (ONNX Runtime) — defines dnn_sources / dnn_defines / dnn_deps.
@@ -100,24 +83,6 @@ subdir('dnn')
 # T5-2b runtime). When `enable_mcp=true`, `subdir('mcp')` exposes
 # `mcp_sources` + `mcp_defines`. When the umbrella flag is off the
 # variables stay empty and the libvmaf TU set is unchanged.
-# Validate MCP sub-flag combinations: the enable_mcp_sse/uds/stdio options
-# require the umbrella enable_mcp flag to be true. These options are only
-# evaluated inside subdir('mcp'), which is unreachable when enable_mcp=false.
-# Without this guard, users can set enable_mcp_sse=enabled + enable_mcp=false
-# and silently get a no-op (the promised error from mcp/meson.build:35 is
-# never reached). Same for enable_mcp_uds and enable_mcp_stdio.
-if not get_option('enable_mcp')
-    mcp_sse_opt = get_option('enable_mcp_sse')
-    if mcp_sse_opt.enabled()
-        error('enable_mcp_sse=enabled/true requires enable_mcp=true')
-    endif
-    if get_option('enable_mcp_uds')
-        error('enable_mcp_uds=true requires enable_mcp=true')
-    endif
-    if get_option('enable_mcp_stdio')
-        error('enable_mcp_stdio=true requires enable_mcp=true')
-    endif
-endif
 is_mcp_enabled = get_option('enable_mcp')
 mcp_sources = []
 mcp_defines = []
@@ -148,9 +113,6 @@ hip_sources = []
 hip_deps = []
 hip_hsaco_sources = []
 is_hipcc_enabled = get_option('enable_hipcc') == true
-if is_hipcc_enabled and not is_hip_enabled
-    warning('enable_hipcc=true has no effect when enable_hip=false')
-endif
 if is_hip_enabled
     cdata.set10('HAVE_HIP', true)
     subdir('hip')
@@ -176,26 +138,11 @@ if is_hipcc_enabled and is_hip_enabled
     hipcc_exe = find_program('hipcc', required: true)
     xxd_hip = find_program('xxd', required: true)
 
-    # Discover installed GFX targets. Priority:
-    #   1. User-supplied hip_gfx_targets meson option (explicit override).
-    #   2. rocm_agent_enumerator — filters to GPU lines starting with "gfx",
-    #      comma-joined. More reliable than hipconfig on ROCm 6+/7.
-    #   3. hipconfig --amdgpu-target — only when (1) and (2) fail, because
-    #      some ROCm builds prefix the output with version/system headers.
-    #   4. Hardcoded gfx90a fallback (as before).
-    hip_gfx_raw = get_option('hip_gfx_targets').strip()
-    if hip_gfx_raw == ''
-        agent_enum_result = run_command('sh', '-c',
-            'rocm_agent_enumerator 2>/dev/null | grep -E "^gfx" | tr "\n" "," | sed "s/,$//g" || true',
-            check: false)
-        hip_gfx_raw = agent_enum_result.stdout().strip()
-    endif
-    if hip_gfx_raw == ''
-        hipconfig_result = run_command('sh', '-c',
-            'hipconfig --amdgpu-target 2>/dev/null | grep -oE "gfx[0-9a-f]+" | tr "\n" "," | sed "s/,$//g" || true',
-            check: false)
-        hip_gfx_raw = hipconfig_result.stdout().strip()
-    endif
+    # Discover installed GFX targets via hipconfig. Best-effort:
+    # fall back to gfx90a if the command fails or returns nothing.
+    hipconfig_result = run_command('sh', '-c',
+        'hipconfig --amdgpu-target 2>/dev/null || true', check: false)
+    hip_gfx_raw = hipconfig_result.stdout().strip()
     if hip_gfx_raw == ''
         hip_gfx_raw = 'gfx90a'
     endif
@@ -212,39 +159,16 @@ if is_hipcc_enabled and is_hip_enabled
     endif
     message('HIP HSACO targets: ' + ' '.join(hip_offload_arch_flags))
 
-    # Resolve the ROCm include root so hipcc can find <hip/hip_runtime.h>.
-    # hipcc normally injects its own ROCM_PATH-based include, but when it
-    # is invoked via a symlink or without a package-manager install the
-    # auto-detection sometimes fails. Pass -I explicitly as a belt-and-
-    # suspenders fix (harmless when hipcc already finds the headers).
-    rocm_inc_result = run_command('sh', '-c',
-        'hipconfig -R 2>/dev/null || echo /opt/rocm', check: false)
-    rocm_root = rocm_inc_result.stdout().strip()
-    if rocm_root == ''
-        rocm_root = '/opt/rocm'
-    endif
-    hip_include_flags = ['-I', rocm_root + '/include']
-    message('HIP ROCm root: ' + rocm_root)
-
     # Kernel source → HSACO → xxd-embedded C array.
     # Batch-1 (ADR-0372): psnr_score, float_ansnr_score.
-    # Batch-1b (ADR-0254): float_psnr_score (pre-existing, omitted from earlier
-    #   meson.build edit; added here alongside the float_motion fix).
     # Batch-2 (ADR-0373): float_motion_score (temporal Gaussian SAD).
-    # Batch-3 (ADR-0375): moment_score (float_moment/ twin), ssim_score.
-    # Batch-4 (ADR-0377): ciede_score (CIEDE2000), motion_v2_score (integer SAD ping-pong).
-    # Batch-5 (ADR-0285): ms_ssim_score (5-level pyramid + l/c/s partials).
+    # Batch-3 (ADR-0374): moment_score, ssim_score.
     hip_kernel_sources = {
         'psnr_score' : feature_src_dir + 'hip/integer_psnr/psnr_score.hip',
-        'float_psnr_score' : feature_src_dir + 'hip/float_psnr/float_psnr_score.hip',
         'float_ansnr_score' : feature_src_dir + 'hip/float_ansnr/float_ansnr_score.hip',
         'float_motion_score' : feature_src_dir + 'hip/float_motion/float_motion_score.hip',
         'moment_score' : feature_src_dir + 'hip/float_moment/moment_score.hip',
-        'integer_moment_score' : feature_src_dir + 'hip/integer_moment/moment_score.hip',
         'ssim_score' : feature_src_dir + 'hip/float_ssim/ssim_score.hip',
-        'ciede_score' : feature_src_dir + 'hip/integer_ciede/ciede_score.hip',
-        'motion_v2_score' : feature_src_dir + 'hip/integer_motion_v2/motion_v2_score.hip',
-        'ms_ssim_score' : feature_src_dir + 'hip/integer_ms_ssim/ms_ssim_score.hip',
     }
     foreach name, src : hip_kernel_sources
         hsaco_target = custom_target('hip_hsaco_' + name,
@@ -252,7 +176,6 @@ if is_hipcc_enabled and is_hip_enabled
             output: name + '.hsaco',
             input: src,
             command: [hipcc_exe, '--genco'] + hip_offload_arch_flags +
-                     hip_include_flags +
                      ['-I', meson.current_source_dir(),
                       '-I', meson.current_source_dir() + '/feature',
                       '@INPUT@', '-o', '@OUTPUT@'],
@@ -314,18 +237,7 @@ if is_asm_enabled
         # equivalent) and ships `<arm_sve.h>`. Failure leaves HAVE_SVE2
         # unset; the runtime path falls back to NEON via the dispatch
         # table in ssimulacra2.c.
-        #
-        # Darwin gate: Apple Silicon (M1–M4) is ARMv8.x without SVE2.
-        # Recent Apple Clang accepts `-march=armv9-a+sve2` and ships
-        # `<arm_sve.h>` so `cc.compiles()` returns true, but the
-        # generated codepath would never run (runtime probe in
-        # `arm/cpu.c` is `__linux__`-gated, hardware lacks the
-        # extension) and the SVE2 SSIMULACRA 2 TU itself fails to
-        # build on Apple Clang. Force HAVE_SVE2 off on Darwin.
-        if host_machine.system() == 'darwin'
-            is_sve2_supported = false
-        else
-            sve2_test_src = '''
+        sve2_test_src = '''
 #include <arm_sve.h>
 int main(void) {
     svfloat32_t a = svdup_f32(1.0f);
@@ -334,10 +246,9 @@ int main(void) {
     return (int)svaddv_f32(pg, b);
 }
 '''
-            is_sve2_supported = cc.compiles(sve2_test_src,
-                args: ['-march=armv9-a+sve2'],
-                name: 'aarch64 SVE2 intrinsics')
-        endif
+        is_sve2_supported = cc.compiles(sve2_test_src,
+            args: ['-march=armv9-a+sve2'],
+            name: 'aarch64 SVE2 intrinsics')
         cdata.set10('HAVE_SVE2', is_sve2_supported)
     endif
 
@@ -1189,9 +1100,6 @@ libvmaf_feature_sources = [
     # available as -ENOSYS stubs when ORT is missing — so compile
     # unconditionally; init() declines at runtime on stub builds.
     feature_src_dir + 'feature_lpips.c',
-    # DISTS-Sq extractor — same DNN-stub-friendly registration and
-    # runtime-decline posture as feature_lpips.c.
-    feature_src_dir + 'feature_dists.c',
     # FastDVDnet temporal pre-filter (T6-7) — same -ENOSYS-stub-friendly
     # libvmaf/dnn.h surface as feature_lpips.c.
     feature_src_dir + 'fastdvdnet_pre.c',
@@ -1500,20 +1408,6 @@ if is_sycl_enabled
     if have_sycl_dmabuf
         libvmaf_private_reqs += ['libva', 'libva-drm']
     endif
-endif
-
-if is_metal_enabled
-    # T8-1b runtime (ADR-0420): when a downstream consumer (FFmpeg, the
-    # tap's ffmpeg formula, etc.) links libvmaf statically via
-    # pkg-config --static, it needs to inherit -framework Foundation +
-    # -framework Metal — otherwise the LTO link fails with:
-    #   Undefined symbols for architecture arm64:
-    #     "_MTLCopyAllDevices", referenced from: _vmaf_metal_context_new
-    #     "___CFConstantStringClassReference", referenced from: lto.o
-    # (CI run 25686136624 / job 75410239602, FFmpeg macOS lane).
-    # pkg-config has no native "framework" syntax, but raw linker flags
-    # in libraries_private get embedded verbatim into Libs.private.
-    libvmaf_private_libs += ['-Wl,-framework,Foundation', '-Wl,-framework,Metal']
 endif
 
 pkg_mod.generate(libraries: libvmaf,

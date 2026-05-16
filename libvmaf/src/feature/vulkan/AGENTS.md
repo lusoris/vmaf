@@ -59,20 +59,7 @@ ADR-0234) catches drift but only after a full GPU run.
 
 ## Rebase-sensitive invariants
 
-- **Compute shaders MUST declare a workgroup size that is a multiple of 32 (or 64)
-  — never `layout(local_size_x=1,local_size_y=1,local_size_z=1)`**, which leaves
-  31 of 32 lanes idle per warp on NVIDIA and 63 of 64 idle per wavefront on AMD.
-  Per-row (or per-column) sequential work uses `local_size_x=WG_X` with the grid
-  sized to `ceil(rows/WG_X)`; each invocation handles one row/column and
-  bounds-checks against the actual row/column count. This pattern was established
-  as the fork standard by the VK-1 (blur shaders) and VK-2 (cambi SAT) fixes.
-  The host-side constant names follow the pattern `WG_X` / `WG_Y` so dispatch
-  math is consistent with the shader's `local_size_*` declaration. Do not revert
-  a shader to `local_size_x=1` without an ADR that justifies the exception.
-
-- **`psnr_vulkan.c` chroma plane loop and `enable_chroma` option**
-  ([ADR-0216](../../../../docs/adr/0216-vulkan-chroma-psnr.md) /
-  [ADR-0453](../../../../docs/adr/0453-psnr-enable-chroma-gpu-parity.md)).
+- **`psnr_vulkan.c` chroma plane loop** ([ADR-0216](../../../../docs/adr/0216-vulkan-chroma-psnr.md)).
   Carries `ref_in[3] / dis_in[3] / se_partials[3]` arrays in
   `PsnrVulkanState` (Y / Cb / Cr) and dispatches the same
   `psnr.comp` shader once per active plane in a single command
@@ -81,12 +68,12 @@ ADR-0234) catches drift but only after a full GPU run.
   fall-through and break the cross-backend parity gate. The
   descriptor pool is sized for 12 sets (4 frames in flight × 3
   planes) — do **not** shrink without re-checking lavapipe
-  behaviour under `frames-in-flight > 1`. `n_planes` is clamped to
-  1 in two cases: (1) `pix_fmt == YUV400P` (chroma absent); (2)
-  `enable_chroma == false` (caller opted out). The latter is the
-  ADR-0453 addition. The `enable_chroma` option carries
-  `default_val.b = true`; do **not** flip the default. See
-  [`../../AGENTS.md §"Vulkan PSNR chroma contract"`](../../AGENTS.md).
+  behaviour under `frames-in-flight > 1`. YUV400 is the only
+  supported `n_planes = 1` path; the `pix_fmt` branch in `init`
+  mirrors the `enable_chroma = false` clamp in CPU
+  `integer_psnr.c::init` and must follow it on any future
+  divergence. See [`../../AGENTS.md §"Vulkan PSNR chroma
+  contract"`](../../AGENTS.md).
 
 - **`psnr_vulkan.c` chroma plane geometry must use ceiling division**
   (Research-0094; dedup-audit-c-feature-twins-2026-05-16 finding #5).
@@ -151,28 +138,6 @@ ADR-0234) catches drift but only after a full GPU run.
   applies on Vulkan too (ADR-0188 / 0189 / 0190). Auto-decimation
   is a v2 follow-up; do not silently enable it on rebase.
 
-- **`adm_vulkan.c` / `float_adm_vulkan.c` expose three ADM tuning
-  parameters** (`adm_csf_scale`, `adm_csf_diag_scale`, `noise_weight`)
-  with the same defaults as the CPU path (PR #731). If upstream Netflix
-  adds or renames these parameters, the Vulkan twins must be updated in
-  the same PR.
-
-- **`motion_fps_weight` cross-backend parity** — see the canonical
-  invariant note in [`../cuda/AGENTS.md`](../cuda/AGENTS.md).
-  `motion_v2_vulkan.c` and `float_motion_vulkan.c` both carry the
-  `motion_fps_weight` option and apply it in `flush()` / `extract()`
-  exactly as documented there. Any future change to the weight
-  application math must span all motion-family GPU twins in the same PR.
-
-- **`adm_vulkan.c` integer fast-path gated on CSF-scale defaults.**
-  The hard-coded `i_rfactor` fast-path for `3.0 * 1080` default
-  viewing geometry is gated by:
-  `bool csf_default = (fabs(s->adm_csf_scale - 1.0) < 1e-9) &&
-  (fabs(s->adm_csf_diag_scale - 1.0) < 1e-9)`.
-  Removing or loosening this guard produces wrong rfactors when
-  non-default CSF scales are passed. Update the guard if the
-  fast-path formula changes.
-
 - **`vif_vulkan.c` / `adm_vulkan.c` / `motion_vulkan.c` two-level GPU
   reduction** (ADR-0356 / T-GPU-PERF-VK-3). Each of these three
   kernels now runs a *second* compute dispatch per frame (vif_reduce.comp,
@@ -201,30 +166,6 @@ ADR-0234) catches drift but only after a full GPU run.
     order. This is the load-bearing claim that drives the places=4 gate.
   - The `MAX_SUBGROUPS = 256` constant in the reducer shaders matches
     `local_size_x = 256`. Changing the WG size requires updating both.
-
-## Barrier and descriptor-set lifecycle invariants (VK-5 + VK-6 / perf-audit 2026-05-16)
-
-- **`dstAccessMask` must be the minimum required by the consumer.** Barriers
-  between a write dispatch and a subsequent *read-only* consumer dispatch must
-  use `dstAccessMask = VK_ACCESS_SHADER_READ_BIT` only.  The wider mask
-  `VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT` is **only correct**
-  when the consuming dispatch also writes (e.g., reducer shaders that use
-  `atomicAdd` into `reduced_accum` / `reduced_sad`).  Overbroad masks
-  suppress valid driver optimisations (e.g., cache-bypass on read-only
-  paths) and were flagged in VK-5.  Extractors that keep `SHADER_WRITE` in
-  `dstAccess`: `vif_vulkan.c` reduce_barrier, `adm_vulkan.c` reduce_barrier,
-  `motion_vulkan.c` reduce_barrier — all because the reducer uses `atomicAdd`.
-  Inter-stage barriers in `adm`, `float_adm`, `float_vif`, `cambi`, and
-  `ssimulacra2` are tightened to read-only.
-
-- **Descriptor sets that are stable across frames MUST be written in
-  `init()`, not `extract()`.** Once `alloc_buffers()` assigns the VkBuffer
-  handles they never change.  Calling `vkUpdateDescriptorSets` per frame for
-  stable bindings is a hot-path overhead — flagged in VK-6 for
-  `psnr_hvs_vulkan.c`.  Pattern reference: `psnr_vulkan.c` writes descriptor
-  sets once at `init()` after `vmaf_vulkan_kernel_descriptor_sets_alloc()`
-  and adds a forward declaration so the write function is visible from
-  `init()`.  All extractors that pre-allocate sets must follow this pattern.
 
 ## Build
 

@@ -7,10 +7,10 @@
     ":semanticCommits",
     "helpers:disableTypesNodeMajor"
   ],
-  "schedule": ["at any time"],
+  "schedule": ["before 6am on Monday"],
   "timezone": "Europe/Vienna",
-  "prHourlyLimit": 0,
-  "prConcurrentLimit": 12,
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 6,
   "rangeStrategy": "bump",
   "commitMessagePrefix": "chore(deps):",
   "branchPrefix": "renovate/",

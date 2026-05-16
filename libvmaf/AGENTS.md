@@ -54,7 +54,7 @@ libvmaf/
 
 ## Governing ADRs
 
-- [ADR-0119](../docs/adr/0119-cli-precision-default-revert.md) — CLI precision default `%.6f` (Netflix-compat golden gate); `--precision=max` opts in to `%.17g`. Propagates to `output.c` and Python. Supersedes [ADR-0006](../docs/adr/0006-cli-precision-17g-default.md).
+- [ADR-0006](../docs/adr/0006-cli-precision-17g-default.md) — CLI precision default `%.17g`, propagates to `output.c` and Python.
 - [ADR-0012](../docs/adr/0012-coding-standards-jpl-cert-misra.md) — the coding-standards stack.
 - [ADR-0022](../docs/adr/0022-inference-runtime-onnx.md) — execution-provider mapping ORT↔backends.
 - [ADR-0024](../docs/adr/0024-netflix-golden-preserved.md) — golden-data gate (three CPU reference pairs, never modified).
@@ -64,36 +64,6 @@ libvmaf/
 
 ## Rebase-sensitive invariants
 
-- **`feature_extractor_vector_append()` deduplicates by provided-feature
-  names, not extractor name** (fork-local, ADR-0385 / T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE):
-  [`src/fex_ctx_vector.c`](src/fex_ctx_vector.c) uses
-  `provided_features_overlap()` to detect CPU/GPU twins before
-  registering a new extractor. The old dedup key was derived from
-  `vmaf_feature_name_from_options(fex->name, …)`, which produced
-  `"adm"` vs `"adm_cuda"` — two distinct strings — so both twins were
-  registered and both wrote the same collector slot. Any upstream sync
-  that rewrites `fex_ctx_vector.c` must preserve the provided-feature
-  dedup path; reverting to name-only dedup re-opens the double-write
-  regression on every GPU-enabled binary when `--feature <name>` is
-  combined with a default model load.
-- **`picture_compute_geometry` stride alignment uses `unsigned` + `1u`
-  mask** (fork-local, round-5 `-fsanitize=integer` sweep):
-  `aligned_y` and `aligned_c` in
-  [`src/picture.c`](src/picture.c) are declared `const unsigned` and
-  the bitmask uses `DATA_ALIGN - 1u` (not `DATA_ALIGN - 1`) so
-  the complement stays in unsigned domain and avoids a signed→unsigned
-  implicit conversion that fires with `-fsanitize=integer`. If an
-  upstream sync rewrites `picture_compute_geometry`, preserve the
-  `unsigned` type and `1u` literal. See
-  [docs/rebase-notes.md](../docs/rebase-notes.md)
-  §PR-fix-picture-align-unsigned-narrowing.
-- **`vmaf_init` cpumask narrowing uses an explicit `(unsigned)` cast**
-  (fork-local, round-5 `-fsanitize=integer` sweep):
-  `vmaf_set_cpu_flags_mask((unsigned)(~cfg.cpumask))` in
-  [`src/libvmaf.c`](src/libvmaf.c). The cast is deliberate: all
-  defined CPU flag bits fit in 6 bits; the high 32 bits of the
-  `uint64_t cpumask` complement are always zero for any valid input.
-  Do not remove the explicit cast.
 - **Output writers return `ferror(outfile) ? -EIO : 0`.**
   `vmaf_write_output_{xml,json,csv,sub}` in
   [src/output.c](src/output.c) use a single tail `return` that
@@ -104,14 +74,6 @@ libvmaf/
   is `push_c()` at entry → body → `pop()` before the `ferror`
   check; dropping the `pop()` leaks a `locale_t` on POSIX and
   leaves the calling thread locked to `"C"` on Windows.
-- **JSON model loader has no fixed feature/knot schema ceiling.**
-  [`src/read_json_model.c`](src/read_json_model.c) grows
-  `VmafModel.feature` and `score_transform.knots.list` from the JSON
-  payload. Do not restore the old `MAX_FEATURE_COUNT` / `MAX_KNOT_COUNT`
-  rejection pattern during an upstream sync; external model JSONs with
-  65+ features or 11+ piecewise-linear knots must parse if the payload
-  is otherwise valid. The regression coverage lives in
-  [`test/test_model.c`](test/test_model.c).
 - **HIP backend scaffold contract** (fork-local, ADR-0212 / T7-10):
   the `enable_hip=true` build path compiles
   [src/hip/](src/hip/) and [src/feature/hip/](src/feature/hip/)
@@ -149,14 +111,6 @@ libvmaf/
   has a similar job-pool but uses the bare
   `func(void *data)` signature — on conflict keep the fork's
   two-arg signature and merge only the pool-mechanics changes.
-  The struct carries an immutable `n_workers_created` field (written
-  once in `pool_create`, never decremented) alongside the live
-  `n_threads` counter (decremented by each exiting runner thread under
-  `queue.lock`). `destroy` reads `n_workers_created` — not `n_threads`
-  — to iterate `workers[]` for `thread_data_free`; do not collapse
-  these two counters back into one during a rebase or the `destroy`
-  path reacquires a data race (C11 UB, TSan-detected). See
-  [Research-0097](../docs/research/0097-thread-pool-pthread-create-unchecked-2026-05-10.md).
   See [ADR-0147](../docs/adr/0147-thread-pool-job-pool.md) and
   [rebase-notes 0040](../docs/rebase-notes.md).
 
@@ -179,21 +133,22 @@ libvmaf/
   shrink without re-checking lavapipe behaviour under
   frames-in-flight > 1.
 
-- **Embedded MCP runtime contract** (fork-local, [ADR-0209](../docs/adr/0209-mcp-embedded-scaffold.md)).
-  [`src/mcp/`](src/mcp/) now contains the promoted in-process MCP
-  runtime declared in
-  [`include/libvmaf/libvmaf_mcp.h`](include/libvmaf/libvmaf_mcp.h):
-  stdio, UDS, and loopback-SSE transports, plus read-only
-  `list_features` and out-of-band `compute_vmaf`. Preserve the
-  early argument validation (`-EINVAL` on NULLs / negative fds /
-  NULL paths) before any runtime work; the smoke tests for `_init`,
-  `_start_uds`, `_start_stdio`, and `_start_sse` rely on that
-  contract. `compute_vmaf` must keep using a per-call ephemeral
-  `VmafContext`, not the host scorer, because pooled scoring commits
-  models destructively. The `enable_mcp` umbrella flag must default
-  `false` until mutating measurement-thread tools and the SPSC bridge
-  land; the silent-flip risk is the same as ADR-0175's Vulkan
-  precedent.
+- **Embedded MCP scaffold contract** (fork-local, [ADR-0209](../docs/adr/0209-mcp-embedded-scaffold.md)).
+  [`src/mcp/mcp.c`](src/mcp/mcp.c) is the audit-first stub TU
+  for the in-process MCP server declared in
+  [`include/libvmaf/libvmaf_mcp.h`](include/libvmaf/libvmaf_mcp.h).
+  Every public entry point validates its arguments first
+  (`-EINVAL` on NULLs / negative fds / NULL paths) **then** returns
+  `-ENOSYS`. The 12-sub-test smoke at
+  [`test/test_mcp_smoke.c`](test/test_mcp_smoke.c) pins the
+  contract; the T5-2b runtime PR flips bodies in place and
+  updates the smoke expectations in the same commit. Do not
+  drop the NULL-argument validation when wiring real bodies —
+  the smoke tests for `_init`, `_start_uds`, `_start_stdio`
+  rely on early `-EINVAL` even after the runtime arrives. The
+  `enable_mcp` umbrella flag must default `false` until all
+  three transport bodies are stable; the silent-flip risk is
+  the same as ADR-0175's Vulkan precedent.
 
 - **MS-SSIM `enable_lcs` GPU contract** (fork-local,
   [ADR-0243](../docs/adr/0243-enable-lcs-gpu.md)).
@@ -315,28 +270,6 @@ libvmaf/
   → `integer_motion3`) catches drift, but only after a full GPU
   run. See [`docs/rebase-notes.md` §0219](../docs/rebase-notes.md).
 
-- **Symbol visibility: every new public entry point needs `VMAF_EXPORT`**
-  (fork-local, [ADR-0379](../docs/adr/0379-libvmaf-symbol-visibility.md) /
-  Research-0092). `libvmaf/src/meson.build` compiles all TUs with
-  `-fvisibility=hidden`; only symbols annotated with `VMAF_EXPORT`
-  (defined in `libvmaf/include/libvmaf/macros.h`) appear in the
-  dynamic symbol table of `libvmaf.so`. When adding a new public C
-  entry point, apply `VMAF_EXPORT` to its declaration in the installed
-  public header — the attribute propagates from declaration to
-  definition if the definition TU includes the header, so no annotation
-  of the definition itself is normally required. Exception: if the
-  definition TU does *not* include the public header (see
-  `src/dnn/model_loader.h` → `vmaf_dnn_verify_signature`), apply
-  `VMAF_EXPORT` to the internal declaration instead. Verify after any
-  structural change with:
-  ```bash
-  nm -D --defined-only build/src/libvmaf.so.3.0.0 | grep ' [TW] ' | grep -v ' vmaf_' | wc -l
-  # Must print 0
-  ```
-  On upstream sync: any new `vmaf_*` entry point added upstream that
-  the fork's headers re-export needs `VMAF_EXPORT` added in the same
-  merge commit; missing it will silently hide the symbol.
-
 - **Fuzz-harness coverage rule** (fork-local,
   [ADR-0270](../docs/adr/0270-fuzzing-scaffold.md) +
   [ADR-0311](../docs/adr/0311-libfuzzer-harness-expansion.md)): every
@@ -430,12 +363,3 @@ flag pattern (`--no_sycl` for "CUDA"). Numbers from runs older than
 2026-04-28 in `docs/benchmarks.md` were CPU-on-CPU comparisons. See
 [ADR-0064 in rebase-notes](../docs/rebase-notes.md) and PR #169 for
 the corrected methodology.
-
-- **Build-option combination validation** (fork-local, fixes 1b/1c/1d of audit-build-matrix-symbols-2026-05-16):
-  `libvmaf/src/meson.build` validates dependent-option combinations and errors or warns when incompatible flags are set:
-  — `enable_mcp_sse=enabled/true` requires `enable_mcp=true` (error if violated);
-  — `enable_mcp_uds=true` requires `enable_mcp=true` (error if violated);
-  — `enable_mcp_stdio=true` requires `enable_mcp=true` (error if violated);
-  — `enable_avx512=true` with `enable_asm=false` issues a warning (no-op, not an error);
-  — `enable_hipcc=true` with `enable_hip=false` issues a warning (no-op, not an error).
-  The checks run at configuration time (before `subdir()` calls) to catch misconfigurations early. The principle: every option that depends on another must `error()` on the bad combo, never silently no-op. See [`src/meson.build` lines 100–111, 74–76, 142–144](src/meson.build).

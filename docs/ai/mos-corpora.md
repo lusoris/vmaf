@@ -19,7 +19,6 @@ for acquisition steps, operator flags, and schema details.
 | YouTube UGC | ~1 500 | 1–5 ACR Likert | ~2 TB (whole) | `ai/scripts/youtube_ugc_to_corpus_jsonl.py` | [youtube-ugc-ingestion.md](youtube-ugc-ingestion.md) |
 | Waterloo IVC 4K-VQA | 1 200 | 0–100 continuous | multi-TB (whole) | `ai/scripts/waterloo_ivc_to_corpus_jsonl.py` | [waterloo-ivc-4k-ingestion.md](waterloo-ivc-4k-ingestion.md) |
 | LIVE-VQC | 585 | 0–100 continuous | ~few GB | `ai/scripts/live_vqc_to_corpus_jsonl.py` | [live-vqc-ingestion.md](live-vqc-ingestion.md) |
-| CHUG UGC-HDR | 5 992 | 0–100 continuous, mapped to 1–5 at ingest | tens of GB | `ai/scripts/chug_to_corpus_jsonl.py` | [chug-ingestion.md](chug-ingestion.md) |
 | BVI-DVC (no-MOS FR shard) | ~120+ | n/a — no human MOS | ~84 GiB archive | `ai/scripts/bvi_dvc_to_corpus_jsonl.py` | [bvi-dvc-corpus-ingestion.md](bvi-dvc-corpus-ingestion.md) |
 
 BVI-DVC is a reference-only corpus without human MOS labels. It feeds the
@@ -38,7 +37,6 @@ because `merge_corpora.py` and `aggregate_corpora.py` are sibling utilities
 | YouTube UGC | Wang, Inguva, Adsumilli. *YouTube UGC Dataset for Video Compression Research.* MMSP 2019. <https://research.google/pubs/youtube-ugc-dataset-for-video-compression-research/> |
 | Waterloo IVC 4K-VQA | Li, Duanmu, Liu, Wang. *4K-VQA: A 4K Video Quality Assessment Database.* ICIAR 2019. <https://ivc.uwaterloo.ca/database/4KVQA.html> |
 | LIVE-VQC | Sinno, Bovik. *Large-Scale Study of Perceptual Video Quality.* IEEE TIP 2019. <https://live.ece.utexas.edu/research/LIVEVQC/> |
-| CHUG | Saini, Bovik, Birkbeck, Wang, Adsumilli. *CHUG: Crowdsourced User-Generated HDR Video Quality Dataset.* ICIP 2025. <https://doi.org/10.1109/ICIP55913.2025.11084488> |
 | BVI-DVC | Ma, Zhang, Bull. *BVI-DVC: A Training Database for Deep Video Compression.* IEEE TMM 2021. |
 
 ## Output schema — corpus JSONL
@@ -88,7 +86,7 @@ It normalises each shard to a common 0–100 axis, deduplicates by
 
 ```bash
 python ai/scripts/aggregate_corpora.py \
-    --inputs .corpus/konvid-150k/konvid_150k.jsonl \
+    --inputs .workingdir2/konvid-150k/konvid_150k.jsonl \
              .workingdir2/lsvq/lsvq.jsonl \
              .workingdir2/waterloo-ivc-4k/waterloo_ivc_4k.jsonl \
              .workingdir2/youtube-ugc/youtube_ugc.jsonl \
@@ -118,7 +116,7 @@ python ai/scripts/merge_corpora.py \
 
 ## Shared ingestion infrastructure (ADR-0371)
 
-All MOS-corpus adapter scripts share a common base class defined in
+All six MOS-corpus adapter scripts share a common base class defined in
 `ai/src/corpus/base.py` (`PYTHONPATH=ai/src`). The base class provides:
 
 - **`sha256_file(path)`** — SHA-256 computed in 1 MiB chunks (dedup key).
@@ -182,7 +180,7 @@ python ai/scripts/konvid_1k_to_corpus_jsonl.py --max-rows 5
 # Drop manifest.csv first:  https://database.mmsp-kn.de/konvid-150k-vqa-database.html
 
 python ai/scripts/konvid_150k_to_corpus_jsonl.py
-#    → .corpus/konvid-150k/konvid_150k.jsonl
+#    → .workingdir2/konvid-150k/konvid_150k.jsonl
 #    Resumable — safe to Ctrl-C and re-run.
 
 # Smoke (50 clips):
@@ -222,25 +220,6 @@ The aggregator converts it via identity (no rescaling needed). See
 [multi-corpus-aggregation.md](multi-corpus-aggregation.md) §2 for the conversion
 table.
 
-### CHUG UGC-HDR (5 992 clips, S3-hosted)
-
-```bash
-mkdir -p .corpus/chug
-curl -L https://raw.githubusercontent.com/shreshthsaini/CHUG/master/chug.csv \
-  -o .corpus/chug/manifest.csv
-
-PYTHONPATH=ai/src python ai/scripts/chug_to_corpus_jsonl.py          # 500-row subset
-PYTHONPATH=ai/src python ai/scripts/chug_to_corpus_jsonl.py --full   # whole corpus
-#    → .corpus/chug/chug.jsonl
-```
-
-CHUG is UGC-HDR and reports MOS on a **0–100 continuous scale**. The
-adapter preserves that source value as `mos_raw_0_100` and maps
-trainer-facing `mos` onto `[1, 5]` via `1 + 4 * mos_raw_0_100 / 100`
-so the existing MOS-head trainer can consume the rows directly. The
-adapter also preserves CHUG bitrate-ladder, orientation, manifest
-geometry, and content-name metadata under `chug_*` optional fields.
-
 ### LIVE-VQC (585 clips, ~few GB)
 
 ```bash
@@ -271,7 +250,7 @@ python ai/scripts/train_konvid_mos_head.py --smoke
 # Production (real KonViD JSONL drops on disk):
 python ai/scripts/train_konvid_mos_head.py \
     --konvid-1k   .workingdir2/konvid-1k/konvid_1k.jsonl \
-    --konvid-150k .corpus/konvid-150k/konvid_150k.jsonl
+    --konvid-150k .workingdir2/konvid-150k/konvid_150k.jsonl
 #    → model/konvid_mos_head_v1.onnx
 #    → model/konvid_mos_head_v1.json  (manifest sidecar)
 ```
@@ -295,7 +274,6 @@ attribution following the source licence:
 | YouTube UGC | Creative Commons Attribution |
 | Waterloo IVC 4K-VQA | Permissive academic, attribution required |
 | LIVE-VQC | Research-use, attribution required |
-| CHUG UGC-HDR | CC BY-NC / CC BY-NC-SA mismatch; treat as non-commercial/share-alike until clarified |
 | BVI-DVC | Research-use (non-redistributable) |
 
 For the full licence analysis per corpus see the respective ADR:
@@ -304,7 +282,6 @@ For the full licence analysis per corpus see the respective ADR:
 [ADR-0334 / ADR-0368](../adr/0368-youtube-ugc-corpus-ingestion.md) (YouTube UGC),
 [ADR-0369](../adr/0369-waterloo-ivc-4k-corpus-ingestion.md) (Waterloo IVC),
 [ADR-0370](../adr/0370-live-vqc-corpus-ingestion.md) (LIVE-VQC),
-[ADR-0426](../adr/0426-chug-hdr-corpus-ingestion.md) (CHUG),
 [ADR-0310](../adr/0310-bvi-dvc-corpus-ingestion.md) (BVI-DVC).
 
 ## Related

@@ -94,7 +94,7 @@ The sidecar `model/tiny/vmaf_tiny_fr_v1.json` pins:
 
 ## C1 (Netflix corpus) — runnable training prep
 
-Once the local Netflix corpus exists at `.corpus/netflix/` (see
+Once the local Netflix corpus exists at `.workingdir2/netflix/` (see
 [training-data.md](training-data.md) for the layout and ADR-0242 for
 scope), the prep stack under [`ai/data/`](../../ai/data/) and
 [`ai/train/`](../../ai/train/) replaces the parquet-driven flow above
@@ -114,7 +114,7 @@ ninja -C build
 # $VMAF_TINY_AI_CACHE (default ~/.cache/vmaf-tiny-ai); subsequent runs
 # only re-train.
 python ai/train/train.py \
-    --data-root .corpus/netflix \
+    --data-root .workingdir2/netflix \
     --model-arch mlp_small \
     --epochs 30 \
     --batch-size 256 \
@@ -132,7 +132,7 @@ bash ai/scripts/run_training.sh
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--data-root` | `.corpus/netflix` | Directory with `ref/` and `dis/`. |
+| `--data-root` | `.workingdir2/netflix` | Directory with `ref/` and `dis/`. |
 | `--model-arch` | `mlp_small` | One of `linear`, `mlp_small`, `mlp_medium`. |
 | `--epochs` | 10 | `0` runs the smoke-export path and exits. |
 | `--batch-size` | 256 | SGD batch size. |
@@ -173,7 +173,7 @@ import numpy as np
 from ai.train.dataset import NetflixFrameDataset
 from ai.train.eval import evaluate
 
-val = NetflixFrameDataset(Path('.corpus/netflix'), split='val')
+val = NetflixFrameDataset(Path('.workingdir2/netflix'), split='val')
 X, y = val.numpy_arrays()
 report = evaluate(
     features=X,
@@ -285,7 +285,7 @@ output layout stay identical.
 # fully in training. Mirrors the canonical ADR-0203 split so the
 # result is directly comparable to mlp_small / mlp_medium baselines.
 python ai/train/train_combined.py \
-    --netflix-root .corpus/netflix \
+    --netflix-root .workingdir2/netflix \
     --konvid-parquet ai/data/konvid_vmaf_pairs.parquet \
     --model-arch mlp_small \
     --epochs 30 \
@@ -318,11 +318,7 @@ still produces a deterministic artefact.
 Same flow, different config: [`ai/configs/nr_mobilenet_v1.yaml`](../../ai/configs/nr_mobilenet_v1.yaml).
 `extract-features` is replaced by a direct frame loader
 ([`frame_loader.py`](../../ai/src/vmaf_train/data/frame_loader.py)) that
-feeds ffmpeg-decoded tensors into training. The loader supports
-single-channel `gray` frames as `HxW` arrays and packed colour formats
-`rgb24`, `bgr24`, `rgba`, and `bgra` as `HxWxC` arrays. Other FFmpeg
-pixel formats fail before spawning the decoder so training jobs do not
-silently reinterpret planar or subsampled layouts as packed tensors.
+feeds ffmpeg-decoded tensors into training.
 
 ## C3 — Learned filter
 
@@ -340,34 +336,10 @@ will flag as a regression when it exceeds a tight allclose).
 
 ## Hyperparameter sweeps
 
-The `ai[tune]` extra pulls in Optuna + Ray Tune. `vmaf-train tune`
-wraps the existing Optuna sweep helper around a base YAML config and
-searches `model_args` entries. Each trial writes to
-`<output>/trial_NNN` and the objective minimises the best validation
-loss (`val/mse` for regressors, `val/l1` for learned filters) recorded
-by Lightning.
-
-```bash
-pip install -e 'ai[tune]'
-vmaf-train tune \
-  --config ai/configs/fr_tiny_v1.yaml \
-  --output runs/fr_tiny_sweep \
-  --trials 20 \
-  --param hidden=choice:16,32,64 \
-  --param lr=float:0.0001:0.01:log
-```
-
-`--param` is repeatable and accepts three forms:
-
-| Form | Example | Trial API |
-| --- | --- | --- |
-| `name=float:LOW:HIGH[:log]` | `lr=float:0.0001:0.01:log` | `trial.suggest_float` |
-| `name=int:LOW:HIGH` | `depth=int:1:4` | `trial.suggest_int` |
-| `name=choice:A,B,...` | `hidden=choice:16,32,64` | `trial.suggest_categorical` |
-
-Values from `choice` are coerced to `int`, `float`, or boolean when
-possible; otherwise they stay strings. Use `--storage sqlite:///...`
-to resume or share an Optuna study.
+The `ai[tune]` extra pulls in Optuna + Ray Tune. A first-class `vmaf-train
+tune` subcommand is planned but not yet wired — for now, drive the sweep
+from a standalone script that imports the training entry point and
+dispatches configs through Optuna.
 
 ## Troubleshooting
 

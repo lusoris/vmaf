@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2020 Netflix, Inc.
+ *  Copyright 2016-2026 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -42,29 +42,12 @@
 /* reference display height in pixels */
 #define DEFAULT_ADM_REF_DISPLAY_HEIGHT (1080)
 
-/* noise multiplicative weight */
-#define DEFAULT_ADM_NOISE_WEIGHT (0.03125)
-
-/* CSF scale factor */
-#define DEFAULT_ADM_CSF_SCALE (1.0)
-
-/* CSF diagonal scale factor */
-#define DEFAULT_ADM_CSF_DIAG_SCALE (1.0)
-
 /* Contrast sensitivity function */
 enum ADM_CSF_MODE {
     ADM_CSF_MODE_WATSON97 = 0,
-    ADM_CSF_MODE_BARTEN,
-    ADM_CSF_MODE_ADM,
 };
 
 /* Default contrast sensitivity function */
 #define DEFAULT_ADM_CSF_MODE (ADM_CSF_MODE_WATSON97)
-
-/* Default luminance level (in cd/m2) for contrast sensitivity function calculation */
-#define DEFAULT_ADM_CSF_LUMINANCE_LEVEL (100.0)
-
-/* Default minimum value allowed for the feature */
-#define DEFAULT_ADM_MIN_VAL (0.0)
 
 #endif /* ADM_OPTIONS_H_ */

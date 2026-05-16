@@ -63,10 +63,6 @@ tools/
   - The placeholder saliency map (when `--saliency-model` is absent)
     is for smoke-test plumbing only and explicitly documented as
     not-for-real-encodes in `docs/usage/vmaf-roi.md`.
-  - `--bitdepth 8|10|12|16` is part of the input contract. High-bit-depth
-    planar YUV uses little-endian 16-bit containers; frame seeking must
-    count the chroma planes and sample width even though only luma enters
-    the saliency path. The DNN-facing tensor remains luma8.
 - **Long-only options must not pass synthesised short-option
   chars to `error()`** (rebase-sensitive). Handlers for
   `ARG_THREADS`, `ARG_SUBSAMPLE`, `ARG_CPUMASK`, and any
@@ -119,10 +115,6 @@ tools/
     `mean_complexity`, `mean_motion`, `predicted_crf`)
     are stable across v1; v2's trained MLP must reuse
     them to avoid downstream encoder churn.
-  - **Input invariant**: `--pixel_format 420|422|444` only changes
-    planar chroma-byte skipping. The per-shot detector and predictor
-    remain luma-only, and high-bit-depth inputs use little-endian
-    16-bit sample containers for `--bitdepth 10|12|16`.
 - [ADR-0104](../../docs/adr/0104-picture-pool-always-on.md) — picture
   pool is always compiled in and sized for the live-picture set; this
   is what makes the `--frame_skip_*` unref invariant load-bearing.

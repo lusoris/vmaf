@@ -39,21 +39,9 @@ python/vmaf/
   `VMAF_RESOURCE` env vars. See
   [ADR-0026](../../docs/adr/0026-workspace-relocated-under-python.md),
   [ADR-0029](../../docs/adr/0029-resource-tree-relocated.md).
-- **Precision**: `result.py` serialises floats at `%.6f` by default,
-  matching the CLI (Netflix-compat golden gate). See
-  [ADR-0119](../../docs/adr/0119-cli-precision-default-revert.md)
-  (supersedes [ADR-0006](../../docs/adr/0006-cli-precision-17g-default.md)).
-
-## Rebase invariants
-
-- **`PyPsnrFeatureExtractor` is the primary class; `PypsnrFeatureExtractor` is a `@deprecated` alias.**
-  If a future upstream sync touches `feature_extractor.py` around these classes, verify the hierarchy
-  is preserved: `PyPsnrFeatureExtractor(PyFeatureExtractorMixin, FeatureExtractor)` as primary
-  (TYPE `"PyPsnr_feature"`), `PypsnrFeatureExtractor(PyPsnrFeatureExtractor)` as deprecated alias
-  (TYPE `"Pypsnr_feature"`). Same pattern applies to `PyPsnrMaxdb100FeatureExtractor` /
-  `PypsnrMaxdb100FeatureExtractor`. Any upstream commit that renames or removes the `Pypsnr*`
-  aliases should be absorbed without touching the `PyPsnr*` primary names — they are what the
-  test file asserts against. Tracked: fix/pypsnr-feature-extractor-import PR (2026-05-10).
+- **Precision**: `result.py` serialises floats at `%.17g` by default,
+  matching the CLI — see
+  [ADR-0006](../../docs/adr/0006-cli-precision-17g-default.md).
 
 ## Governing ADRs
 

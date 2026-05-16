@@ -42,10 +42,9 @@ limitations in the same PR as the code.
 | SSIM (float)       | `float_ssim`    | No            | `float_ssim` (+ L/C/S if enabled)                                                             | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | CUDA, SYCL, Vulkan |
-| SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON, SVE2 | CUDA, SYCL, Vulkan |
+| SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | Float moment       | `float_moment`  | No            | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd`    | AVX2, NEON          | CUDA, SYCL, Vulkan |
 | LPIPS (tiny-AI)    | `lpips`         | No            | `lpips`                                                                                       | —                   | via ORT EP³        |
-| DISTS-Sq (tiny-AI) | `dists_sq`      | No            | `dists_sq`                                                                                    | —                   | via ORT EP³        |
 | FastDVDnet pre     | `fastdvdnet_pre`| No            | `fastdvdnet_pre_l1_residual`                                                                  | —                   | —                  |
 | TransNet V2        | `transnet_v2`   | No            | `shot_boundary_probability`, `shot_boundary`                                                  | —                   | —                  |
 | Speed (chroma)     | `speed_chroma`  | No            | `speed_chroma_y/u/v_score`, `speed_chroma_uv_score` (only when `VMAF_FLOAT_FEATURES` enabled) | —                   | —                  |
@@ -55,13 +54,12 @@ limitations in the same PR as the code.
 [models/overview.md](../models/overview.md)); non-core extractors are
 standalone.
 
-¹ All three GPU extractors (`psnr_cuda`, `psnr_sycl`, `psnr_vulkan`) honour
-`enable_chroma` (default `true`) and emit `psnr_cb` / `psnr_cr` alongside
-`psnr_y` when the option is set. When `enable_chroma=false`, only `psnr_y`
-is emitted — matching the CPU extractor's luma-only path. YUV400 sources
-always produce luma-only output regardless of the option. GPU chroma parity
-was added for CUDA + SYCL by ADR-0453; the Vulkan twin gained chroma
-support earlier via ADR-0216.
+¹ The `psnr_cuda` and `psnr_sycl` GPU extractors emit luma-only
+(`psnr_y`). `psnr_vulkan` adds `psnr_cb` / `psnr_cr` chroma metrics
+when `enable_chroma=true` (default) — see T3-15(b) work-in-progress
+PR #204 / [`backends/vulkan/overview.md`](../backends/vulkan/overview.md).
+The CPU `psnr` extractor emits the full luma + chroma set on every
+build. CUDA / SYCL chroma support is a focused follow-up.
 
 ² SSIM (fixed-point) ships a Vulkan kernel via T7-24 (ADR-pending);
 the CPU integer path is scalar-only by design. The `float_ssim` /
@@ -327,23 +325,16 @@ only.
 
 #### Options
 
-| Option                   | Alias | Type   | Default   | Range       | Effect                                                                                                                                                   |
-|--------------------------|-------|--------|-----------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `debug`                  | —     | bool   | `false`   | —           | Emit debug metrics                                                                                                                                        |
-| `adm_enhn_gain_limit`    | `egl` | double | `1.2`     | `1.0–1.2`   | Cap enhancement-gain ratio                                                                                                                                |
-| `adm_norm_view_dist`     | `nvd` | double | `3.0`     | `0.75–24.0` | Normalised viewing distance (distance ÷ display height)                                                                                                   |
-| `adm_ref_display_height` | `rdf` | int    | `1080`    | `1–4320`    | Reference display height in pixels (for viewing-distance scaling)                                                                                         |
-| `adm_csf_mode`           | `csf` | int    | `0`       | `0–9`       | Contrast-sensitivity-function model index                                                                                                                 |
-| `adm_csf_scale`          | —     | double | `1.0`     | `>0`        | Uniform scale on H/V-axis CSF sensitivity (`rfactor_h/v = scale / quant_step`); `1.0` = upstream-canonical                                               |
-| `adm_csf_diag_scale`     | —     | double | `1.0`     | `>0`        | Separate scale on diagonal-axis CSF sensitivity (`rfactor_d = diag_scale / quant_step`); `1.0` = upstream-canonical                                      |
-| `noise_weight`           | —     | double | `0.03125` | `>0`        | Weight in `(area × noise_weight)^(1/3)` noise-floor term in `adm_cm` / `adm_csf_den`; default `1/32 ≈ 0.03125` = upstream-canonical noise-floor divisor |
+| Option                  | Alias | Type   | Default | Range       | Effect                                                           |
+|-------------------------|-------|--------|---------|-------------|------------------------------------------------------------------|
+| `debug`                 | —     | bool   | `false` | —           | Emit debug metrics                                               |
+| `adm_enhn_gain_limit`   | `egl` | double | `1.2`   | `1.0–1.2`   | Cap enhancement-gain ratio                                       |
+| `adm_norm_view_dist`    | `nvd` | double | `3.0`   | `0.75–24.0` | Normalised viewing distance (distance ÷ display height)          |
+| `adm_ref_display_height`| `rdf` | int    | `1080`  | `1–4320`    | Reference display height in pixels (for viewing-distance scaling)|
+| `adm_csf_mode`          | `csf` | int    | `0`     | `0–9`       | Contrast-sensitivity-function model index                        |
 
-All three parameters are available on every backend (`adm` and `float_adm`)
-including CUDA, SYCL, and Vulkan. Setting all three to their defaults
-(`1.0`, `1.0`, `0.03125`) produces output bit-identical to upstream Netflix ADM.
-
-**Backends** — `adm`: AVX2, AVX-512, NEON, CUDA, SYCL, Vulkan.
-`float_adm`: AVX2, AVX-512, NEON, CUDA, SYCL, Vulkan.
+**Backends** — `adm`: AVX2, AVX-512, NEON, CUDA. `float_adm`: AVX2, AVX-512,
+NEON, CUDA, SYCL, Vulkan.
 
 **32-bit (i686) portability** — the integer ADM SSE2 path uses
 `_mm_extract_epi64`, an intrinsic that is unavailable on 32-bit x86 toolchains.
@@ -442,11 +433,11 @@ identical (MSE=0): 60 dB for 8 bpc, 72 dB for 10 bpc, 84 dB for 12 bpc,
 | `reduced_hbd_peak` | bool   | `false` | Scale HBD peak to match 8-bit content                                              |
 | `min_sse`          | double | `0.0`   | Clamp the minimum MSE (and so the PSNR ceiling) — useful for identical-frame tests |
 
-**Backends** — AVX2, AVX-512, NEON, CUDA, SYCL, Vulkan. All three GPU
-extractors honour `enable_chroma` (default `true`) and emit `psnr_cb` /
-`psnr_cr` identically to the CPU path when enabled. Pass
-`enable_chroma=false` for luma-only operation on any backend. `float_psnr`
-adds CUDA / SYCL / Vulkan twins on the float pipeline.
+**Backends** — AVX2, AVX-512, NEON, CUDA, SYCL, Vulkan. The
+`psnr_cuda` and `psnr_sycl` GPU extractors emit luma-only
+(`psnr_y`); `psnr_vulkan` is gaining `psnr_cb` / `psnr_cr` chroma
+support via T3-15(b) (PR #204, in flight). `float_psnr` adds
+CUDA / SYCL / Vulkan twins on the float pipeline.
 
 **Limitations** — Temporal flag set only because of `apsnr` accumulation;
 per-frame PSNR itself is stateless.
@@ -563,17 +554,13 @@ shipped model still consumes; kept for back-compat with external callers.
 
 **Invocation** — `--feature float_ansnr`.
 
-**Output metrics** — `float_ansnr`, `float_anpsnr` (luma); optionally `float_ansnr_cb`, `float_ansnr_cr`, `float_anpsnr_cb`, `float_anpsnr_cr` when `enable_chroma=true`.
+**Output metrics** — `float_ansnr`, `float_anpsnr`.
 
 **Output range** — dB, saturated at `6 × bpc + 12` (same as PSNR).
 
 **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
 
-**Options**
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `enable_chroma` | bool | `false` | Compute ANSNR/ANPSNR for Cb and Cr planes, emitting `float_ansnr_cb`, `float_ansnr_cr`, `float_anpsnr_cb`, `float_anpsnr_cr`. Forced to `false` for YUV 4:0:0 input. |
+**Options** — none.
 
 **Backends** — scalar (CPU) plus CUDA, SYCL, Vulkan
 ([ADR-0194](../adr/0194-float-ansnr-gpu.md)). All three GPU
@@ -742,10 +729,9 @@ similar.
 values in roughly `[0, 1]` for natural content but is not bounded by
 construction.
 
-**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
-4:0:0 is rejected (chroma is required for the RGB conversion).
-High-bit-depth inputs are rounded into the same 8-bit RGB tensor contract
-used by the shipped LPIPS checkpoint.
+**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 bpc only. 4:0:0 is
+rejected (chroma is required for the RGB conversion). 10 / 12 / 16
+bpc inputs return `-ENOTSUP` at init.
 
 #### Options
 
@@ -757,55 +743,12 @@ used by the shipped LPIPS checkpoint.
 is dispatched to whichever ORT execution provider is selected via
 `--tiny-device`; see [`docs/ai/inference.md`](../ai/inference.md)).
 
-**Limitations** — depends on the
+**Limitations** — 8-bit only; depends on the
 [tiny-AI runtime](../ai/overview.md). The extractor errors out at
 init if no model path is provided (neither the option nor the
 environment variable); the registry under
 [`model/tiny/registry.json`](../../model/tiny/registry.json) tracks
 the canonical LPIPS ONNX checkpoint.
-
-### DISTS-Sq — deep image structure and texture similarity (tiny-AI)
-
-A DISTS-shaped full-reference perceptual-distance extractor backed by a
-two-input ONNX model. It shares the LPIPS host pipeline: YUV frame pairs are
-converted to ImageNet-normalised RGB tensors, passed to ONNX Runtime via the
-tiny-AI DNN surface, and collected as one scalar per frame.
-
-The shipped `model/tiny/dists_sq.onnx` checkpoint is a smoke placeholder. It
-computes mean squared distance between the two normalised RGB tensors so the
-extractor ABI and runtime path are testable before the real DISTS weights land.
-
-#### Invocation
-
-- CLI: `--feature dists_sq=model_path=/path/to/dists_sq.onnx`.
-- ffmpeg: `libvmaf=feature=name=dists_sq:model_path=...`.
-- C API: `vmaf_use_feature(ctx, "dists_sq", opts)` with
-  `model_path` set on the dictionary.
-
-**Output metrics** — `dists_sq` (one scalar per frame). Lower is more
-similar.
-
-**Output range** — placeholder-defined non-negative distance. It is not
-calibrated to published DISTS values.
-
-**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
-4:0:0 is rejected because chroma is required for RGB conversion.
-High-bit-depth inputs are rounded into the same RGB8 tensor contract as
-LPIPS before ONNX inference.
-
-#### Options
-
-| Option       | Type   | Default | Effect                                                                                                                             |
-|--------------|--------|---------|------------------------------------------------------------------------------------------------------------------------------------|
-| `model_path` | string | unset   | Filesystem path to the DISTS-Sq ONNX model (two-input). If unset, falls back to the `VMAF_DISTS_SQ_MODEL_PATH` environment variable. |
-
-**Backends** — scalar only on the libvmaf side. ONNX execution follows the
-configured tiny-AI provider selected via `--tiny-device`.
-
-**Limitations** — depends on the [tiny-AI runtime](../ai/overview.md) and
-fails init if no model path is provided. The committed checkpoint is marked
-`smoke: true` in the model registry and should be used only for smoke tests
-until the real DISTS weights replace it.
 
 ### FastDVDnet pre — temporal denoising pre-filter (tiny-AI)
 
@@ -819,10 +762,9 @@ encode is a bitrate lever, not a score. Runs through ORT once at
 init; per-frame inference uses a 5-slot ring buffer of float32 luma
 planes with reflection-pad-light end behaviour.
 
-See also [`docs/ai/models/fastdvdnet_pre.md`](../ai/models/fastdvdnet_pre.md),
-[ADR-0215](../adr/0215-fastdvdnet-pre-filter.md), and
-[ADR-0255](../adr/0255-fastdvdnet-pre-real-weights.md) for the full
-surface contract, placeholder history, and real-weight export.
+See also [`docs/ai/models/fastdvdnet_pre.md`](../ai/models/fastdvdnet_pre.md)
+and [ADR-0215](../adr/0215-fastdvdnet-pre-filter.md) for the full
+surface contract and the placeholder-checkpoint rationale.
 
 #### Invocation
 
@@ -836,13 +778,13 @@ frame): mean-absolute difference between the centre frame ``t``
 (normalised to `[0, 1]`) and the denoised output. Exists so libvmaf's
 per-frame plumbing has a scalar to record; **not** a quality metric.
 Downstream pipelines that want the actual denoised pixel data should
-consume the FFmpeg `vmaf_pre_temporal` filter once that follow-up
-lands; the current extractor records the diagnostic residual only.
+consume the FFmpeg `vmaf_pre_temporal` filter once T6-7b lands.
 
 **Output range** — `[0.0, 1.0]` by construction (mean-absolute on
-normalised luma). Typical values: `~0.0` for quiet / flat content,
-`~0.05` for lightly noisy content, and `~0.20+` on heavy denoising or
-saturated inputs.
+normalised luma). Typical values: `~0.0` for the placeholder
+near-identity model or quiet/flat content; `~0.05` for a working
+FastDVDnet on lightly noisy content; `~0.20+` on heavy denoising or
+saturated placeholder passes.
 
 **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
 Y plane only (chroma is ignored).
@@ -864,28 +806,22 @@ extractor init fails with `-EINVAL` if no model path is provided
 (neither the `model_path` option nor the
 `VMAF_FASTDVDNET_PRE_MODEL_PATH` env var). Returns `-ENOSYS` from
 init if libvmaf was built without ORT. The shipped checkpoint at
-`model/tiny/fastdvdnet_pre.onnx` now carries real upstream
-m-tassano/FastDVDnet weights (`smoke: false` in
-`model/tiny/registry.json`) wrapped by the ADR-0255 luma adapter.
-The wrapper tiles Y into RGB, supplies the fixed `sigma = 25/255`
-noise map, and collapses the RGB output back to BT.601 luma while
-preserving the C extractor's `[1, 5, H, W] -> [1, 1, H, W]` ONNX
-contract. Remaining follow-ups are the FFmpeg `vmaf_pre_temporal`
-consumer filter and a luma-native retrain; the model shipped here is
-not the old smoke-only placeholder.
+`model/tiny/fastdvdnet_pre.onnx` is a smoke-only placeholder with
+randomly-initialised weights that respects the I/O shape contract;
+it is not a working denoiser. Real upstream-derived FastDVDnet
+weights are tracked as backlog item T6-7b. Per ADR-0215 the
+placeholder is intentional — the surface, plumbing, and FFmpeg
+patch land first; weights follow.
 
 ### `mobilesal` — MobileSal saliency map (tiny-AI, NR / single-input)
 
 Runs the MobileSal RGB saliency network on each distorted frame and
 emits a per-frame saliency mean. Companion ADR
 [`docs/adr/0218-mobilesal-saliency-extractor.md`](../adr/0218-mobilesal-saliency-extractor.md)
-records the extractor design + the historical synthetic-placeholder
-ONNX. Production use should select the fork-trained
-`model/tiny/saliency_student_v1.onnx` checkpoint; the placeholder
-remains in `model/tiny/registry.json` with `smoke: true` for legacy
-and pipeline smoke coverage. The encoder-side `tools/vmaf-roi` sidecar
-is shipped and consumes the same saliency-map contract for per-CTU QP
-offsets.
+records the extractor design + the synthetic-placeholder ONNX shipped
+in this PR (real upstream Yun-Liu MobileSal weights are tracked as a
+T6-2a-followup row). T6-2b will add the encoder-side `tools/vmaf-roi`
+that consumes the saliency map for per-CTU QP offsets.
 
 #### Invocation
 
@@ -900,11 +836,8 @@ across the H×W output map).
 **Backends** — scalar only on the libvmaf side; ORT-dispatched to the
 selected execution provider.
 
-**Limitations** — the default historical `mobilesal.onnx` placeholder is
-smoke-only; use `saliency_student_v1.onnx` for content-dependent
-saliency. The C extractor still accepts 8-bit YUV only; high-bit-depth
-input support is available on the encoder-side `vmaf-roi` tool, not on
-the scoring-side `mobilesal` feature yet. Depends on the
+**Limitations** — placeholder ONNX is smoke-only; real-weight follow-up
+tracked in T6-2a-followup. Depends on the
 [tiny-AI runtime](../ai/overview.md).
 
 ### `transnet_v2` — TransNet V2 shot-boundary detector (tiny-AI, NR / single-input)
@@ -912,13 +845,12 @@ the scoring-side `mobilesal` feature yet. Depends on the
 Runs the TransNet V2 shot-boundary detector on a sliding 100-frame
 window of 27x48 RGB thumbnails (downsampled from the distorted
 stream's luma + reconstructed chroma) and emits a per-frame shot-
-boundary probability plus a thresholded binary flag. Companion ADRs
+boundary probability plus a thresholded binary flag. Companion ADR
 [`docs/adr/0223-transnet-v2-shot-detector.md`](../adr/0223-transnet-v2-shot-detector.md)
-and
-[`docs/adr/0261-transnet-v2-real-weights.md`](../adr/0261-transnet-v2-real-weights.md)
-record the extractor contract and the real upstream Soucek & Lokoc
-2020 weights drop. The per-shot CRF predictor that consumes these
-features is T6-3b.
+records the extractor design and the synthetic-placeholder ONNX
+shipped in this PR. Real upstream Soucek & Lokoc 2020 weights
+(MIT-licensed) are tracked as a T6-3a-followup row; the per-shot CRF
+predictor that consumes these features is T6-3b.
 
 #### Invocation
 
@@ -943,14 +875,12 @@ extractor init fails with `-EINVAL` if no model path is provided
 (neither the `model_path` option nor the
 `VMAF_TRANSNET_V2_MODEL_PATH` env var). Returns `-ENOSYS` from init
 if libvmaf was built without ORT. The shipped checkpoint at
-`model/tiny/transnet_v2.onnx` now carries real upstream
-soCzech/TransNetV2 weights (`smoke: false` in
-`model/tiny/registry.json`) wrapped by the ADR-0261 NTCHW adapter.
-The wrapper preserves the C extractor's `[1, 100, 3, 27, 48] ->
-[1, 100]` ONNX contract while invoking the upstream NTHWC graph and
-selecting the boundary-logits output. Remaining follow-ups are
-per-shot CRF aggregation and true RGB / bilinear thumbnail input;
-the model shipped here is not the old smoke-only placeholder.
+`model/tiny/transnet_v2.onnx` is a smoke-only placeholder with
+randomly-initialised weights that respects the I/O shape contract;
+it is not a working shot detector. Per
+[ADR-0223](../adr/0223-transnet-v2-shot-detector.md) the placeholder
+is intentional — surface, plumbing, and FFmpeg patch land first;
+weights follow.
 
 ### Speed (chroma + temporal) — Netflix research extractors
 
