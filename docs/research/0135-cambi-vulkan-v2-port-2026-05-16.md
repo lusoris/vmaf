@@ -1,7 +1,7 @@
 # Research Digest 0135 — CAMBI Vulkan v2: v1↔CPU Parity Gap Analysis
 
 **Date**: 2026-05-16
-**Related ADR**: [ADR-0456](../adr/0456-cambi-vulkan-v2-parity.md)
+**Related ADR**: [ADR-0465](../adr/0465-cambi-vulkan-v2-parity.md)
 **Files audited**:
 - `libvmaf/src/feature/vulkan/cambi_vulkan.c` (v1)
 - `libvmaf/src/feature/cambi.c` (CPU reference)

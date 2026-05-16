@@ -2,14 +2,14 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  Smoke test for the CAMBI Vulkan extractor (v2 / ADR-0456).
+ *  Smoke test for the CAMBI Vulkan extractor (v2 / ADR-0465).
  *
  *  Goals:
  *    1. Verify vmaf_fex_cambi_vulkan is discoverable.
  *    2. Verify end-to-end init → extract → close with a synthetic
  *       all-flat frame does not crash and emits a finite non-negative score.
  *    3. Verify that default parameters match the CPU reference defaults
- *       (Gap 1 of ADR-0456 parity audit).
+ *       (Gap 1 of ADR-0465 parity audit).
  *
  *  This is a smoke + registration test, NOT a numerical-correctness test.
  *  Bit-exactness against the CPU scalar extractor is verified by the
@@ -62,7 +62,7 @@ static char *test_cambi_vk_registration(void)
 }
 
 /* ---------------------------------------------------------------------- */
-/* Test 2: default parameter parity with CPU (ADR-0456 gap 1 regression). */
+/* Test 2: default parameter parity with CPU (ADR-0465 gap 1 regression). */
 /* ---------------------------------------------------------------------- */
 static char *test_cambi_vk_defaults(void)
 {
@@ -91,7 +91,7 @@ static char *test_cambi_vk_defaults(void)
             min_enc_w = opt->min;
     }
 
-    /* CPU cambi.c defaults — must match exactly (ADR-0456 gap 1). */
+    /* CPU cambi.c defaults — must match exactly (ADR-0465 gap 1). */
     mu_assert("cambi_max_val default should be 1000.0 (CPU match)", max_val == 1000.0);
     mu_assert("topk default should be 0.6 (CPU match)", topk == 0.6);
     mu_assert("tvi_threshold default should be 0.019 (CPU match)", tvi == 0.019);

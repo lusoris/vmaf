@@ -125,7 +125,7 @@ ADR-0234) catches drift but only after a full GPU run.
 - **`cambi_vulkan.c` is hybrid host/GPU, v2 parity gate at `places=4`**
   ([ADR-0205](../../../../docs/adr/0205-cambi-gpu-feasibility.md) +
   [ADR-0210](../../../../docs/adr/0210-cambi-vulkan-integration.md) +
-  [ADR-0456](../../../../docs/adr/0456-cambi-vulkan-v2-parity.md)).
+  [ADR-0465](../../../../docs/adr/0465-cambi-vulkan-v2-parity.md)).
   The Vulkan kernel offloads only the embarrassingly-parallel phases
   (preprocessing scaffold + derivative + 7×7 SAT spatial mask + 2×
   decimate + 3-tap mode filter); the precision-sensitive
@@ -137,7 +137,7 @@ ADR-0234) catches drift but only after a full GPU run.
   [research digest 0020](../../../../docs/research/0020-cambi-gpu-strategies.md)
   but **deferred** — do not attempt it inside v2.
 
-  **Parity invariant (ADR-0456)**: Vulkan kernels for CAMBI must keep
+  **Parity invariant (ADR-0465)**: Vulkan kernels for CAMBI must keep
   parity with the CPU reference at `places=4`; the cross-backend gate
   runs in `Build — Linux GPU (Vulkan) parity`. Key invariants that
   **must not drift** on rebase:

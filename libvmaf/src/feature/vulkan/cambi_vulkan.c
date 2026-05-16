@@ -41,7 +41,7 @@
  *      - GPU heatmap dump.
  *      - CUDA + SYCL twins (will follow per ADR-0192 cadence).
  *
- *  v2 parity fixes (ADR-0456):
+ *  v2 parity fixes (ADR-0465):
  *      Gap 1: Default constants corrected to match CPU (cambi_max_val,
  *             window_size, cambi_vis_lum_threshold, min_width_height).
  *      Gap 2: `cambi_vk_adjust_window` now uses the CPU integer formula
@@ -84,17 +84,17 @@
 #include "cambi_preprocess_spv.h"
 
 #define CAMBI_VK_PIC_BUFFERS 2
-/* v2: matched to CPU DEFAULT_CAMBI_MAX_VAL (ADR-0456 gap 1). */
+/* v2: matched to CPU DEFAULT_CAMBI_MAX_VAL (ADR-0465 gap 1). */
 #define CAMBI_VK_DEFAULT_MAX_VAL 1000.0
-/* v2: matched to CPU DEFAULT_CAMBI_WINDOW_SIZE (ADR-0456 gap 1). */
+/* v2: matched to CPU DEFAULT_CAMBI_WINDOW_SIZE (ADR-0465 gap 1). */
 #define CAMBI_VK_DEFAULT_WINDOW_SIZE 65
 #define CAMBI_VK_DEFAULT_TOPK 0.6
 #define CAMBI_VK_DEFAULT_TVI 0.019
-/* v2: matched to CPU DEFAULT_CAMBI_VLT (ADR-0456 gap 1). */
+/* v2: matched to CPU DEFAULT_CAMBI_VLT (ADR-0465 gap 1). */
 #define CAMBI_VK_DEFAULT_VLT 0.0
 #define CAMBI_VK_DEFAULT_MAX_LOG_CONTRAST 2
 #define CAMBI_VK_DEFAULT_EOTF "bt1886"
-/* v2: matched to CPU CAMBI_MIN_WIDTH_HEIGHT (ADR-0456 gap 1). */
+/* v2: matched to CPU CAMBI_MIN_WIDTH_HEIGHT (ADR-0465 gap 1). */
 #define CAMBI_VK_MIN_WIDTH_HEIGHT 216
 
 #define CAMBI_VK_WG_X 16
@@ -629,7 +629,7 @@ static int cambi_vk_alloc_host(CambiVkState *s)
     if (!s->buffers.c_values)
         return -ENOMEM;
 
-    /* v2 fix (ADR-0456 gap 6): histogram allocation deferred to
+    /* v2 fix (ADR-0465 gap 6): histogram allocation deferred to
      * cambi_vk_alloc_hist(), called after cambi_vk_init_tvi() so
      * tvi_for_diff[] is available to compute the correct v_band_size.
      * v1 used a conservative 1024+2*num_diffs formula that was not
@@ -677,7 +677,7 @@ static int cambi_vk_init_tvi(CambiVkState *s)
 
     const int num_diffs = 1 << s->max_log_contrast;
 
-    /* v2 fix (ADR-0456 gap 4): replicate cambi.c::get_tvi_for_diff exactly.
+    /* v2 fix (ADR-0465 gap 4): replicate cambi.c::get_tvi_for_diff exactly.
      *
      * CPU algorithm:
      *   tvi_condition(S) = (L(S+diff) - L(S)) > threshold * L(S)
@@ -749,7 +749,7 @@ static int cambi_vk_init_tvi(CambiVkState *s)
         s->buffers.tvi_for_diff[d] = (uint16_t)(foot + num_diffs);
     }
 
-    /* v2 fix (ADR-0456 gap 4b): mirror cambi.c::get_vlt_luma exactly.
+    /* v2 fix (ADR-0465 gap 4b): mirror cambi.c::get_vlt_luma exactly.
      *
      * CPU: find the SMALLEST luma value ABOVE cambi_vis_lum_threshold
      * (samples at or below that value are not visible).  Then vlt_luma
@@ -769,7 +769,7 @@ static int cambi_vk_init_tvi(CambiVkState *s)
     }
 
     /* Allocate c_values_histograms with the correct v_band_size now that
-     * tvi_for_diff[] and vlt_luma are known (ADR-0456 gap 6). */
+     * tvi_for_diff[] and vlt_luma are known (ADR-0465 gap 6). */
     {
         const int alloc_w = (int)s->proc_width;
         int v_lo_signed = (int)s->vlt_luma - 3 * num_diffs + 1;
@@ -788,7 +788,7 @@ static int cambi_vk_init_tvi(CambiVkState *s)
     return 0;
 }
 
-/* Mirror cambi.c::adjust_window_size (v2 fix — ADR-0456 gaps 2 & 3).
+/* Mirror cambi.c::adjust_window_size (v2 fix — ADR-0465 gaps 2 & 3).
  *
  * CPU formula (integer arithmetic, verbatim from cambi.c line 472):
  *   window_size = ((window_size * (w + h)) / 375) >> 4
@@ -1413,7 +1413,7 @@ static int cambi_vk_extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
                                       s->buffers.diff_weights, s->buffers.all_diffs, (int)scaled_w,
                                       (int)scaled_h, s->inc_range_callback, s->dec_range_callback);
 
-        /* v2 fix (ADR-0456 gap 5): mirror CPU topk selection.
+        /* v2 fix (ADR-0465 gap 5): mirror CPU topk selection.
          * CPU: if (s->topk != DEFAULT_CAMBI_TOPK_POOLING) use topk, else cambi_topk.
          * v1 always used s->topk, ignoring the cambi_topk override. */
         double effective_topk = (s->topk != CAMBI_VK_DEFAULT_TOPK) ? s->topk : s->cambi_topk;

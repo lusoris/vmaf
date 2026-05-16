@@ -1,4 +1,4 @@
-## CAMBI Vulkan v2 — parity gaps closed (ADR-0456)
+## CAMBI Vulkan v2 — parity gaps closed (ADR-0465)
 
 The Vulkan CAMBI extractor (`vmaf_fex_cambi_vulkan`) now produces scores
 bit-identical to the CPU reference (`vmaf_fex_cambi`) on the cross-backend

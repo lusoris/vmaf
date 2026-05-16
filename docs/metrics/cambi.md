@@ -202,7 +202,7 @@ ninja -C build-vulkan
     -p 420 -b 8 --backend vulkan --feature cambi
 ```
 
-The Vulkan backend was updated to v2 (ADR-0456, 2026-05-16) which closed six
+The Vulkan backend was updated to v2 (ADR-0465, 2026-05-16) which closed six
 host-orchestration parity gaps versus the CPU reference. If you used the v1
 Vulkan extractor, scores may shift: the most impactful corrections are the
 `cambi_max_val` clip ceiling (5.0 → 1000.0), the `window_size` default
@@ -211,5 +211,5 @@ matches the CPU reference to `places=4` on the cross-backend gate.
 
 Companion research digests:
 [Research-0032](../research/0032-cambi-vulkan-integration.md) (Vulkan v1),
-[Research-0135](../research/0135-cambi-vulkan-v2-port-2026-05-16.md) (Vulkan v2, ADR-0456),
+[Research-0135](../research/0135-cambi-vulkan-v2-port-2026-05-16.md) (Vulkan v2, ADR-0465),
 [Research-0091](../research/0091-cambi-cuda-integration.md) (CUDA).

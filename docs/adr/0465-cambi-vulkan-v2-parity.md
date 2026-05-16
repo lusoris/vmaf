@@ -1,4 +1,4 @@
-# ADR-0456: CAMBI Vulkan v2 — parity gap closure
+# ADR-0465: CAMBI Vulkan v2 — parity gap closure
 
 - **Status**: Accepted
 - **Date**: 2026-05-16

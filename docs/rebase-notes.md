@@ -35046,9 +35046,9 @@ python -m pytest ai/tests/test_extract_k150k_no_ssimulacra2.py -v
 No rebase impact: new test file only (`libvmaf/test/dnn/test_vmaf_use_tiny_model.c`
 and `libvmaf/test/dnn/meson.build` registration). No production code changed.
 
-### 0135 — CAMBI Vulkan v2 parity fixes (ADR-0456)
+### 0135 — CAMBI Vulkan v2 parity fixes (ADR-0465)
 
-- **ADR**: [ADR-0456](adr/0456-cambi-vulkan-v2-parity.md)
+- **ADR**: [ADR-0465](adr/0465-cambi-vulkan-v2-parity.md)
 - **Files changed**:
   - `libvmaf/src/feature/vulkan/cambi_vulkan.c` — six parity bug fixes
   - `libvmaf/src/feature/vulkan/AGENTS.md` — updated invariant note
