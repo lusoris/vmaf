@@ -621,11 +621,18 @@ threshold). When extending these scripts:
   when ref == distorted (identity pair). All-NaN columns are **expected** —
   do not treat them as extraction failures. `np.errstate(all="ignore")`
   in `_aggregate_frames()` suppresses the numpy warning; preserve it.
-- **Column-order lock:** `FEATURE_NAMES` (line ~40) defines the 22-feature
-  column order that downstream loaders depend on. Appending is safe;
-  reordering or removing entries breaks existing parquets and any trained
-  model that consumed them. Increment the parquet schema version in a
-  separate ADR if reordering becomes necessary.
+- **Column-order lock:** `FEATURE_NAMES` (line ~35) defines the 21-feature
+  column order. Appending is safe; reordering or removing breaks existing
+  parquets and trained models. Increment parquet schema version in a separate
+  ADR if reordering becomes necessary. Per Research-0135, `vmaf` (model
+  output) is not included — only raw features the pipeline emits
+  (via `--feature` arguments, no `--model`).
+- **FEATURE_NAMES completeness invariant:** all `FEATURE_NAMES` entries must
+  map to JSON keys emitted by the pipeline (CUDA extractors, CPU residual, or
+  both). Never list unavailable features or outputs requiring `--model` flags.
+  For future VMAF model scores or learned approximations, add a new feature
+  with distinct name (e.g., `vmaf_model_v0_6_1`, `vmaf_tiny_approximation`)
+  and document in an ADR.
 - **Checkpoint format:** `.done` file is append-only, one clip name per
   line, no header. Changing the format without a migration breaks
   in-progress runs. The `_load_done_set()` / `_append_done()` helpers are

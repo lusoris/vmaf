@@ -13,10 +13,10 @@ informative.  The NaN columns are expected and documented in ADR-0362.
 
 Output: ``runs/full_features_k150k.parquet`` (one row per clip, gitignored).
 
-Schema (48 columns):
+Schema (46 columns):
 
     clip_name, mos,
-    <22 features>_mean, <22 features>_std    (44 feature columns)
+    <21 features>_mean, <21 features>_std    (42 feature columns)
 
 Feature columns follow the FEATURE_NAMES tuple order exactly (column-order-locked;
 see ai/AGENTS.md §K150K-A corpus extraction invariants before reordering).
@@ -115,9 +115,12 @@ CUDA_CPU_RESIDUAL_EXTRACTOR_NAMES: tuple[str, ...] = (
     "cambi",
 )
 
-# Canonical 22-feature output columns (Research-0026).
+# Canonical 21-feature output columns (Research-0026, updated Research-0135).
 # WARNING: column order is locked — do not reorder without incrementing the
 # parquet schema version and updating ai/AGENTS.md.
+# Note: "vmaf" was removed per Research-0135; the CHUG pipeline does not emit
+# a model score (--model is not passed to vmaf CLI) and self-vs-self produces
+# near-constant values. Use raw features only for MOS-head training.
 FEATURE_NAMES: tuple[str, ...] = (
     "adm2",
     "adm_scale0",
@@ -140,7 +143,6 @@ FEATURE_NAMES: tuple[str, ...] = (
     "ciede2000",
     "psnr_hvs",
     "ssimulacra2",
-    "vmaf",
 )
 
 # Map feature names to their JSON key(s) in libvmaf output.  libvmaf may emit
@@ -167,7 +169,6 @@ _METRIC_ALIASES: dict[str, tuple[str, ...]] = {
     "ciede2000": ("ciede2000",),
     "psnr_hvs": ("psnr_hvs",),
     "ssimulacra2": ("ssimulacra2",),
-    "vmaf": ("vmaf",),
 }
 
 # ---------------------------------------------------------------------------
