@@ -7,43 +7,13 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
-No rebase impact: `fix/nvtx-cuda-dependency-guard-2026-05-16` adds a
-meson `error()` guard to `libvmaf/src/meson.build` for the
-`enable_nvtx=true` + `enable_cuda=false` combination. The guard is
-fork-additive: upstream Netflix/vmaf does not enable NVTX, so no
-sync-upstream conflict is expected. If upstream ever adds their own
-NVTX guard, the merge is a no-op (both sides add the same intent).
-## fix/cpu-symbol-visibility-2026-05-16
-
-No rebase impact: touches only `libvmaf/src/meson.build` (adding `c_args :
-vmaf_cflags_common` to `libvmaf_cpu_static_lib`). This is a fork-local build
-rule; Netflix/vmaf does not use Meson. No upstream-shared C sources, headers,
-or feature extractors are modified. No sync-upstream conflicts expected.
-
-## fix/saliency-per-mb-eval-2026-05-15 — integer_vif enable_chroma
-
-**`libvmaf/src/feature/integer_vif.c`**: adds `enable_chroma` bool field to
-`VifState`, a new `VmafOption` entry, a YUV400 clamp in `init`, and eight new
-keys in `provided_features`. If upstream Netflix ever adds chroma support to
-`integer_vif`, resolve by keeping their implementation and dropping the fork's
-`extract_plane` helper, or rebasing it if the upstream approach differs.
-
-No rebase conflict expected on the luma path — only additive changes.
-
-## fix/sycl-motion-fps-weight-vulkan-import-status-2026-05-16
-
-**Sub-task B -- `integer_motion_v2_sycl.cpp`**: adds `motion_fps_weight`
-to `MotionV2StateSycl` struct and `options_motion_v2_sycl[]`. If
-upstream Netflix ever adds `motion_fps_weight` to `integer_motion_v2.c`
-(the CPU reference), both the SYCL and CUDA `motion_v2` twins should
-pick it up in the same PR per the invariant added to
-`libvmaf/src/feature/sycl/AGENTS.md`.
-
-**Sub-task A -- `libvmaf_vulkan.h`**: removes stale
-`-ENOSYS until T7-29 part 2 lands` from the `@return` lines of
-`vmaf_vulkan_import_image`, `vmaf_vulkan_wait_compute`, and
-`vmaf_vulkan_read_imported_pictures`. No upstream rebase conflict
-expected -- the public Vulkan header is fork-local.
+No rebase impact: `fix/ms-ssim-gpu-enable-db-lcs-sycl-2026-05-16` adds
+`enable_db`, `clip_db`, and `enable_lcs` options to the CUDA and SYCL
+`float_ms_ssim` extractors. Changes are confined to
+`libvmaf/src/feature/cuda/integer_ms_ssim_cuda.c` and
+`libvmaf/src/feature/sycl/integer_ms_ssim_sycl.cpp` — both are
+fork-local GPU files with no upstream twin. No upstream-shared code,
+headers, build files, or golden data are modified.
 
 No rebase impact: `fix/dev-mcp-stage3-and-bundled-fixes-2026-05-16` touches
 only `dev/Containerfile`, `dev/AGENTS.md`, `docs/research/0135-*`, and
@@ -34950,41 +34920,6 @@ meson test -C build --suite=fast
 
 ---
 
-## `libvmaf/test/meson.build` — suite-tagging invariant (fix/meson-suite-fast)
-
-**Files touched**: `libvmaf/test/meson.build`, `libvmaf/test/AGENTS.md`.
-
-**Rebase impact**: moderate. Upstream Netflix/vmaf periodically adds new
-`test()` calls to `libvmaf/test/meson.build` without `suite:` arguments
-(that is the upstream convention). Every upstream sync or
-`port-upstream-commit` cherry-pick that touches this file must be followed
-by:
-
-```bash
-grep "^test(" libvmaf/test/meson.build | grep -v "suite :"
-```
-
-Any output is a missing tag — add the appropriate `suite:` before merging.
-Failure to do so silently breaks `meson test -C build --suite=fast` (the
-pre-push gate) because Meson's `--suite` filter matches only tests that
-declare the named suite; untagged tests are invisible to the filter and the
-command exits 0 with zero tests run.
-
-**Invariant to preserve on rebase**: every `test(...)` call in
-`libvmaf/test/meson.build` carries a `suite:` keyword argument. The `fast`
-suite is the pre-push gate; `simd` and `gpu` are secondary selectors for
-CI matrix jobs. See `libvmaf/test/AGENTS.md` for the full tag matrix.
-
-**Smoke-test after rebase**:
-
-```bash
-meson setup build -Denable_cuda=false -Denable_sycl=false
-ninja -C build
-meson test -C build --suite=fast --list   # must print >20 tests, not 0
-```
-
----
-
 ## perf/cambi-calculate-c-values-avx512-neon-2026-05-16 (ADR-0452)
 
 **What changed**: Added `calculate_c_values_row_avx512` and
@@ -35032,108 +34967,4 @@ runtime or reading a schema-version sidecar (future work).
 ```bash
 python -m pytest ai/tests/test_extract_k150k_no_ssimulacra2.py -v
 # Expected: 3/3 PASS
-```
-
-## `feat/float-ansnr-enable-chroma` — float_ansnr enable_chroma option (ADR-0460)
-
-**Rebase impact**: none. Change is confined to `libvmaf/src/feature/float_ansnr.c` (fork-local option addition); upstream Netflix/vmaf does not have `enable_chroma` on this extractor. No public headers, no GPU twins, no ffmpeg-patches touched.
-
-**Invariant to preserve on rebase**: if upstream ever adds `enable_chroma` to `float_ansnr`, verify the feature names emitted match the fork convention (`float_ansnr_cb`, `float_ansnr_cr`, `float_anpsnr_cb`, `float_anpsnr_cr`) before dropping the fork-local option entry.
----
-
-### 0482 — `vmaf_pre` FFmpeg filter device-string parity (ADR-0482)
-
-**What changed**: `ffmpeg-patches/0002-add-vmaf_pre-filter.patch` — the
-`parse_device()` helper inside `vf_vmaf_pre.c` was extended from 5 to 12
-device-string entries, matching the full `VmafDnnDevice` enum in
-`libvmaf/include/libvmaf/dnn.h`. The option description string was also
-updated.
-
-**Rebase impact**: none. No libvmaf C API was changed; only the patch file
-itself was modified. The patch applies cleanly after `0001` as before.
-
-**Invariant to preserve on rebase**: whenever a new `VMAF_DNN_DEVICE_*`
-value is added to `dnn.h`, the `parse_device()` function in patch `0002`
-must be updated in the same PR (CLAUDE.md §12 r14). No auto-detection
-fallback exists; unknown strings return `AVERROR(EINVAL)`.
-
-**Smoke-test after rebase**:
-
-```bash
-meson setup build -Denable_cuda=false -Denable_sycl=false
-ninja -C build
-meson test -C build --suite=fast
-```
-
----
-
-## perf/adm-p-norm-fast-path-vif-arm64-malloc-2026-05-16 (ADR-0463)
-
-**What changed**: Added `adm_cm_s_p3`, `adm_csf_den_scale_s_p3`, and
-`adm_sum_cube_s_p3` fast-path variants in `adm_tools.c`; dispatch added in
-`adm.c:compute_adm`. Removed per-call `aligned_malloc` from the scalar
-fallback paths of `vif_filter1d_s`, `vif_filter1d_sq_s`, and
-`vif_filter1d_xy_s` in `vif_tools.c` — the caller-supplied `tmpbuf` is
-used instead.
-
-**Rebase impact**: low. All modified files (`adm_tools.c`, `adm_tools.h`,
-`adm.c`, `vif_tools.c`) are shared with upstream Netflix/vmaf. The ADM
-changes add new symbols (no existing signatures altered). The VIF changes
-only remove local malloc/free; the function signatures and caller-supplied
-`tmpbuf` contract are unchanged.
-
-**Invariant to preserve on rebase**: When upstream Netflix/vmaf modifies
-`adm_cm_s`, `adm_csf_den_scale_s`, or `adm_sum_cube_s`, the corresponding
-`_p3` variants in the fork must receive the same logic change (minus the
-`powf` path). When upstream modifies `vif_filter1d_*` scalar fallbacks,
-ensure they do not reintroduce `aligned_malloc` in the fallback body.
-See `libvmaf/src/feature/AGENTS.md` performance-invariant section.
-
-### fix/dispatch-strategy-registry-audit-2026-05-15 — dispatch registry deduplication + HIP/Metal fixes
-
-**Touches**: `libvmaf/src/feature/feature_extractor.c` (SYCL/Vulkan
-sections of `feature_extractor_list[]`), `libvmaf/src/hip/dispatch_strategy.c`,
-`libvmaf/src/metal/dispatch_strategy.c`.
-
-**Rebase impact**: low for the SYCL/Vulkan deduplication (purely
-cosmetic — first-match semantics mean behaviour is unchanged). Medium
-for HIP and Metal dispatch-supports: if an upstream sync adds new
-`feature_extractor_list[]` entries for HIP or Metal extractors, they
-must also be added to `g_hip_features[]` / `g_metal_features[]` in the
-same commit.
-
-**Invariant to preserve on rebase**: every `vmaf_fex_*_hip` extractor
-registered in `feature_extractor_list[]` must appear in `g_hip_features[]`
-in `libvmaf/src/hip/dispatch_strategy.c`.  Every `vmaf_fex_*_metal`
-extractor must appear (by extractor `.name` and all `provided_features[]`
-keys) in `g_metal_features[]` in `libvmaf/src/metal/dispatch_strategy.c`.
-The build does not enforce this — run `scripts/ci/check-dispatch-registry.sh`
-after any kernel addition.
-
-**Smoke-test after rebase**:
-
-```bash
-meson setup build -Denable_cuda=false -Denable_sycl=false
-ninja -C build
-meson test -C build
-scripts/ci/check-dispatch-registry.sh   # must exit 0
-```
-
-## `perf/cache-rfe-hw-flags` — cache rfe_hw_flags bitmask (F2-B)
-
-**File changed:** `libvmaf/src/libvmaf.c` — `VmafContext` struct + `vmaf_init` + `vmaf_use_feature` + `vmaf_read_pictures`.
-
-No rebase impact: the change is entirely internal to `libvmaf.c`; no public
-header touched, no FFmpeg-patch surface changed.
-
-**Invariant:** `rfe_hw_flags_dirty` must be set to `true` in `vmaf_init` (after
-the `memset` zeroes it to `false`). If a future refactor moves the `memset` or
-adds a second init path, the dirty flag must be set at every init site.
-
-**Smoke-test after rebase:**
-
-```bash
-meson setup build -Denable_cuda=true -Denable_sycl=false
-ninja -C build src/liblibvmaf.a.p/libvmaf_src_libvmaf.c.o
-# Expected: compiles without error or warning
 ```

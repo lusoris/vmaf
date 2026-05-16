@@ -70,18 +70,12 @@ ADR-0214) catches drift but only after a full GPU run.
   `default_val.b = true` aligned with the CUDA and Vulkan twins; all three
   backends must agree on the default and the dispatch logic.
 
-- **`integer_psnr_sycl.cpp` uses ceiling division for chroma plane geometry**
-  (PR #878 Vulkan twin fix). `cw` and `ch` are computed via
-  `(w + 1U) >> 1` / `(h + 1U) >> 1`, not `w / 2U` / `h / 2U`, to match
-  CPU + CUDA + Vulkan behaviour on odd-dimension YUV420. On rebase: if
-  upstream Netflix changes the chroma-dimension formula in
-  `integer_psnr.c::init`, propagate it here and to the CUDA and Vulkan twins
-  in the same PR.
-
-- **`integer_ms_ssim_sycl.cpp` honours the `enable_lcs` GPU
-  contract** (ADR-0243). Emits 15 extra metrics
-  (`float_ms_ssim_{l,c,s}_scale{0..4}`) when `enable_lcs=true`.
-  Metric ordering and `places=4` cross-backend contract are part of
+- **`integer_ms_ssim_sycl.cpp` honours the `enable_lcs`, `enable_db`,
+  and `clip_db` GPU contracts** (ADR-0243, ADR-0460). Emits 15 extra
+  metrics (`float_ms_ssim_{l,c,s}_scale{0..4}`) when `enable_lcs=true`.
+  Returns dB-domain score (`-10*log10(1-ms_ssim)`) when `enable_db=true`,
+  optionally clipping linear input to `[0,1]` via `clip_db`. Metric
+  ordering, dB formula, and `places=4` cross-backend contract are part of
   the public API surface. See
   [../../AGENTS.md §"MS-SSIM `enable_lcs` GPU contract"](../../AGENTS.md).
 
@@ -171,21 +165,3 @@ DPC++ toolchain with `icpx` on PATH.
   feature kernels are unconditionally fp64-free (T7-17).
 - [ADR-0243](../../../../docs/adr/0243-enable-lcs-gpu.md) — MS-SSIM
   `enable_lcs` GPU contract.
-
-## Per-feature option-table sync invariant
-
-**Adding a feature knob to any one backend (SYCL / CUDA / HIP / Metal /
-Vulkan) requires adding it to all backends in the same PR** -- no deferred
-follow-ups. The canonical source of truth for the option signature (name,
-alias, type, min, max, default, flags) is the CPU feature extractor in
-`libvmaf/src/feature/` (e.g. `integer_motion.c`). The GPU twins copy the
-option entry verbatim and apply the weight in the equivalent host-side
-`flush()` or post-processing callback.
-
-Rationale: the CHUG / K150K extractor whitelist in
-`ai/scripts/extract_k150k_features.py` passes `_feature_arg` dicts to
-`vmaf_use_features_with_opts`; if the receiving backend's options table
-is missing the knob the option silently falls through to the default,
-producing silently-wrong scores without any error. This is the root cause
-of the `motion_fps_weight` gap in `integer_motion_v2_sycl.cpp` closed by
-PR #851-follow-up (2026-05-16).
