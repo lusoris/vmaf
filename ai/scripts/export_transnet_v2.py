@@ -63,12 +63,12 @@ and refreshes the registry sha256.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
-import shutil
 import sys
 from pathlib import Path
+
+from aiutils.file_utils import sha256
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TINY_DIR = REPO_ROOT / "model" / "tiny"
@@ -89,17 +89,6 @@ WIDTH = 48
 NUM_HISTOGRAM_BINS = 51_200  # 100 frames * 512 bins per frame (RGB cube 8x8x8)
 
 
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        while True:
-            chunk = fh.read(1 << 20)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def _verify_upstream(upstream_dir: Path) -> None:
     """Sanity-check that the upstream weights match the pinned hashes."""
     saved_pb = upstream_dir / "saved_model.pb"
@@ -109,8 +98,8 @@ def _verify_upstream(upstream_dir: Path) -> None:
             f"upstream-dir {upstream_dir} is missing saved_model.pb / variables/.\n"
             "Did you run `git lfs pull -I inference/transnetv2-weights` after cloning?"
         )
-    pb_sha = _sha256(saved_pb)
-    var_sha = _sha256(var_data)
+    pb_sha = sha256(saved_pb)
+    var_sha = sha256(var_data)
     if pb_sha != UPSTREAM_SAVED_MODEL_PB_SHA256:
         sys.exit(
             f"saved_model.pb sha256 mismatch:\n"
@@ -133,6 +122,8 @@ def _wrap_to_savedmodel(upstream_dir: Path, wrapped_dir: Path) -> None:
     Saves a fresh SavedModel under ``wrapped_dir`` so tf2onnx can pick
     up only this signature.
     """
+    import shutil
+
     import tensorflow as tf  # local import — tensorflow is heavy
 
     base_model = tf.saved_model.load(str(upstream_dir))
@@ -395,7 +386,7 @@ def _update_registry(onnx_path: Path) -> None:
     doc = json.loads(REGISTRY.read_text())
     models: list[dict] = doc.get("models", [])
     by_id = {m["id"]: m for m in models}
-    digest = _sha256(onnx_path)
+    digest = sha256(onnx_path)
     entry = {
         "id": "transnet_v2",
         "kind": "nr",
