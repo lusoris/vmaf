@@ -17,7 +17,7 @@
 > [ADR-0361](../../adr/0361-metal-compute-backend.md),
 > [ADR-0420](../../adr/0420-metal-backend-runtime-t8-1b.md),
 > [ADR-0421](../../adr/0421-metal-first-kernel-motion-v2.md), and
-> [ADR-0445](../../adr/0445-metal-float-vif-kernel.md).
+> [ADR-0462](../../adr/0462-metal-float-vif-kernel.md).
 
 ## Why Metal
 
@@ -109,7 +109,7 @@ files.
 3. **T8-1c…T8-1j (first kernel batch)** — `motion_v2`, float/integer
    PSNR, float moment, float ANSNR, float/integer motion, and
    float SSIM/MS-SSIM host dispatch + MSL kernels.
-4. **T8-1k (float_vif_metal)** — 4-scale VIF on Metal (ADR-0445).
+4. **T8-1k (float_vif_metal)** — 4-scale VIF on Metal (ADR-0462).
    7 dispatches per frame (4 compute + 3 decimate); provides
    `VMAF_feature_vif_scale{0,1,2,3}_score`.
 5. **T8-1k+** — remaining kernels (ADM, CIEDE, CAMBI,

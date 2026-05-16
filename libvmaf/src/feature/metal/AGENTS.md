@@ -75,7 +75,7 @@ a real kernel lands; they are removed from `metal_sources` in
 | `float_ssim.metal`           | Done (T8-1j) | `float_ssim`, `float_ms_ssim`                                                              |
 | `float_ssim_metal.mm`        | Done (T8-1j) | host dispatch                                                                              |
 | `float_vif.metal`            | Done (T8-1k) | `VMAF_feature_vif_scale{0,1,2,3}_score`                                                    |
-| `float_vif_metal.mm`         | Done (T8-1k) | host dispatch — 4-scale VIF, 7 dispatches per frame (ADR-0445)                             |
+| `float_vif_metal.mm`         | Done (T8-1k) | host dispatch — 4-scale VIF, 7 dispatches per frame (ADR-0462)                             |
 | `float_psnr_metal.c`         | Scaffold     | replaced by float_psnr_metal.mm                                                            |
 | `float_moment_metal.c`       | Scaffold     | replaced by float_moment_metal.mm                                                          |
 | `float_ansnr_metal.c`        | Scaffold     | replaced by float_ansnr_metal.mm                                                           |
@@ -84,7 +84,7 @@ a real kernel lands; they are removed from `metal_sources` in
 | `integer_motion_metal.c`     | Scaffold     | replaced by integer_motion_metal.mm                                                        |
 | `float_ssim_metal.c`         | Scaffold     | replaced by float_ssim_metal.mm                                                            |
 
-## Registration invariant (ADR-0445)
+## Registration invariant (ADR-0462)
 
 Every new Metal kernel MUST be registered in BOTH places:
 
@@ -117,7 +117,7 @@ runtime dispatcher and score 0 on every frame — the gap detector catches this.
 
 ## Governing ADRs
 
-- [ADR-0445](../../../../docs/adr/0445-metal-float-vif-kernel.md) — T8-1k: float_vif Metal kernel (ADR-0445)
+- [ADR-0462](../../../../docs/adr/0462-metal-float-vif-kernel.md) — T8-1k: float_vif Metal kernel (ADR-0462)
 - [ADR-0421](../../../../docs/adr/0421-metal-first-kernel-motion-v2.md) — T8-1c through T8-1j batch specification
 - [ADR-0420](../../../../docs/adr/0420-metal-backend-runtime-t8-1b.md) — runtime (T8-1b), prerequisite
 - [ADR-0361](../../../../docs/adr/0361-metal-compute-backend.md) — scaffold (T8-1), origin

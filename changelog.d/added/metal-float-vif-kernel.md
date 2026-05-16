@@ -1,4 +1,4 @@
-## Metal float_vif kernel (T8-1k / ADR-0445)
+## Metal float_vif kernel (T8-1k / ADR-0462)
 
 Added `float_vif_metal` — a 4-scale VIF feature extractor on the Metal
 (Apple Silicon) backend. The kernel emits four per-scale scores

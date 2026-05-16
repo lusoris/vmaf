@@ -1,4 +1,4 @@
-# ADR-0445: Metal float_vif kernel (T8-1k)
+# ADR-0462: Metal float_vif kernel (T8-1k)
 
 - **Status**: Accepted
 - **Date**: 2026-05-16
