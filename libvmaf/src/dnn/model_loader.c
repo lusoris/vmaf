@@ -33,93 +33,36 @@
 #include "model_loader.h"
 #include "onnx_scan.h"
 
-#ifndef _WIN32
-#include <pthread.h>
-#else
-#include <windows.h>
-#endif
-
 /* ============================================================
- * pthread_once-protected environment variable caches.
+ * Environment variable accessors (ADR-0453).
  *
- * getenv() is not required to be thread-safe by C99 (POSIX.1-2008
- * §2.2.2): a concurrent setenv/putenv/unsetenv from any thread
- * can corrupt the returned pointer or the environ array.  Cache
- * each variable once under pthread_once so that later callers only
- * read a stable, heap-owned copy (or NULL when unset at snapshot
- * time).
+ * getenv() is not required to be thread-safe by C99 when another
+ * thread concurrently calls setenv/putenv/unsetenv (POSIX.1-2008
+ * §2.2.2).  These helpers isolate the getenv() calls with NOLINT
+ * suppressions and document the caller contract: the environment
+ * must not be mutated from a second thread while these functions
+ * are executing.  In production libvmaf usage, environment variables
+ * are set before any threads are spawned and never changed after,
+ * so this constraint is always satisfied.
  *
- * Caller contract: set these variables before the first call to
- * vmaf_dnn_validate_onnx / vmaf_dnn_verify_signature; later
- * setenv calls are not observed.
+ * The helpers are NOT cached (no pthread_once) so that unit tests
+ * can legitimately change the environment between test cases without
+ * needing to reset internal state.
  * ============================================================ */
-#ifndef _WIN32
-static pthread_once_t g_tiny_model_dir_once = PTHREAD_ONCE_INIT;
-static pthread_once_t g_path_once = PTHREAD_ONCE_INIT;
-#else
-static INIT_ONCE g_tiny_model_dir_once = INIT_ONCE_STATIC_INIT;
-static INIT_ONCE g_path_once = INIT_ONCE_STATIC_INIT;
-#endif
-static const char *g_tiny_model_dir = NULL;
-static const char *g_path_env = NULL;
-
-static void cache_tiny_model_dir(void)
-{
-    /* Serialised by pthread_once — only one thread executes this.
-     * NOLINT(concurrency-mt-unsafe) — serialised by pthread_once; concurrent
-     * setenv is a caller-contract violation per POSIX.1-2008 §2.2.2. */
-    const char *val = getenv("VMAF_TINY_MODEL_DIR"); // NOLINT(concurrency-mt-unsafe)
-    if (val)
-        g_tiny_model_dir = strdup(val);
-}
-
-static void cache_path_env(void)
-{
-    /* NOLINT(concurrency-mt-unsafe) — serialised by pthread_once; concurrent
-     * setenv is a caller-contract violation per POSIX.1-2008 §2.2.2. */
-    const char *val = getenv("PATH"); // NOLINT(concurrency-mt-unsafe)
-    if (val)
-        g_path_env = strdup(val);
-}
-
-#ifdef _WIN32
-static BOOL CALLBACK cache_tiny_model_dir_w32(PINIT_ONCE once, PVOID param, PVOID *ctx)
-{
-    (void)once;
-    (void)param;
-    (void)ctx;
-    cache_tiny_model_dir();
-    return TRUE;
-}
-
-static BOOL CALLBACK cache_path_env_w32(PINIT_ONCE once, PVOID param, PVOID *ctx)
-{
-    (void)once;
-    (void)param;
-    (void)ctx;
-    cache_path_env();
-    return TRUE;
-}
-#endif
-
 static const char *get_tiny_model_dir(void)
 {
-#ifndef _WIN32
-    (void)pthread_once(&g_tiny_model_dir_once, cache_tiny_model_dir);
-#else
-    (void)InitOnceExecuteOnce(&g_tiny_model_dir_once, cache_tiny_model_dir_w32, NULL, NULL);
-#endif
-    return g_tiny_model_dir;
+    /* Caller contract: no concurrent setenv/putenv on VMAF_TINY_MODEL_DIR.
+     * NOLINT(concurrency-mt-unsafe) — ADR-0453; caller is responsible for
+     * not mutating environ concurrently per POSIX.1-2008 §2.2.2. */
+    return getenv("VMAF_TINY_MODEL_DIR"); // NOLINT(concurrency-mt-unsafe)
 }
 
 static const char *get_path_env(void)
 {
-#ifndef _WIN32
-    (void)pthread_once(&g_path_once, cache_path_env);
-#else
-    (void)InitOnceExecuteOnce(&g_path_once, cache_path_env_w32, NULL, NULL);
-#endif
-    return g_path_env;
+    /* Caller contract: no concurrent setenv/putenv on PATH.
+     * NOLINT(concurrency-mt-unsafe) — ADR-0453; caller is responsible for
+     * not mutating environ concurrently per POSIX.1-2008 §2.2.2. */
+    return getenv("PATH"); // NOLINT(concurrency-mt-unsafe)
 }
 
 /* Portable realpath wrapper: POSIX realpath() on Linux/macOS, _fullpath()
@@ -141,9 +84,8 @@ static char *resolve_path(const char *path, char *resolved)
  * -EACCES otherwise. Fails closed on a misconfigured jail (env points at
  * a non-directory or an unresolvable path) — defensive default.
  *
- * The @p jail_dir parameter (may be NULL) is expected to be pre-cached from
- * getenv("VMAF_TINY_MODEL_DIR") by the caller to avoid repeated unsafe
- * getenv() calls in multithreaded contexts. */
+ * The @p jail_dir parameter (may be NULL) is obtained from
+ * get_tiny_model_dir() by the caller (see ADR-0453). */
 static int enforce_tiny_model_jail(const char *resolved_model, const char *jail_dir)
 {
     if (!jail_dir || jail_dir[0] == '\0')
