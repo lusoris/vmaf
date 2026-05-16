@@ -1,4 +1,4 @@
-# Research-0054: vmaf-tune content-addressed cache
+# Research-0073: vmaf-tune content-addressed cache
 
 - **Status**: Adopted by [ADR-0298](../adr/0298-vmaf-tune-cache.md)
 - **Date**: 2026-05-03

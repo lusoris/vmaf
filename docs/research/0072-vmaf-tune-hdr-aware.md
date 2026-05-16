@@ -1,4 +1,4 @@
-# Research-0054 — `vmaf-tune` HDR-aware encoding + scoring
+# Research-0072 — `vmaf-tune` HDR-aware encoding + scoring
 
 - **Status**: digest closed; ADR-0295 Accepted (encode-side); HDR-VMAF
   scoring deferred (no fork-local model JSON yet).
