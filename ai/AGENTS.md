@@ -587,7 +587,7 @@ threshold). When extending these scripts:
   metadata cells by default, and keep feature/MOS columns unchanged unless
   `--overwrite-metadata` is explicitly passed.
 
-## K150K-A corpus extraction (ADR-0362, ADR-0382)
+## K150K-A corpus extraction (ADR-0362, ADR-0382, ADR-0431)
 
 **Script:** `ai/scripts/extract_k150k_features.py`
 **Branch:** `chore/ensemble-kit-gdrive-quickstart`
@@ -643,18 +643,18 @@ threshold). When extending these scripts:
   when ref == distorted (identity pair). All-NaN columns are **expected** —
   do not treat them as extraction failures. `np.errstate(all="ignore")`
   in `_aggregate_frames()` suppresses the numpy warning; preserve it.
-- **Column-order lock:** `FEATURE_NAMES` (line ~35) defines the 21-feature
-  column order. Appending is safe; reordering or removing breaks existing
-  parquets and trained models. Increment parquet schema version in a separate
-  ADR if reordering becomes necessary. Per Research-0135, `vmaf` (model
-  output) is not included — only raw features the pipeline emits
-  (via `--feature` arguments, no `--model`).
-- **FEATURE_NAMES completeness invariant:** all `FEATURE_NAMES` entries must
-  map to JSON keys emitted by the pipeline (CUDA extractors, CPU residual, or
-  both). Never list unavailable features or outputs requiring `--model` flags.
-  For future VMAF model scores or learned approximations, add a new feature
-  with distinct name (e.g., `vmaf_model_v0_6_1`, `vmaf_tiny_approximation`)
-  and document in an ADR.
+- **Column-order lock:** `FEATURE_NAMES` (line ~121) defines the 21-feature
+  column order (parquet schema v2) that downstream loaders depend on. Appending
+  is safe; reordering or removing entries breaks existing parquets and any
+  trained model that consumed them. Increment the parquet schema version in a
+  separate ADR if reordering becomes necessary. **Schema v2 invariant (ADR-0431):**
+  `ssimulacra2` is omitted from K150K/CHUG self-vs-self extraction because in
+  identity pairs (ref == distorted) it produces a constant ~100, yielding zero
+  training signal while consuming 30–50% of GPU time per clip. When operating in
+  FR-from-NR mode (same video on both sides), all difference-based metrics
+  (difference-based ssimulacra2, ciede2000, psnr_hvs, ADM, VIF) degenerate; see
+  ADR-0362 §Negative consequences. CPU-only ssimulacra2 extraction remains
+  available for genuine FR pairs where it is informative.
 - **Checkpoint format:** `.done` file is append-only, one clip name per
   line, no header. Changing the format without a migration breaks
   in-progress runs. The `_load_done_set()` / `_append_done()` helpers are
