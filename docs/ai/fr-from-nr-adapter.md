@@ -118,7 +118,7 @@ on a workstation with sufficient scratch (~750 GB peak):
 
 ```bash
 bash ai/scripts/extract_k150k_features.sh \
-    --input  .workingdir2/konvid-150k/konvid_150k.jsonl \
+    --input  .corpus/konvid-150k/konvid_150k.jsonl \
     --output runs/k150k_fr_corpus.jsonl
 ```
 

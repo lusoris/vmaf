@@ -22,8 +22,8 @@ run.
 | Duration | ~5 s per clip |
 | Container | MP4, H.264/AVC |
 | MOS range | 1.0 – 5.0 (crowd-sourced scale) |
-| Local path | `.workingdir2/konvid-150k/k150ka_extracted/` |
-| Labels CSV | `.workingdir2/konvid-150k/k150ka_scores.csv` |
+| Local path | `.corpus/konvid-150k/k150ka_extracted/` |
+| Labels CSV | `.corpus/konvid-150k/k150ka_scores.csv` |
 
 ## Extraction pipeline
 

@@ -22,7 +22,7 @@ of the canonical combined run.
 
 ```bash
 python ai/train/train_combined.py \
-    --netflix-root .workingdir2/netflix \
+    --netflix-root .corpus/netflix \
     --konvid-parquet ai/data/konvid_vmaf_pairs.parquet \
     --model-arch mlp_small \
     --epochs 30 \

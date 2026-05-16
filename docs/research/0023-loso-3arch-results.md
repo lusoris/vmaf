@@ -15,7 +15,7 @@ covered `mlp_small` alone) and [ADR-0203](../adr/0203-tiny-ai-training-prep-impl
 
 ## 1. Setup
 
-* Corpus: `.workingdir2/netflix/{ref,dis}/`, 9 reference YUVs.
+* Corpus: `.corpus/netflix/{ref,dis}/`, 9 reference YUVs.
 * Teacher: `vmaf_v0.6.1` per-frame scores via the libvmaf CLI in
   `libvmaf/build/tools/vmaf`.
 * Architectures (params):
@@ -108,7 +108,7 @@ finding in ADR-0203:
   rules out arch-specific overfitting; it's a corpus-distribution
   issue **within** the existing 9-source Netflix Public corpus. The
   Netflix Public Dataset is already in
-  [`.workingdir2/netflix/`](../../.workingdir2/) (9 reference clips +
+  [`.corpus/netflix/`](../../.workingdir2/) (9 reference clips +
   70 distortion variants) and is what these LOSO runs train on, so
   "more Netflix Public" is not the unblocker. The natural unblocker
   is a **different / larger** training corpus that adds source-

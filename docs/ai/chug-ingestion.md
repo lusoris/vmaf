@@ -23,13 +23,13 @@ or local trained heads.
 ## Quick Start
 
 ```bash
-mkdir -p .workingdir2/chug
+mkdir -p .corpus/chug
 curl -L https://raw.githubusercontent.com/shreshthsaini/CHUG/master/chug.csv \
-  -o .workingdir2/chug/manifest.csv
+  -o .corpus/chug/manifest.csv
 curl -L https://raw.githubusercontent.com/shreshthsaini/CHUG/master/chug-video.txt \
-  -o .workingdir2/chug/chug-video.txt
+  -o .corpus/chug/chug-video.txt
 
-PYTHONPATH=ai/src python ai/scripts/chug_to_corpus_jsonl.py --chug-dir .workingdir2/chug
+PYTHONPATH=ai/src python ai/scripts/chug_to_corpus_jsonl.py --chug-dir .corpus/chug
 ```
 
 The default run caps at `--max-rows 500`. Use `--full` for all 5,992
@@ -37,13 +37,13 @@ manifest rows:
 
 ```bash
 PYTHONPATH=ai/src python ai/scripts/chug_to_corpus_jsonl.py \
-  --chug-dir .workingdir2/chug \
-  --output .workingdir2/chug/chug.jsonl \
+  --chug-dir .corpus/chug \
+  --output .corpus/chug/chug.jsonl \
   --full \
   --verbose
 ```
 
-The run is resumable through `.workingdir2/chug/.download-progress.json`.
+The run is resumable through `.corpus/chug/.download-progress.json`.
 The adapter downloads each MP4 via `curl`, probes it with `ffprobe`,
 deduplicates by SHA-256, and appends JSONL rows.
 
@@ -84,12 +84,12 @@ Once `chug.jsonl` exists, materialise feature rows before training:
 
 ```bash
 PYTHONPATH=ai/src python ai/scripts/chug_extract_features.py \
-  --input .workingdir2/chug/chug.jsonl \
-  --output .workingdir2/chug/chug_features.jsonl \
-  --clips-dir .workingdir2/chug/clips \
-  --cache-dir .workingdir2/chug/feature-cache \
-  --split-manifest .workingdir2/chug/chug_splits.json \
-  --audit-output .workingdir2/chug/chug_hdr_audit.json \
+  --input .corpus/chug/chug.jsonl \
+  --output .corpus/chug/chug_features.jsonl \
+  --clips-dir .corpus/chug/clips \
+  --cache-dir .corpus/chug/feature-cache \
+  --split-manifest .corpus/chug/chug_splits.json \
+  --audit-output .corpus/chug/chug_hdr_audit.json \
   --vmaf-bin build/tools/vmaf \
   --feature-set canonical \
   --full
@@ -123,11 +123,11 @@ Train against the feature rows:
 
 ```bash
 python ai/scripts/train_konvid_mos_head.py \
-  --konvid-1k .workingdir2/chug/chug_features.jsonl \
-  --konvid-150k .workingdir2/chug/no-konvid-150k.jsonl \
-  --out-onnx .workingdir2/chug/chug_mos_head.onnx \
-  --out-card .workingdir2/chug/chug_mos_head_card.md \
-  --out-manifest .workingdir2/chug/chug_mos_head.json
+  --konvid-1k .corpus/chug/chug_features.jsonl \
+  --konvid-150k .corpus/chug/no-konvid-150k.jsonl \
+  --out-onnx .corpus/chug/chug_mos_head.onnx \
+  --out-card .corpus/chug/chug_mos_head_card.md \
+  --out-manifest .corpus/chug/chug_mos_head.json
 ```
 
 When feature rows carry the `split` column emitted by
@@ -148,13 +148,13 @@ labels:
 
 ```bash
 PYTHONPATH=ai/src python ai/scripts/extract_k150k_features.py \
-  --clips-dir .workingdir2/chug/clips \
-  --scores .workingdir2/chug/chug_scores.csv \
-  --metadata-jsonl .workingdir2/chug/chug.jsonl \
+  --clips-dir .corpus/chug/clips \
+  --scores .corpus/chug/chug_scores.csv \
+  --metadata-jsonl .corpus/chug/chug.jsonl \
   --vmaf-bin libvmaf/build-cuda/tools/vmaf \
   --cpu-vmaf-bin build-cpu/tools/vmaf \
-  --out .workingdir2/chug/training/full_features_chug.parquet \
-  --scratch-dir .workingdir2/chug/feature_scratch_cuda
+  --out .corpus/chug/training/full_features_chug.parquet \
+  --scratch-dir .corpus/chug/feature_scratch_cuda
 ```
 
 When a CUDA binary is used, the extractor splits the pass: explicit CUDA
@@ -170,10 +170,10 @@ Train directly from that FULL_FEATURES parquet once extraction finishes:
 
 ```bash
 python ai/scripts/train_konvid_mos_head.py \
-  --feature-parquet .workingdir2/chug/training/full_features_chug.parquet \
-  --out-onnx .workingdir2/chug/chug_full_features_mos_head.onnx \
-  --out-card .workingdir2/chug/chug_full_features_mos_head_card.md \
-  --out-manifest .workingdir2/chug/chug_full_features_mos_head.json
+  --feature-parquet .corpus/chug/training/full_features_chug.parquet \
+  --out-onnx .corpus/chug/chug_full_features_mos_head.onnx \
+  --out-card .corpus/chug/chug_full_features_mos_head_card.md \
+  --out-manifest .corpus/chug/chug_full_features_mos_head.json
 ```
 
 `train_konvid_mos_head.py` reads both bare trainer columns (`adm2`) and
@@ -187,8 +187,8 @@ finished parquet in place from `chug.jsonl`:
 
 ```bash
 python ai/scripts/enrich_k150k_parquet_metadata.py \
-  --features-parquet .workingdir2/chug/training/full_features_chug.parquet \
-  --metadata-jsonl .workingdir2/chug/chug.jsonl
+  --features-parquet .corpus/chug/training/full_features_chug.parquet \
+  --metadata-jsonl .corpus/chug/chug.jsonl
 ```
 
 The enrichment utility matches rows by `clip_name`, fills missing CHUG

@@ -13,7 +13,7 @@ Research Digest 0019 (Netflix corpus methodology).
 
 ## 1. Setup
 
-* Corpus: `.workingdir2/netflix/{ref,dis}/`, 9 reference YUVs, 70
+* Corpus: `.corpus/netflix/{ref,dis}/`, 9 reference YUVs, 70
   distortion variants per source where complete (some sources have
   fewer; `(n)` columns below).
 * Teacher: `vmaf_v0.6.1` per-frame scores via the libvmaf CLI in

@@ -41,9 +41,9 @@ trainer="${VMAF_AGG_TRAINER:-$repo_root/ai/scripts/train_predictor_v2_realcorpus
 # deterministic dedup-tie-breaking (first-seen wins on equal MOS
 # uncertainty).
 declare -a candidate_paths=(
-  "$repo_root/.workingdir2/netflix/netflix_public.jsonl"
+  "$repo_root/.corpus/netflix/netflix_public.jsonl"
   "$repo_root/.workingdir2/konvid-1k/konvid_1k.jsonl"
-  "$repo_root/.workingdir2/konvid-150k/konvid_150k.jsonl"
+  "$repo_root/.corpus/konvid-150k/konvid_150k.jsonl"
   "$repo_root/.workingdir2/lsvq/lsvq.jsonl"
   "$repo_root/.workingdir2/youtube-ugc/youtube_ugc.jsonl"
   "$repo_root/.workingdir2/waterloo-ivc-4k/waterloo_ivc_4k.jsonl"

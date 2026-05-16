@@ -9,7 +9,7 @@ The existing KonViD-150k adapter expected one `manifest.csv` with URLs,
 MOS, optional standard deviation, and rating count. The local corpus
 drop uses `k150ka_scores.csv` / `k150kb_scores.csv` plus
 `k150ka_extracted/` / `k150kb_extracted/`, so the adapter could not
-consume the corpus already staged under `.workingdir2/konvid-150k/`.
+consume the corpus already staged under `.corpus/konvid-150k/`.
 
 ## Finding
 

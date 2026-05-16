@@ -33,13 +33,13 @@ bad generic `--backend cuda` command.
 
 ```bash
 PYTHONPATH=ai/src .venv/bin/python ai/scripts/extract_k150k_features.py \
-  --clips-dir .workingdir2/chug/clips \
-  --scores .workingdir2/chug/chug_scores.csv \
+  --clips-dir .corpus/chug/clips \
+  --scores .corpus/chug/chug_scores.csv \
   --vmaf-bin libvmaf/build-cuda/tools/vmaf \
   --cpu-vmaf-bin build-cpu/tools/vmaf \
-  --out .workingdir2/chug/debug/split_real.parquet \
+  --out .corpus/chug/debug/split_real.parquet \
   --threads 2 --threads-cuda 1 --flush-every 1 \
-  --scratch-dir .workingdir2/chug/debug/split_real_scratch \
+  --scratch-dir .corpus/chug/debug/split_real_scratch \
   --limit 1
 ```
 
