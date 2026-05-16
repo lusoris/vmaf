@@ -217,7 +217,7 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
 
 
 - **kernels with high spatial overlap (>=50% redundant cross-thread reads) must
-  stage into `__shared__`** (ADR-0453). `cambi_spatial_mask_kernel` sets the
+  stage into `__shared__`** (ADR-0464). `cambi_spatial_mask_kernel` sets the
   precedent: a 22x22 `uint8_t zd_tile[22][32]` tile is populated cooperatively
   by the 16x16 block (2-pass, 256 threads, 484 elements, 3x484 = 1452 global
   reads per block) before the 7x7 box-sum loop reads exclusively from SLM.
@@ -253,5 +253,5 @@ The `enable_cuda` umbrella flag gates inclusion via
   per-feature CUDA kernel-template scaffolding.
 - [ADR-0360](../../../../docs/adr/0360-cambi-cuda.md) —
   CAMBI CUDA port (Strategy II hybrid, T3-15a).
-- [ADR-0453](../../../../docs/adr/0453-cambi-cuda-smem-tile.md) --
+- [ADR-0464](../../../../docs/adr/0464-cambi-cuda-smem-tile.md) --
   CAMBI CUDA spatial-mask SLM tile (perf-audit 2026-05-16 win 3).

@@ -1,4 +1,4 @@
-# ADR-0453: CAMBI CUDA spatial-mask shared-memory tile
+# ADR-0464: CAMBI CUDA spatial-mask shared-memory tile
 
 - **Status**: Accepted
 - **Date**: 2026-05-16

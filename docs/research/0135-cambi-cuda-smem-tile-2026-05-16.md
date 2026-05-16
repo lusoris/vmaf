@@ -1,7 +1,7 @@
 # Research-0135: CAMBI CUDA spatial-mask shared-memory tile design
 
 - **Status**: Active
-- **Workstream**: [ADR-0453](../adr/0453-cambi-cuda-smem-tile.md)
+- **Workstream**: [ADR-0464](../adr/0464-cambi-cuda-smem-tile.md)
 - **Last updated**: 2026-05-16
 
 ## Question
@@ -136,7 +136,7 @@ The 4 alternatives in the ADR decision matrix.  Additionally:
 ## Related
 
 - [ADR-0360](../adr/0360-cambi-cuda.md) — original CAMBI CUDA port.
-- [ADR-0453](../adr/0453-cambi-cuda-smem-tile.md) — this optimization.
+- [ADR-0464](../adr/0464-cambi-cuda-smem-tile.md) — this optimization.
 - [Research-0091](0091-cambi-cuda-integration.md) — CAMBI CUDA integration
   trade-offs (acknowledged the 49-read cost as a known debt).
 - Issue #857 — cambi_cuda segfault (blocks end-to-end validation).

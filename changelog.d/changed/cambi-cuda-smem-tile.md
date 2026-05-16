@@ -3,4 +3,4 @@
   Global memory reads per block fall from 37,632 (256 threads x 147 reads) to
   1,452 (484 elements x 3 reads each), a 26x reduction.  No change to
   numerical output; `places=4` parity gate continues to pass.
-  (ADR-0453 / perf-audit 2026-05-16 win 3)
+  (ADR-0464 / perf-audit 2026-05-16 win 3)
