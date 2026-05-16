@@ -1,4 +1,4 @@
-# Research-0054: `vmaf-tune` capability audit — beyond Phases A/B + the fast path
+# Research-0061: `vmaf-tune` capability audit — beyond Phases A/B + the fast path
 
 - **Status**: Active
 - **Workstream**: ADR-0237 (`vmaf-tune` umbrella), ADR-0235 (codec-aware FR regressor)
