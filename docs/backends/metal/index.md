@@ -111,7 +111,11 @@ files.
    float SSIM/MS-SSIM host dispatch + MSL kernels.
 4. **T8-1k (float_vif_metal)** — 4-scale VIF on Metal (ADR-0462).
    7 dispatches per frame (4 compute + 3 decimate); provides
-   `VMAF_feature_vif_scale{0,1,2,3}_score`.
+   `VMAF_feature_vif_scale{0,1,2,3}_score`.  Options: `debug`,
+   `vif_enhn_gain_limit`, `vif_kernelscale` (accepted; must be 1.0),
+   `vif_sigma_nsq`.  With `debug=true`, also emits `vif`, `vif_num`,
+   `vif_den`, and per-scale `vif_num_scaleN` / `vif_den_scaleN`
+   (full CUDA parity per ADR-0463).
 5. **T8-1k+** — remaining kernels (ADM, CIEDE, CAMBI,
    SSIMULACRA2, etc.) follow as their own PRs gated by the `places=4`
    cross-backend-diff lane (per [ADR-0214](../../adr/0214-gpu-parity-ci-gate.md)).

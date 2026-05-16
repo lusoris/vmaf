@@ -96,6 +96,7 @@ typedef struct FloatVifStateMetal {
     unsigned bpc;
 
     double vif_enhn_gain_limit;
+    double vif_kernelscale;
     double vif_sigma_nsq;
     bool   debug;
 
@@ -119,6 +120,16 @@ static const VmafOption options[] = {
         .default_val = {.d = 100.0},
         .min         = 1.0,
         .max         = 100.0,
+        .flags       = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name        = "vif_kernelscale",
+        .help        = "scaling factor for the gaussian kernel (must be 1.0)",
+        .offset      = offsetof(FloatVifStateMetal, vif_kernelscale),
+        .type        = VMAF_OPT_TYPE_DOUBLE,
+        .default_val = {.d = 1.0},
+        .min         = 0.1,
+        .max         = 4.0,
         .flags       = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {
@@ -209,6 +220,10 @@ static int init_fex_metal(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fm
 {
     (void)pix_fmt;
     FloatVifStateMetal *s = (FloatVifStateMetal *)fex->priv;
+
+    /* Only kernelscale=1.0 is implemented (matches CUDA parity). */
+    if (s->vif_kernelscale != 1.0) { return -EINVAL; }
+
     s->frame_w = w;
     s->frame_h = h;
     s->bpc     = bpc;
@@ -456,6 +471,7 @@ static int collect_fex_metal(VmafFeatureExtractor *fex, unsigned index,
         "VMAF_feature_vif_scale3_score",
     };
 
+    double scores[FVIF_NUM_SCALES * 2u];
     for (int sc = 0; sc < FVIF_NUM_SCALES; ++sc) {
         const float *parts =
             (const float *)[(__bridge id<MTLBuffer>)s->partials_buf[sc] contents];
@@ -464,11 +480,40 @@ static int collect_fex_metal(VmafFeatureExtractor *fex, unsigned index,
             sum_num += (double)parts[2u * i];
             sum_den += (double)parts[2u * i + 1u];
         }
+        scores[2 * sc]     = sum_num;
+        scores[2 * sc + 1] = sum_den;
         const double score = (sum_den > 0.0) ? (sum_num / sum_den) : 1.0;
         err |= vmaf_feature_collector_append_with_dict(
             feature_collector, s->feature_name_dict,
             scale_names[sc], score, index);
     }
+
+    if (s->debug && !err) {
+        const double score_num =
+            scores[0] + scores[2] + scores[4] + scores[6];
+        const double score_den =
+            scores[1] + scores[3] + scores[5] + scores[7];
+        const double score =
+            (score_den == 0.0) ? 1.0 : (score_num / score_den);
+        err |= vmaf_feature_collector_append_with_dict(
+            feature_collector, s->feature_name_dict, "vif", score, index);
+        err |= vmaf_feature_collector_append_with_dict(
+            feature_collector, s->feature_name_dict, "vif_num", score_num, index);
+        err |= vmaf_feature_collector_append_with_dict(
+            feature_collector, s->feature_name_dict, "vif_den", score_den, index);
+        static const char *dbg_names[8] = {
+            "vif_num_scale0", "vif_den_scale0",
+            "vif_num_scale1", "vif_den_scale1",
+            "vif_num_scale2", "vif_den_scale2",
+            "vif_num_scale3", "vif_den_scale3",
+        };
+        for (int i = 0; i < 8; ++i) {
+            err |= vmaf_feature_collector_append_with_dict(
+                feature_collector, s->feature_name_dict,
+                dbg_names[i], scores[i], index);
+        }
+    }
+
     return err;
 }
 
@@ -492,6 +537,17 @@ static const char *provided_features[] = {
     "VMAF_feature_vif_scale1_score",
     "VMAF_feature_vif_scale2_score",
     "VMAF_feature_vif_scale3_score",
+    "vif",
+    "vif_num",
+    "vif_den",
+    "vif_num_scale0",
+    "vif_den_scale0",
+    "vif_num_scale1",
+    "vif_den_scale1",
+    "vif_num_scale2",
+    "vif_den_scale2",
+    "vif_num_scale3",
+    "vif_den_scale3",
     NULL
 };
 

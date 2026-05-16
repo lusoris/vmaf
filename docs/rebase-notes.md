@@ -34878,3 +34878,14 @@ meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build
 meson test -C build --suite=fast
 ```
+
+---
+
+### float_vif_metal CUDA-parity gaps (ADR-0463)
+
+`libvmaf/src/feature/metal/float_vif_metal.mm` — adds `vif_kernelscale` option
+and debug provided-features to match `float_vif_cuda.c`.
+
+**Rebase impact**: no rebase impact. Changes are confined to the Metal backend
+file added by PR #869; no public API surface is changed and no upstream files
+are touched.
