@@ -34904,33 +34904,41 @@ ninja -C build test/test_cli_parse
 
 ---
 
-## 2026-05-15 — Tiny-AI ONNX Blob Storage Migration (ADR-0457)
+## `fix/saliency-per-mb-eval-2026-05-15` — cpu-static-lib visibility fix (Batch 6)
 
-**Files removed from working tree** (still in git history):
+**Branch**: `fix/saliency-per-mb-eval-2026-05-15`
 
-- `model/tiny/transnet_v2.onnx` (30.8 MB)
-- `model/tiny/fastdvdnet_pre.onnx` (10.0 MB)
-- `model/tiny/lpips_sq.onnx` (3.3 MB)
+**Files touched**: `libvmaf/src/meson.build`,
+`libvmaf/src/cpu.h`,
+`libvmaf/src/x86/cpu.h`,
+`libvmaf/src/arm/cpu.h`,
+`libvmaf/include/libvmaf/macros.h`,
+`libvmaf/AGENTS.md`.
 
-**Replaced with**: `tiny-blobs-v1` GitHub Release attachments
-(`https://github.com/lusoris/vmaf/releases/download/tiny-blobs-v1/<file>`)
-fetched on demand by `scripts/ai/fetch-tiny-blobs.sh`.
+**ABI note**: this change removes 4 symbols
+(`vmaf_get_cpu_flags`, `vmaf_get_cpu_flags_x86`, `vmaf_init_cpu`,
+`vmaf_set_cpu_flags_mask`) from the dynamic symbol table of `libvmaf.so`.
+These symbols were never declared in any public header and never documented;
+their presence was a de-facto ABI leak (audit finding 2b).  Removing them is
+NOT a SONAME bump — they were unintentionally exported and carry no stability
+guarantee.  Any downstream code that was resolving these via `dlsym` was
+depending on undocumented internals.
 
-**Rebase impact**: minimal. Upstream Netflix/vmaf does not ship these
-ONNX files (they are fork-local tiny-AI artefacts). A rebase will not
-re-introduce them.
-
-**Invariant to preserve on rebase**: any new ONNX file added to
-`model/tiny/` that is ≥ 1 MB must follow the same pattern (upload to
-the next `tiny-blobs-vN` release, set `release_url` in `registry.json`,
-add a `.gitignore` entry, do NOT `git add` the file). Files below 1 MB
-stay inline.
+**Rebase impact**: low.  `libvmaf/src/meson.build` is an upstream-shared file,
+but the `libvmaf_cpu_static_lib` block is entirely fork-added (upstream uses
+the sources directly in the main `static_library` call).  On any upstream sync
+that restructures the CPU source gathering, verify that the merged block still
+carries `c_args : vmaf_cflags_common`; otherwise the 4 symbols silently
+reappear.  The `VMAF_HIDDEN` annotations on the function declarations provide
+the belt-and-suspenders guard.
 
 **Smoke-test after rebase**:
 
 ```bash
-scripts/ai/fetch-tiny-blobs.sh --check  # expect: verified=3 failures=0
-scripts/ai/fetch-tiny-blobs.sh          # expect: idempotent no-op
+meson setup build -Denable_cuda=false -Denable_sycl=false
+ninja -C build src/libvmaf.so.3.0.0
+nm -D --defined-only build/src/libvmaf.so.3.0.0 | grep -E 'vmaf_(get_cpu_flags|init_cpu|set_cpu_flags_mask)'
+# Must print nothing (symbols correctly hidden)
 ```
 
 ---

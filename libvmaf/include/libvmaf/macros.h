@@ -39,4 +39,22 @@
 #define VMAF_EXPORT
 #endif
 
+/**
+ * VMAF_HIDDEN — explicitly forces internal-linkage visibility on a symbol
+ * compiled inside a TU that does NOT receive -fvisibility=hidden (e.g. a
+ * static_library() target missing c_args : vmaf_cflags_common).
+ *
+ * Prefer fixing the meson.build to pass vmaf_cflags_common to the target.
+ * Use VMAF_HIDDEN on function declarations only as a belt-and-suspenders
+ * guard for internal helpers that must never appear in the DSO dynamic
+ * symbol table (cpu probe helpers, arch-specific helpers, etc.).
+ *
+ * See ADR-0379 (cpu-static-lib visibility fix, 2026-05-16).
+ */
+#if defined(__GNUC__) || defined(__clang__)
+#define VMAF_HIDDEN __attribute__((visibility("hidden")))
+#else
+#define VMAF_HIDDEN
+#endif
+
 #endif /* __VMAF_MACROS_H__ */
