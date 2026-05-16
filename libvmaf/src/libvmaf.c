@@ -115,12 +115,6 @@ typedef struct VmafContext {
         VmafCudaCookie cookie;
         VmafGpuPicturePool *ring_buffer;
     } cuda;
-    /* Cached result of rfe_hw_flags() (F2-B, perf-audit-pipeline-2026-05-16).
-     * Recomputed lazily whenever vmaf_use_feature() registers a new extractor.
-     * Avoids an O(n_extractors) linear scan on every frame in the common case
-     * where the extractor set is fixed before the frame loop starts. */
-    unsigned rfe_hw_flags_cache;
-    bool rfe_hw_flags_dirty;
 #endif
 #ifdef HAVE_SYCL
     struct {
@@ -204,9 +198,6 @@ int vmaf_init(VmafContext **vmaf, VmafConfiguration cfg)
         goto fail;
     memset(v, 0, sizeof(*v));
     v->cfg = cfg;
-#ifdef HAVE_CUDA
-    v->rfe_hw_flags_dirty = true; /* force recompute before the first frame */
-#endif
 
     vmaf_init_cpu();
     /* cpumask is uint64_t in the public API; the internal mask is unsigned
@@ -925,12 +916,6 @@ int vmaf_use_feature(VmafContext *vmaf, const char *feature_name, VmafFeatureDic
     err = feature_extractor_vector_append(rfe, fex_ctx, 0);
     if (err)
         err |= vmaf_feature_extractor_context_destroy(fex_ctx);
-
-#ifdef HAVE_CUDA
-    /* Invalidate the rfe_hw_flags cache so the next vmaf_read_pictures call
-     * recomputes the bitmask with the newly registered extractor included. */
-    vmaf->rfe_hw_flags_dirty = true;
-#endif
 
     return err;
 }
@@ -1914,11 +1899,7 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, u
         return err;
 
 #ifdef HAVE_CUDA
-    if (vmaf->rfe_hw_flags_dirty) {
-        vmaf->rfe_hw_flags_cache = rfe_hw_flags(&vmaf->registered_feature_extractors);
-        vmaf->rfe_hw_flags_dirty = false;
-    }
-    const unsigned hw_flags = vmaf->rfe_hw_flags_cache;
+    const unsigned hw_flags = rfe_hw_flags(&vmaf->registered_feature_extractors);
     VmafPicture ref_host = {0}, ref_device = {0};
     VmafPicture dist_host = {0}, dist_device = {0};
     err = read_pictures_cuda_translate(vmaf, ref, dist, hw_flags, &ref_host, &ref_device,

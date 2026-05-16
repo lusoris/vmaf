@@ -59,17 +59,6 @@ ADR-0234) catches drift but only after a full GPU run.
 
 ## Rebase-sensitive invariants
 
-- **Compute shaders MUST declare a workgroup size that is a multiple of 32 (or 64)
-  — never `layout(local_size_x=1,local_size_y=1,local_size_z=1)`**, which leaves
-  31 of 32 lanes idle per warp on NVIDIA and 63 of 64 idle per wavefront on AMD.
-  Per-row (or per-column) sequential work uses `local_size_x=WG_X` with the grid
-  sized to `ceil(rows/WG_X)`; each invocation handles one row/column and
-  bounds-checks against the actual row/column count. This pattern was established
-  as the fork standard by the VK-1 (blur shaders) and VK-2 (cambi SAT) fixes.
-  The host-side constant names follow the pattern `WG_X` / `WG_Y` so dispatch
-  math is consistent with the shader's `local_size_*` declaration. Do not revert
-  a shader to `local_size_x=1` without an ADR that justifies the exception.
-
 - **`psnr_vulkan.c` chroma plane loop and `enable_chroma` option**
   ([ADR-0216](../../../../docs/adr/0216-vulkan-chroma-psnr.md) /
   [ADR-0453](../../../../docs/adr/0453-psnr-enable-chroma-gpu-parity.md)).
@@ -87,21 +76,6 @@ ADR-0234) catches drift but only after a full GPU run.
   ADR-0453 addition. The `enable_chroma` option carries
   `default_val.b = true`; do **not** flip the default. See
   [`../../AGENTS.md §"Vulkan PSNR chroma contract"`](../../AGENTS.md).
-
-- **`psnr_vulkan.c` chroma plane geometry must use ceiling division**
-  (Research-0094; dedup-audit-c-feature-twins-2026-05-16 finding #5).
-  `init()` computes chroma width/height with
-  `(w + (unsigned)ss_hor) >> ss_hor` and
-  `(h + (unsigned)ss_ver) >> ss_ver` — the ceiling form that matches
-  `integer_psnr.c::init` (CPU) and `cuda/integer_psnr_cuda.c:132`
-  (CUDA). **Do not** replace this with `w / 2U` or `h / 2U` (floor).
-  Floor division underestimates chroma plane size by 1 pixel on
-  odd-dimension YUV420 inputs (e.g., 1921×1080), producing a different
-  sample count and diverging PSNR scores that break the cross-backend
-  `places=4` parity gate silently. Even-width/height inputs are
-  unaffected. The regression test
-  `test_psnr_vulkan_chroma_geom.c::test_odd_yuv420_chroma_dims` pins
-  this for 1921×1081 and 999×540.
 
 - **`ms_ssim_vulkan.c` honours the `enable_lcs` GPU contract**
   (ADR-0243). Emits 15 extra metrics
@@ -241,7 +215,7 @@ The umbrella flag pulls in `dependency('vulkan')` + volk + glslc + VMA.
   behaviour. The invariant applies to all 13 migrated extractors (PR-A,
   PR-B, PR-C). Extractors in scope for PR-C:
   `cambi_vulkan.c`, `ssimulacra2_vulkan.c`, `float_ansnr_vulkan.c`,
-  `float_moment_vulkan.c`.
+  `moment_vulkan.c`.
 
 ## Governing ADRs
 

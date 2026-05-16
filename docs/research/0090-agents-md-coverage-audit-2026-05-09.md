@@ -1,4 +1,4 @@
-# Research-0090: AGENTS.md per-package coverage audit (2026-05-09)
+# AGENTS.md per-package coverage audit (2026-05-09)
 
 Scope: every code-bearing directory under `libvmaf/src/`, `tools/`, `ai/`,
 `python/vmaf/`, `mcp-server/`, `scripts/`. Goal: confirm that every

@@ -21,19 +21,19 @@ extern "C" {
 
 typedef struct VmafHipContext VmafHipContext;
 
+/* Forward declare HIP types for error translation. */
+typedef int hipError_t;
+
 int vmaf_hip_context_new(VmafHipContext **ctx, int device_index);
 void vmaf_hip_context_destroy(VmafHipContext *ctx);
 int vmaf_hip_device_count(void);
 
-#ifdef HAVE_HIPCC
-#include <hip/hip_runtime_api.h>
 /*
  * Translate a HIP error code into a negative POSIX errno. Consolidates
  * 8 identical per-feature private helpers into a single shared implementation.
  * Feature extractors use this instead of defining their own static versions.
  */
 int vmaf_hip_rc_to_errno(hipError_t rc);
-#endif /* HAVE_HIPCC */
 
 #ifdef __cplusplus
 }
