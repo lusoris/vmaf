@@ -88,7 +88,6 @@ typedef struct MsSsimStateCuda {
     CUfunction func_decimate;
     CUfunction func_horiz;
     CUfunction func_vert_lcs;
-    CUmodule module;
 
     unsigned width;
     unsigned height;
@@ -232,7 +231,8 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
 
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, ms_ssim_score_ptx), fail);
+    CUmodule module;
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, ms_ssim_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_decimate, module, "ms_ssim_decimate"), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_horiz, module, "ms_ssim_horiz"), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_vert_lcs, module, "ms_ssim_vert_lcs"), fail);
@@ -514,8 +514,6 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     MsSsimStateCuda *s = fex->priv;
     int ret = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
-    if (s->module)
-        (void)fex->cu_state->f->cuModuleUnload(s->module);
     for (int i = 0; i < MS_SSIM_SCALES; i++) {
         if (s->pyramid_ref[i]) {
             ret |= vmaf_cuda_buffer_free(fex->cu_state, s->pyramid_ref[i]);
