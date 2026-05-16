@@ -208,6 +208,23 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
   to 0/48 at max abs `2.000000e-06`, while Arc A380 and RADV stay
   0/48. See research-0108 and ADR-0269 Phase-3c status update.
 
+## Pipeline cache invariant (ADR-0445)
+
+Every `vkCreateComputePipelines()` call in the Vulkan backend **must** pass
+`ctx->pipeline_cache` as the second argument, not `VK_NULL_HANDLE`. The two
+call sites are in `kernel_template.h` (`vmaf_vulkan_kernel_pipeline_create`
+and `vmaf_vulkan_kernel_pipeline_add_variant`).
+
+The cache validates `VkPipelineCacheHeaderVersionOne` vendor ID and device ID
+before reuse; a mismatch causes silent discard and cold recompilation on the
+first post-mismatch run. The cache file lives at
+`$XDG_CACHE_HOME/libvmaf/vulkan-pipeline-cache.bin` (default
+`$HOME/.cache/libvmaf/…`). Set `LIBVMAF_VULKAN_PIPELINE_CACHE=0` to disable
+the cache entirely (CI usage, hermetic builds).
+
+**On rebase**: do not add new `vkCreateComputePipelines` calls with a
+hardcoded `VK_NULL_HANDLE` second argument — the CI lint gate flags it.
+
 ## Governing ADRs
 
 - [ADR-0127](../../../docs/adr/0127-vulkan-compute-backend.md) —

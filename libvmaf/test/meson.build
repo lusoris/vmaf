@@ -782,6 +782,18 @@ test_vulkan_pic_preallocation = executable('test_vulkan_pic_preallocation',
     c_args: ['-DHAVE_VULKAN=1']
 )
 test('test_vulkan_pic_preallocation', test_vulkan_pic_preallocation, suite : ['fast', 'gpu'])
+
+# ADR-0445 / PR #865: persistent VkPipelineCache smoke — first run creates
+# the cache file, second run reads it, tampered header is rejected without
+# crash, env-var opt-out (LIBVMAF_VULKAN_PIPELINE_CACHE=0) skips I/O.
+test_vulkan_pipeline_cache = executable('test_vulkan_pipeline_cache',
+    ['test.c', 'test_vulkan_pipeline_cache.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency],
+    c_args: ['-DHAVE_VULKAN=1']
+)
+test('test_vulkan_pipeline_cache', test_vulkan_pipeline_cache)
 endif
 
 # ADR-0209 / T5-2: embedded MCP scaffold smoke. Pins the -ENOSYS
