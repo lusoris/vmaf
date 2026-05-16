@@ -7,6 +7,25 @@ PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
 rebase impact" in the PR description and skip the entry.
 
+## fix/cjson-banned-functions-2026-05-16 (ADR-0452)
+
+`libvmaf/src/mcp/3rdparty/cJSON/cJSON.c` now diverges from upstream cJSON
+v1.7.18 in 11 call sites (all banned-function replacements). Upstream Netflix/vmaf
+does not vendor cJSON at all, so there is no rebase conflict risk from that
+direction. However, if a future agent or contributor updates the vendored cJSON
+to a newer upstream release, the banned-function replacements must be re-applied.
+The invariant is documented in
+`libvmaf/src/mcp/3rdparty/cJSON/AGENTS.md`.
+
+**Smoke-test after any cJSON vendor update**:
+
+```bash
+grep -n '\bsprintf\b\|\bstrcpy\b\|\bstrcat\b' \
+    libvmaf/src/mcp/3rdparty/cJSON/cJSON.c
+# must produce no output
+meson test -C build --suite=fast
+```
+
 No rebase impact: `feat/tiny-ai-registry-ci-and-saliency-v2-promotion-2026-05-15`
 touches `model/tiny/registry.json` (fork-local tiny-AI registry),
 `docs/ai/models/` (fork-local model cards), `docs/adr/0444-*` (fork-local

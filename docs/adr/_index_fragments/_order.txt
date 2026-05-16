@@ -357,3 +357,4 @@
 0438-cli-parse-short-opt-handler-coverage
 0444-saliency-student-v2-production-promotion
 0451-local-dev-mcp-container
+0452-cjson-banned-function-remediation

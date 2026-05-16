@@ -1,0 +1,1 @@
+| [ADR-0452](0452-cjson-banned-function-remediation.md) | Remediate `sprintf`/`strcpy` banned-function violations in vendored cJSON v1.7.18 — per-call replacement with `snprintf`/`memcpy` | Accepted | security, mcp, vendored, lint, fork-local |
