@@ -1,4 +1,4 @@
-# Research-0053: `iqa_convolve` block-of-N tap widen — bit-exactness post-mortem
+# Research-0054: `iqa_convolve` block-of-N tap widen — bit-exactness post-mortem
 
 - **Status**: Active (failed-attempt write-up)
 - **Workstream**: [ADR-0138](../adr/0138-iqa-convolve-avx2-bitexact-double.md)
