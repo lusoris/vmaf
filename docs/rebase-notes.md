@@ -13,6 +13,37 @@ meson `error()` guard to `libvmaf/src/meson.build` for the
 fork-additive: upstream Netflix/vmaf does not enable NVTX, so no
 sync-upstream conflict is expected. If upstream ever adds their own
 NVTX guard, the merge is a no-op (both sides add the same intent).
+## fix/cpu-symbol-visibility-2026-05-16
+
+No rebase impact: touches only `libvmaf/src/meson.build` (adding `c_args :
+vmaf_cflags_common` to `libvmaf_cpu_static_lib`). This is a fork-local build
+rule; Netflix/vmaf does not use Meson. No upstream-shared C sources, headers,
+or feature extractors are modified. No sync-upstream conflicts expected.
+
+## fix/saliency-per-mb-eval-2026-05-15 — integer_vif enable_chroma
+
+**`libvmaf/src/feature/integer_vif.c`**: adds `enable_chroma` bool field to
+`VifState`, a new `VmafOption` entry, a YUV400 clamp in `init`, and eight new
+keys in `provided_features`. If upstream Netflix ever adds chroma support to
+`integer_vif`, resolve by keeping their implementation and dropping the fork's
+`extract_plane` helper, or rebasing it if the upstream approach differs.
+
+No rebase conflict expected on the luma path — only additive changes.
+
+## fix/sycl-motion-fps-weight-vulkan-import-status-2026-05-16
+
+**Sub-task B -- `integer_motion_v2_sycl.cpp`**: adds `motion_fps_weight`
+to `MotionV2StateSycl` struct and `options_motion_v2_sycl[]`. If
+upstream Netflix ever adds `motion_fps_weight` to `integer_motion_v2.c`
+(the CPU reference), both the SYCL and CUDA `motion_v2` twins should
+pick it up in the same PR per the invariant added to
+`libvmaf/src/feature/sycl/AGENTS.md`.
+
+**Sub-task A -- `libvmaf_vulkan.h`**: removes stale
+`-ENOSYS until T7-29 part 2 lands` from the `@return` lines of
+`vmaf_vulkan_import_image`, `vmaf_vulkan_wait_compute`, and
+`vmaf_vulkan_read_imported_pictures`. No upstream rebase conflict
+expected -- the public Vulkan header is fork-local.
 
 No rebase impact: `fix/dev-mcp-stage3-and-bundled-fixes-2026-05-16` touches
 only `dev/Containerfile`, `dev/AGENTS.md`, `docs/research/0135-*`, and
