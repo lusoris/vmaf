@@ -72,6 +72,8 @@ vulkan_shader_sources = [
     'shaders/cambi_filter_mode.comp',
     'shaders/cambi_decimate.comp',
     'shaders/cambi_mask_dp.comp',
+    # integer_ssim Vulkan twin — reads raw uint8/uint16 samples inline.
+    'shaders/integer_ssim.comp',
 ]
 
 vulkan_shader_headers = []
@@ -173,6 +175,7 @@ vulkan_sources += files(
     '../feature/vulkan/float_adm_vulkan.c',
     '../feature/vulkan/ssimulacra2_vulkan.c',
     '../feature/vulkan/cambi_vulkan.c',
+    '../feature/vulkan/integer_ssim_vulkan.c',
 )
 
 vulkan_sources += vulkan_shader_headers
