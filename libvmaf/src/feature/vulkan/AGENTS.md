@@ -129,6 +129,13 @@ ADR-0234) catches drift but only after a full GPU run.
   adds or renames these parameters, the Vulkan twins must be updated in
   the same PR.
 
+- **`motion_fps_weight` cross-backend parity** — see the canonical
+  invariant note in [`../cuda/AGENTS.md`](../cuda/AGENTS.md).
+  `motion_v2_vulkan.c` and `float_motion_vulkan.c` both carry the
+  `motion_fps_weight` option and apply it in `flush()` / `extract()`
+  exactly as documented there. Any future change to the weight
+  application math must span all motion-family GPU twins in the same PR.
+
 - **`adm_vulkan.c` integer fast-path gated on CSF-scale defaults.**
   The hard-coded `i_rfactor` fast-path for `3.0 * 1080` default
   viewing geometry is gated by:
