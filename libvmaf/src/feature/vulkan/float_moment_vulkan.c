@@ -3,7 +3,10 @@
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  *  float_moment feature kernel on the Vulkan backend (T7-23 /
- *  ADR-0182, GPU long-tail batch 1d).
+ *  ADR-0182, GPU long-tail batch 1d). Renamed from moment_vulkan.c
+ *  to float_moment_vulkan.c (feat/vulkan-float-moment-2026-05-16) to
+ *  align with the float_* naming convention used by all other float
+ *  feature variants (float_motion_vulkan.c, float_adm_vulkan.c, etc.).
  *
  *  Single dispatch per frame — kernel reads ref + dis luma planes
  *  and emits four int64 sums (1st and 2nd raw moment for each
@@ -46,7 +49,7 @@
 #include "../../vulkan/vulkan_internal.h"
 #include "../../vulkan/kernel_template.h"
 
-#include "moment_spv.h" /* generated SPIR-V byte array */
+#include "float_moment_spv.h" /* generated SPIR-V byte array */
 
 #define MOMENT_WG_X 16
 #define MOMENT_WG_Y 8
@@ -131,8 +134,8 @@ static int create_pipeline(MomentVulkanState *s)
     const VmafVulkanKernelPipelineDesc desc = {
         .ssbo_binding_count = 3U,
         .push_constant_size = (uint32_t)sizeof(MomentPushConsts),
-        .spv_bytes = moment_spv,
-        .spv_size = moment_spv_size,
+        .spv_bytes = float_moment_spv,
+        .spv_size = float_moment_spv_size,
         .pipeline_create_info =
             {
                 .stage =

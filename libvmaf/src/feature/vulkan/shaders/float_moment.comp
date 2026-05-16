@@ -2,7 +2,8 @@
  * SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  * Vulkan compute shader for the float_moment feature extractor
- * (T7-23 / batch 1d). Mirrors libvmaf/src/feature/moment.c —
+ * (T7-23 / batch 1d). Renamed from moment.comp (feat/vulkan-float-moment-2026-05-16)
+ * to align with the float_* naming convention. Mirrors libvmaf/src/feature/moment.c —
  * computes both 1st and 2nd raw moment of the ref and dis luma
  * planes in a single dispatch, accumulating into 4 separate int64
  * atomic counters (ref1st, dis1st, ref2nd, dis2nd).
