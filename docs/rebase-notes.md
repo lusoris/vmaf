@@ -34807,3 +34807,40 @@ meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build test/test_cli_parse
 ./build/test/test_cli_parse   # expect: 18 tests run, 18 passed
 ```
+
+---
+
+## `fix/motion-fps-weight-all-gpu-backends` — motion_fps_weight parity across all GPU twins
+
+**Branch**: `fix/saliency-per-mb-eval-2026-05-15` (squash PR #863)
+
+**Files touched**:
+`libvmaf/src/feature/cuda/integer_motion_v2_cuda.c`,
+`libvmaf/src/feature/sycl/integer_motion_v2_sycl.cpp`,
+`libvmaf/src/feature/vulkan/motion_v2_vulkan.c`,
+`libvmaf/src/feature/hip/integer_motion_v2_hip.c`,
+`libvmaf/src/feature/metal/integer_motion_v2_metal.mm`,
+`libvmaf/src/feature/cuda/float_motion_cuda.c`,
+`libvmaf/src/feature/sycl/float_motion_sycl.cpp`,
+`libvmaf/src/feature/vulkan/float_motion_vulkan.c`,
+`libvmaf/src/feature/hip/float_motion_hip.c`,
+`libvmaf/src/feature/metal/float_motion_metal.mm`.
+
+**Rebase impact**: low. All touched files are fork-local or fork-added
+GPU twins; upstream Netflix/vmaf does not maintain any GPU motion
+extractor files. No upstream-shared path is modified.
+
+**Invariant to preserve on rebase**: `motion_fps_weight` must remain
+present in every motion-family GPU twin's `VmafOption options[]` table
+and applied identically (see canonical note in
+`libvmaf/src/feature/cuda/AGENTS.md`). If a future PR introduces a new
+motion GPU backend or a new motion-related option, the same option table
+and application math must be replicated across all twins in the same PR.
+
+**Smoke-test after rebase**:
+
+```bash
+meson setup build -Denable_cuda=false -Denable_sycl=false
+ninja -C build
+meson test -C build --suite=fast
+```
