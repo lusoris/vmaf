@@ -34843,12 +34843,73 @@ and applied identically (see canonical note in
 motion GPU backend or a new motion-related option, the same option table
 and application math must be replicated across all twins in the same PR.
 
+---
+
+## cJSON-vendored-fork-diff — cJSON v1.7.18 safety patches (ADR-0455)
+
+**Branch**: `fix/vendored-banned-functions-2026-05-16`
+
+**Files touched**: `libvmaf/src/mcp/3rdparty/cJSON/cJSON.c`,
+`libvmaf/src/mcp/AGENTS.md`.
+
+**Rebase impact**: medium. The vendored cJSON file now diverges from the
+upstream DaveGamble/cJSON v1.7.18 source. The diff is restricted to
+function-call replacements and is semantically identical to upstream's
+own snprintf cleanup (upstream made the same change between v1.7.15 and
+v1.7.18). When refreshing cJSON to a newer upstream release, confirm
+that none of the following lines reintroduce the banned calls:
+
+- `cJSON_Version`: must use `snprintf(version, sizeof(version), ...)`.
+- `print_number`: all four `sprintf` calls must use `snprintf(number_buffer, sizeof(number_buffer), ...)`.
+- `cJSON_SetValuestring`: `strcpy` → `memmove(dst, src, strlen(src) + 1u)`.
+- `print_string_ptr` (empty-string branch): `strcpy` → `memcpy(output, "\"\"", sizeof("\"\""))`.
+- `print_string_ptr` (unicode escape): `sprintf` → `snprintf(ptr, 6, "u%04x", ch)`.
+- `print_value` (null/false/true literals): three `strcpy` → `memcpy` calls.
+
+**Invariant to preserve on upstream refresh**: the six replacement sites
+above. A simple grep for `sprintf` or `strcpy` in the cJSON .c file after
+the merge is sufficient.
+
+**Smoke-test after cJSON refresh**:
+
+```bash
+meson setup build -Denable_cuda=false -Denable_sycl=false -Denable_mcp=true
+ninja -C build test/test_mcp_smoke
+./build/test/test_mcp_smoke   # expect: 17 tests run, 17 passed
+```
+
+---
+
+## libsvm-rand-fork-diff — svm.cpp seeded PRNG (ADR-0455)
+
+**Branch**: `fix/vendored-banned-functions-2026-05-16`
+
+**Files touched**: `libvmaf/src/svm.cpp`, `libvmaf/src/svm.h`.
+
+**Rebase impact**: low. The libsvm diff is confined to:
+1. A new `svm_rand_next()` static inline helper + `svm_rand_state` /
+   `svm_rand_state_initialised` thread-local variables (added just after
+   the macro block).
+2. Three `rand()` → `svm_rand_next()` replacements in
+   `svm_binary_svc_probability` and `svm_cross_validation`.
+3. A `svm_set_rand_seed(unsigned seed)` function at the bottom of the
+   file + its declaration in `svm.h`.
+
+If a future upstream libsvm sync adds or changes uses of `rand()`, each
+new use must be replaced with `svm_rand_next()` in the same commit.
+
+**Invariant to preserve on rebase**: `rand()` must not appear in
+`svm.cpp`; the CI banned-function lint gate rejects it. The `__thread`
+declarations must survive any C++11 → C++17 migration (`thread_local`
+is the C++ keyword; `__thread` is used here for C-compiler compatibility
+since the TU is compiled as C++ but consumed by C callers).
+
 **Smoke-test after rebase**:
 
 ```bash
 meson setup build -Denable_cuda=false -Denable_sycl=false
-ninja -C build
-meson test -C build --suite=fast
+ninja -C build test/test_svm_rand_seed
+./build/test/test_svm_rand_seed   # expect: 2 tests run, 2 passed
 ```
 
 ---

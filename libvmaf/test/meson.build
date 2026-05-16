@@ -78,6 +78,16 @@ test_model = executable('test_model',
     objects : libsvm_static_lib.extract_all_objects(recursive: true),
 )
 
+# ADR-0452: svm_set_rand_seed() determinism test — verifies that identical
+# seeds produce identical cross-validation fold assignments, and different
+# seeds diverge. Links directly against libsvm_static_lib; no libvmaf needed.
+test_svm_rand_seed = executable('test_svm_rand_seed',
+    ['test.c', 'test_svm_rand_seed.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src')],
+    dependencies : [math_lib, pthread_dependency],
+    objects : libsvm_static_lib.extract_all_objects(recursive: true),
+)
+
 test_predict = executable('test_predict',
     ['test.c', 'test_predict.c', '../src/dict.c', '../src/metadata_handler.c',
      '../src/feature/feature_collector.c', '../src/feature/alias.c', '../src/model.c', '../src/log.c',
@@ -853,6 +863,7 @@ test('test_feature_collector', test_feature_collector)
 test('test_output', test_output)
 test('test_thread_pool', test_thread_pool)
 test('test_model', test_model)
+test('test_svm_rand_seed', test_svm_rand_seed, suite: 'fast')
 test('test_predict', test_predict)
 test('test_feature_extractor', test_feature_extractor)
 test('test_dict', test_dict)

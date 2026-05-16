@@ -97,10 +97,15 @@ Fork-local subtree. Read this before editing any TU under
    corrupt the host's main measurement run. The tool accepts YUV420p
    8/10/12/16-bit inputs only; adding 4:2:2 / 4:4:4 requires a
    `pixel_format` schema extension, docs, and tests in the same PR.
-5. **Vendored cJSON v1.7.18 is verbatim** under MIT. Do NOT patch
-   it locally — refresh by re-downloading from upstream
-   `DaveGamble/cJSON` and update `3rdparty/cJSON/LICENSE` in the
-   same commit.
+5. **Vendored cJSON v1.7.18 — local safety patches are permitted** (ADR-0455).
+   The prior "verbatim, no local patches" rule is superseded: the
+   project's "vendored is in scope" policy requires fixing banned
+   functions even in third-party code. The current diff from upstream
+   cJSON 1.7.18 is documented in `docs/rebase-notes.md`
+   §cJSON-vendored-fork-diff. When refreshing cJSON from upstream,
+   re-verify that the banned-function replacements (`snprintf`,
+   `memmove`, `memcpy`) survive the merge and update `3rdparty/cJSON/LICENSE`
+   in the same commit.
 6. **SSE transport is fork-owned plain POSIX sockets — NOT mongoose.**
    The original v3 plan to vendor cesanta/mongoose was reversed
    because mongoose 7.18 is GPL-2.0-only OR commercial,

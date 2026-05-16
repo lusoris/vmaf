@@ -133,6 +133,12 @@ int svm_check_probability_model(const struct svm_model *model);
 
 void svm_set_print_string_function(void (*print_func)(const char *));
 
+/* Set the per-thread PRNG seed for training-time randomness (ADR-0455).
+ * Call before svm_train() or svm_cross_validation() to get reproducible
+ * fold assignments.  The default (unset) seed is derived from time(NULL)
+ * XOR getpid() on first use, so independent processes diverge. */
+void svm_set_rand_seed(unsigned seed);
+
 #ifdef __cplusplus
 }
 #endif
