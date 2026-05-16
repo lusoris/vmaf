@@ -677,6 +677,31 @@ after a port-upstream of any of these files.
   `scripts/ci/cross_backend_parity_gate.py` is single source of
   truth. Every new GPU twin needs an entry.
 
+
+## Performance invariants (set by PR / perf/adm-p-norm-fast-path-vif-arm64-malloc-2026-05-16, ADR-0453)
+
+- **Loop-invariant branches MUST be split out as fast-paths**: any
+  per-pixel `if (param == DEFAULT_VALUE)` branch inside an inner
+  accumulation loop must be hoisted by splitting the function into a
+  default fast-path variant (e.g. `adm_cm_s_p3`, `adm_csf_den_scale_s_p3`,
+  `adm_sum_cube_s_p3`) and a generic fallback, dispatched once at the
+  call site. The fast-path must be bit-exact to the generic path for
+  the specialised value — verify with `if (param == DEFAULT)` dispatch
+  in `compute_*` and include a comment citing the dispatch contract.
+  Precedent: `adm_p_norm == 3.0` split in `adm_tools.c` (PR #881).
+
+- **Per-frame allocation in CPU scalar paths MUST be hoisted**: when a
+  scalar fallback function allocates a temporary buffer on every call
+  (via `aligned_malloc`) while the caller already holds an equivalent
+  scratch buffer, the scalar function must use the caller-supplied
+  buffer. Do not `aligned_malloc` in a per-frame hot path; hoist the
+  allocation to `init_fex` / `compute_*` and thread it down via
+  parameter (the `tmpbuf` pattern established by `vif.c` and codified
+  by PR #881 for `vif_filter1d_s` / `vif_filter1d_sq_s` /
+  `vif_filter1d_xy_s`). Applies to every arch — on x86 the `ARCH_X86`
+  guard routes to the SIMD path before the scalar fallback is reached;
+  on ARM64/generic there is no such guard and the fallback fires every
+  frame (12 mallocs per frame on ARM64 before PR #881).
 ## Newly-arrived shipped surfaces (rebase awareness)
 
 - **MS-SSIM `enable_lcs` GPU implementation (T7-35, PR #207 open)**

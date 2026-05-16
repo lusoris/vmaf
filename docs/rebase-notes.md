@@ -34872,3 +34872,35 @@ meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build
 meson test -C build --suite=fast
 ```
+
+---
+
+## perf/adm-p-norm-fast-path-vif-arm64-malloc-2026-05-16 (ADR-0453)
+
+**What changed**: Added `adm_cm_s_p3`, `adm_csf_den_scale_s_p3`, and
+`adm_sum_cube_s_p3` fast-path variants in `adm_tools.c`; dispatch added in
+`adm.c:compute_adm`. Removed per-call `aligned_malloc` from the scalar
+fallback paths of `vif_filter1d_s`, `vif_filter1d_sq_s`, and
+`vif_filter1d_xy_s` in `vif_tools.c` — the caller-supplied `tmpbuf` is
+used instead.
+
+**Rebase impact**: low. All modified files (`adm_tools.c`, `adm_tools.h`,
+`adm.c`, `vif_tools.c`) are shared with upstream Netflix/vmaf. The ADM
+changes add new symbols (no existing signatures altered). The VIF changes
+only remove local malloc/free; the function signatures and caller-supplied
+`tmpbuf` contract are unchanged.
+
+**Invariant to preserve on rebase**: When upstream Netflix/vmaf modifies
+`adm_cm_s`, `adm_csf_den_scale_s`, or `adm_sum_cube_s`, the corresponding
+`_p3` variants in the fork must receive the same logic change (minus the
+`powf` path). When upstream modifies `vif_filter1d_*` scalar fallbacks,
+ensure they do not reintroduce `aligned_malloc` in the fallback body.
+See `libvmaf/src/feature/AGENTS.md` performance-invariant section.
+
+**Smoke-test after rebase**:
+
+```bash
+meson setup build -Denable_cuda=false -Denable_sycl=false
+ninja -C build
+meson test -C build
+```
